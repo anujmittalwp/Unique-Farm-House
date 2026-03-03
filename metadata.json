@@ -1,0 +1,7 @@
+{
+  "name": "Unique Farmhouse - Luxury Villa / Farmhouse Rental Noida",
+  "description": "Premium 4BHK private villa and farmhouse rental in Sector 135, Noida. Perfect for staycations, parties, and family gatherings. LGBTQ+ friendly.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
