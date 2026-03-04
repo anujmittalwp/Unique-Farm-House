@@ -16,7 +16,11 @@ import {
   X,
   ArrowRight,
   MessageCircle,
-  Navigation
+  Navigation,
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  Images
 } from 'lucide-react';
 
 // --- Components ---
@@ -116,7 +120,7 @@ const Hero = () => {
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0">
         <img 
-          src="https://picsum.photos/seed/luxuryfarm/1920/1080" 
+          src="https://drive.google.com/uc?export=view&id=1uymoFSN50mcQrb-JvuMD-HTzw0dGE3te" 
           alt="Unique Farmhouse Exterior" 
           className="w-full h-full object-cover scale-105 animate-slow-zoom"
           referrerPolicy="no-referrer"
@@ -197,7 +201,7 @@ const About = () => {
           >
             <div className="aspect-[4/5] overflow-hidden rounded-2xl shadow-2xl">
               <img 
-                src="https://picsum.photos/seed/farmhouse-interior/800/1000" 
+                src="https://drive.google.com/uc?export=view&id=1HBjw2YcYKXLEh4Kuh7MIcWbNaVqGkA1h" 
                 alt="Luxury Interior" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -205,7 +209,7 @@ const About = () => {
             </div>
             <div className="absolute -bottom-10 -right-10 w-2/3 aspect-square overflow-hidden rounded-2xl shadow-2xl border-8 border-white hidden md:block">
               <img 
-                src="https://picsum.photos/seed/farmhouse-pool/600/600" 
+                src="https://drive.google.com/uc?export=view&id=1bOoHuGEOx6Z4hIJVcF-E5RjujL_B9FVs" 
                 alt="Private Pool" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -287,44 +291,158 @@ const Amenities = () => {
 };
 
 const Gallery = () => {
+  const [view, setView] = useState<'grid' | 'carousel'>('grid');
+  const [currentIndex, setCurrentIndex] = useState(0);
+
   const images = [
-    "https://picsum.photos/seed/f1/800/600",
-    "https://picsum.photos/seed/f2/600/800",
-    "https://picsum.photos/seed/f3/800/800",
-    "https://picsum.photos/seed/f4/800/600",
-    "https://picsum.photos/seed/f5/600/800",
-    "https://picsum.photos/seed/f6/800/800",
+    { src: "https://drive.google.com/uc?export=view&id=1Rq8D7Zm1RkZzdhj3gwXB22vjGcIMP21B", title: "Grand Entrance", category: "Exterior" },
+    { src: "https://drive.google.com/uc?export=view&id=183DYcKD6z58TpBvN688E0zfWNXJJ4Ca3", title: "Luxury Living Room", category: "Interior" },
+    { src: "https://drive.google.com/uc?export=view&id=1P58DbZ4wFBUkQg2TgW4QSZwDqrf7qmC8", title: "Private Pool Area", category: "Exterior" },
+    { src: "https://drive.google.com/uc?export=view&id=1QRBonTlpMyMRoSIv3CMRZRxQn5jYL5T0", title: "Master Bedroom", category: "Interior" },
+    { src: "https://drive.google.com/uc?export=view&id=1VbdroteV4Z7Z2Tdf0bc1IeLl15BPKzOe", title: "Dining Experience", category: "Interior" },
+    { src: "https://drive.google.com/uc?export=view&id=1asfQTpOrKr97JvKZte9XuwVv-p43ClEt", title: "Modern Kitchen", category: "Interior" },
+    { src: "https://drive.google.com/uc?export=view&id=1sTcF-53d24_EHONPParMb1qMKqau4BYU", title: "Designer Bathroom", category: "Interior" },
+    { src: "https://drive.google.com/uc?export=view&id=16QaRYyhuGZ5qGfq3c32NmEreDue1FEOX", title: "Lush Garden", category: "Exterior" },
+    { src: "https://drive.google.com/uc?export=view&id=1lYs9qTMcSTfRtl-Esu1xrtPYGOZhH99h", title: "Evening View", category: "Exterior" },
+    { src: "https://drive.google.com/uc?export=view&id=1W5oTF3eesSsLqBDrod9JR4sjeC_jvPvX", title: "Cozy Lounge", category: "Interior" },
+    { src: "https://drive.google.com/uc?export=view&id=10WKpXtdBJ-SAWNwnqY2S6Yd4pyHCJ4ab", title: "Villa Night View", category: "Exterior" },
   ];
 
+  const nextSlide = () => {
+    setCurrentIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const prevSlide = () => {
+    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
   return (
-    <section id="gallery" className="py-24 px-6 bg-white">
+    <section id="gallery" className="py-24 px-6 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto">
-        <span className="section-subtitle">Visual Journey</span>
-        <h2 className="section-title">Peek Inside Our Villa</h2>
-        
-        <div className="columns-1 sm:columns-2 lg:columns-3 gap-6 mt-16 space-y-6">
-          {images.map((src, index) => (
-            <motion.div 
-              key={index}
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              className="relative group overflow-hidden rounded-2xl"
+        <div className="flex flex-col md:flex-row justify-between items-center mb-16 gap-6">
+          <div className="text-center md:text-left">
+            <span className="section-subtitle !text-left !mx-0">Visual Journey</span>
+            <h2 className="section-title !text-left !mb-0">Peek Inside Our Villa</h2>
+          </div>
+          
+          <div className="flex bg-luxury-cream p-1 rounded-xl border border-black/5">
+            <button 
+              onClick={() => setView('grid')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${view === 'grid' ? 'bg-white text-luxury-dark shadow-sm' : 'text-luxury-dark/40 hover:text-luxury-dark'}`}
             >
-              <img 
-                src={src} 
-                alt={`Gallery image ${index + 1}`} 
-                className="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-110"
-                referrerPolicy="no-referrer"
-              />
-              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-center justify-center">
-                <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white">
-                  <Maximize size={20} />
-                </div>
+              <LayoutGrid size={16} /> Grid
+            </button>
+            <button 
+              onClick={() => setView('carousel')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${view === 'carousel' ? 'bg-white text-luxury-dark shadow-sm' : 'text-luxury-dark/40 hover:text-luxury-dark'}`}
+            >
+              <Images size={16} /> Carousel
+            </button>
+          </div>
+        </div>
+        
+        <AnimatePresence mode="wait">
+          {view === 'grid' ? (
+            <motion.div 
+              key="grid"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6"
+            >
+              {images.map((img, index) => (
+                <motion.div 
+                  key={index}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  whileInView={{ opacity: 1, scale: 1 }}
+                  viewport={{ once: true }}
+                  className="relative group overflow-hidden rounded-2xl"
+                >
+                  <img 
+                    src={img.src} 
+                    alt={img.title} 
+                    className="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-110"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col items-center justify-center text-white p-6">
+                    <span className="text-[10px] uppercase tracking-[0.3em] mb-2 text-luxury-gold font-bold">{img.category}</span>
+                    <h3 className="text-xl font-serif text-center">{img.title}</h3>
+                    <div className="mt-4 w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
+                      <Maximize size={18} />
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="carousel"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="relative aspect-[16/9] md:aspect-[21/9] rounded-3xl overflow-hidden group shadow-2xl"
+            >
+              <AnimatePresence mode="wait">
+                <motion.img
+                  key={currentIndex}
+                  src={images[currentIndex].src}
+                  initial={{ opacity: 0, scale: 1.1 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </AnimatePresence>
+              
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+              
+              <div className="absolute bottom-0 left-0 right-0 p-8 md:p-12 text-white">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  key={`info-${currentIndex}`}
+                  transition={{ delay: 0.3 }}
+                >
+                  <span className="text-xs md:text-sm uppercase tracking-[0.4em] text-luxury-gold font-bold mb-2 block">
+                    {images[currentIndex].category}
+                  </span>
+                  <h3 className="text-3xl md:text-5xl font-serif mb-2">
+                    {images[currentIndex].title}
+                  </h3>
+                </motion.div>
+              </div>
+
+              <div className="absolute inset-y-0 left-4 md:left-8 flex items-center">
+                <button 
+                  onClick={prevSlide}
+                  className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white hover:text-luxury-dark transition-all active:scale-90"
+                >
+                  <ChevronLeft size={24} />
+                </button>
+              </div>
+              
+              <div className="absolute inset-y-0 right-4 md:right-8 flex items-center">
+                <button 
+                  onClick={nextSlide}
+                  className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white hover:text-luxury-dark transition-all active:scale-90"
+                >
+                  <ChevronRight size={24} />
+                </button>
+              </div>
+
+              <div className="absolute bottom-8 right-8 flex gap-2">
+                {images.map((_, i) => (
+                  <button 
+                    key={i}
+                    onClick={() => setCurrentIndex(i)}
+                    className={`h-1.5 rounded-full transition-all duration-500 ${i === currentIndex ? 'w-8 bg-luxury-gold' : 'w-2 bg-white/30 hover:bg-white/50'}`}
+                  />
+                ))}
               </div>
             </motion.div>
-          ))}
-        </div>
+          )}
+        </AnimatePresence>
       </div>
     </section>
   );
