@@ -120,7 +120,7 @@ const Hero = () => {
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0">
         <img 
-          src="https://drive.google.com/uc?export=view&id=1uymoFSN50mcQrb-JvuMD-HTzw0dGE3te" 
+          src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720358/1_w50zwj.jpg" 
           alt="Unique Farmhouse Exterior" 
           className="w-full h-full object-cover scale-105 animate-slow-zoom"
           referrerPolicy="no-referrer"
@@ -201,7 +201,7 @@ const About = () => {
           >
             <div className="aspect-[4/5] overflow-hidden rounded-2xl shadow-2xl">
               <img 
-                src="https://drive.google.com/uc?export=view&id=1HBjw2YcYKXLEh4Kuh7MIcWbNaVqGkA1h" 
+                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720359/3_n28gmr.jpg" 
                 alt="Luxury Interior" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -209,7 +209,7 @@ const About = () => {
             </div>
             <div className="absolute -bottom-10 -right-10 w-2/3 aspect-square overflow-hidden rounded-2xl shadow-2xl border-8 border-white hidden md:block">
               <img 
-                src="https://drive.google.com/uc?export=view&id=1bOoHuGEOx6Z4hIJVcF-E5RjujL_B9FVs" 
+                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720359/2_tebs6z.jpg" 
                 alt="Private Pool" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -295,17 +295,48 @@ const Gallery = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const images = [
-    { src: "https://drive.google.com/uc?export=view&id=1Rq8D7Zm1RkZzdhj3gwXB22vjGcIMP21B", title: "Grand Entrance", category: "Exterior" },
-    { src: "https://drive.google.com/uc?export=view&id=183DYcKD6z58TpBvN688E0zfWNXJJ4Ca3", title: "Luxury Living Room", category: "Interior" },
-    { src: "https://drive.google.com/uc?export=view&id=1P58DbZ4wFBUkQg2TgW4QSZwDqrf7qmC8", title: "Private Pool Area", category: "Exterior" },
-    { src: "https://drive.google.com/uc?export=view&id=1QRBonTlpMyMRoSIv3CMRZRxQn5jYL5T0", title: "Master Bedroom", category: "Interior" },
-    { src: "https://drive.google.com/uc?export=view&id=1VbdroteV4Z7Z2Tdf0bc1IeLl15BPKzOe", title: "Dining Experience", category: "Interior" },
-    { src: "https://drive.google.com/uc?export=view&id=1asfQTpOrKr97JvKZte9XuwVv-p43ClEt", title: "Modern Kitchen", category: "Interior" },
-    { src: "https://drive.google.com/uc?export=view&id=1sTcF-53d24_EHONPParMb1qMKqau4BYU", title: "Designer Bathroom", category: "Interior" },
-    { src: "https://drive.google.com/uc?export=view&id=16QaRYyhuGZ5qGfq3c32NmEreDue1FEOX", title: "Lush Garden", category: "Exterior" },
-    { src: "https://drive.google.com/uc?export=view&id=1lYs9qTMcSTfRtl-Esu1xrtPYGOZhH99h", title: "Evening View", category: "Exterior" },
-    { src: "https://drive.google.com/uc?export=view&id=1W5oTF3eesSsLqBDrod9JR4sjeC_jvPvX", title: "Cozy Lounge", category: "Interior" },
-    { src: "https://drive.google.com/uc?export=view&id=10WKpXtdBJ-SAWNwnqY2S6Yd4pyHCJ4ab", title: "Villa Night View", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/7_njohl7.jpg", title: "Grand Entrance", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/5_jgyrsh.jpg", title: "Luxury Living Room", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/6_vohx9o.jpg", title: "Private Pool Area", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg", title: "Master Bedroom", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/9_dimmxb.jpg", title: "Dining Experience", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720361/10_cqiiz0.jpg", title: "Modern Kitchen", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720361/4_rghbk0.jpg", title: "Designer Bathroom", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720366/11_by6w6j.jpg", title: "Lush Garden", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720395/12_u3lwmc.jpg", title: "Evening View", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720397/13.1_e9ejt0.jpg", title: "Cozy Lounge", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720429/13_zi1f4k.jpg", title: "Villa Night View", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg", title: "Poolside Relaxation", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/14_q7pecm.jpg", title: "Interior Lounge", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/16_hnu7kn.jpg", title: "Bedroom Suite", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/17_dadfct.jpg", title: "Garden Path", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720564/18_jscf2j.jpg", title: "Living Space", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720564/19_qbqdte.jpg", title: "Outdoor Seating", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720565/20_hpzg1q.jpg", title: "Modern Decor", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720581/21_xudpvb.jpg", title: "Villa Facade", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720581/22_adlt8z.jpg", title: "Dining Detail", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720582/23_czfkcy.jpg", title: "Pool View", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720582/24.1_mlxwh4.jpg", title: "Bedroom View", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720585/24.2_jwm62w.jpg", title: "Luxury Suite", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720593/24_owlcft.jpg", title: "Villa Exterior", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720596/25_e5rtfq.jpg", title: "Kitchen Detail", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720602/26_bzoxx0.jpg", title: "Bathroom Luxury", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720602/42_ua0rcq.jpg", title: "Garden View", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720609/29_dxwezp.jpg", title: "Entrance Gate", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720609/30_jvwyob.jpg", title: "Lounge Area", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720610/31_wbkk7e.jpg", title: "Pool at Night", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720611/32_pry8jz.jpg", title: "Master Bath", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720620/33_o0las8.jpg", title: "Villa Side View", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720621/34_hvefd6.jpg", title: "Elegant Living", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720622/35_uwijsn.jpg", title: "Pool Deck", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720632/36_azxit4.jpg", title: "Bedroom Comfort", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720632/37_o1jpil.jpg", title: "Dining Area", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720633/38_zv3kex.jpg", title: "Kitchen Modern", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720644/40_ajnhuo.jpg", title: "Villa Entrance", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720645/39_nd6ctt.jpg", title: "Lush Lawn", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720645/41_ahh1ur.jpg", title: "Interior Design", category: "Interior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720645/28_hszcpi.jpg", title: "Poolside View", category: "Exterior" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720646/27_tffeod.jpg", title: "Villa Night", category: "Exterior" },
   ];
 
   const nextSlide = () => {
