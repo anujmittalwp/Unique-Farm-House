@@ -669,7 +669,7 @@ const LocationSection = () => {
 
               <div className="flex flex-col sm:flex-row gap-4">
                 <a 
-                  href="https://www.google.com/maps/dir/?api=1&destination=28.5034,77.4012" 
+                  href="https://www.google.com/maps/place/ELIVAAS+Unique+Farmhouse/data=!4m2!3m1!1s0x0:0x96585d25a6908e74?sa=X&ved=1t:2428&ictx=111" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="luxury-button flex items-center justify-center gap-2"
@@ -693,7 +693,7 @@ const LocationSection = () => {
             className="h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-black/5"
           >
             <iframe 
-              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3506.223456789!2d77.4012!3d28.5034!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMjjCsDMwJzEyLjIiTiA3N8KwMjQnMDQuMyJF!5e0!3m2!1sen!2sin!4v1620000000000!5m2!1sen!2sin" 
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3506.223456789!2d77.4012!3d28.5034!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x96585d25a6908e74!2sELIVAAS%20Unique%20Farmhouse!5e0!3m2!1sen!2sin!4v1710000000000!5m2!1sen!2sin" 
               width="100%" 
               height="100%" 
               style={{ border: 0 }} 
