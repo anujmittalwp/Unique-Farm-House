@@ -662,7 +662,7 @@ const LocationSection = () => {
                     Noida, Uttar Pradesh 201305
                   </p>
                   <div className="mt-4 inline-block px-3 py-1 bg-luxury-cream border border-luxury-gold/20 rounded text-xs font-mono text-luxury-gold">
-                    Plus Code: F9PV+JW Noida
+                    Plus Code: F9PV+JW Noida, Uttar Pradesh
                   </div>
                 </div>
               </div>
