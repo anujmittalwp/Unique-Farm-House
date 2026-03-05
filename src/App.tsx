@@ -12,6 +12,8 @@ import {
   Heart, 
   Maximize, 
   Coffee,
+  Utensils,
+  Gamepad2,
   Menu,
   X,
   ArrowRight,
@@ -265,6 +267,8 @@ const Amenities = () => {
     { icon: <Users size={32} />, title: "Spacious Interiors", desc: "Large living areas for gatherings" },
     { icon: <Heart size={32} />, title: "LGBTQ+ Friendly", desc: "A safe and welcoming space for all" },
     { icon: <Coffee size={32} />, title: "Premium Stay", desc: "High-end amenities and service" },
+    { icon: <Utensils size={32} />, title: "Fully Operated Kitchen", desc: "Equipped kitchen & elegant dining area" },
+    { icon: <Gamepad2 size={32} />, title: "Indoor & Outdoor Games", desc: "Fun activities for all age groups" },
     { icon: <Wifi size={32} />, title: "High-Speed WiFi", desc: "Stay connected in every corner" },
     { icon: <MapPin size={32} />, title: "Easy Access", desc: "Located conveniently in Sector 135" },
   ];
