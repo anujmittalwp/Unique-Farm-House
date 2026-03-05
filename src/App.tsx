@@ -46,9 +46,17 @@ const Navbar = () => {
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${isScrolled ? 'glass-nav py-4' : 'bg-transparent py-6'}`}>
       <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-        <a href="#" className="flex flex-col">
-          <span className={`text-2xl font-serif font-bold tracking-tighter ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}>UNIQUE</span>
-          <span className={`text-[10px] tracking-[0.4em] uppercase -mt-1 ${isScrolled ? 'text-luxury-gold' : 'text-white/80'}`}>Farmhouse</span>
+        <a href="#" className="flex items-center gap-3">
+          <img 
+            src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
+            alt="Unique Farmhouse Logo" 
+            className="h-12 w-auto object-contain"
+            referrerPolicy="no-referrer"
+          />
+          <div className="flex flex-col">
+            <span className={`text-2xl font-serif font-bold tracking-tighter ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}>UNIQUE</span>
+            <span className={`text-[10px] tracking-[0.4em] uppercase -mt-1 ${isScrolled ? 'text-luxury-gold' : 'text-white/80'}`}>Farmhouse</span>
+          </div>
         </a>
 
         {/* Desktop Nav */}
@@ -291,9 +299,6 @@ const Amenities = () => {
 };
 
 const Gallery = () => {
-  const [view, setView] = useState<'grid' | 'carousel'>('grid');
-  const [currentIndex, setCurrentIndex] = useState(0);
-
   const images = [
     { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/7_njohl7.jpg", title: "Grand Entrance", category: "Exterior" },
     { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/5_jgyrsh.jpg", title: "Luxury Living Room", category: "Interior" },
@@ -339,14 +344,6 @@ const Gallery = () => {
     { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720646/27_tffeod.jpg", title: "Villa Night", category: "Exterior" },
   ];
 
-  const nextSlide = () => {
-    setCurrentIndex((prev) => (prev + 1) % images.length);
-  };
-
-  const prevSlide = () => {
-    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
-  };
-
   return (
     <section id="gallery" className="py-24 px-6 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto">
@@ -355,125 +352,37 @@ const Gallery = () => {
             <span className="section-subtitle !text-left !mx-0">Visual Journey</span>
             <h2 className="section-title !text-left !mb-0">Peek Inside Our Villa</h2>
           </div>
-          
-          <div className="flex bg-luxury-cream p-1 rounded-xl border border-black/5">
-            <button 
-              onClick={() => setView('grid')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${view === 'grid' ? 'bg-white text-luxury-dark shadow-sm' : 'text-luxury-dark/40 hover:text-luxury-dark'}`}
-            >
-              <LayoutGrid size={16} /> Grid
-            </button>
-            <button 
-              onClick={() => setView('carousel')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${view === 'carousel' ? 'bg-white text-luxury-dark shadow-sm' : 'text-luxury-dark/40 hover:text-luxury-dark'}`}
-            >
-              <Images size={16} /> Carousel
-            </button>
-          </div>
         </div>
         
-        <AnimatePresence mode="wait">
-          {view === 'grid' ? (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6"
+        >
+          {images.map((img, index) => (
             <motion.div 
-              key="grid"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6"
+              key={index}
+              initial={{ opacity: 0, scale: 0.9 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              className="relative group overflow-hidden rounded-2xl"
             >
-              {images.map((img, index) => (
-                <motion.div 
-                  key={index}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: true }}
-                  className="relative group overflow-hidden rounded-2xl"
-                >
-                  <img 
-                    src={img.src} 
-                    alt={img.title} 
-                    className="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-110"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col items-center justify-center text-white p-6">
-                    <span className="text-[10px] uppercase tracking-[0.3em] mb-2 text-luxury-gold font-bold">{img.category}</span>
-                    <h3 className="text-xl font-serif text-center">{img.title}</h3>
-                    <div className="mt-4 w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
-                      <Maximize size={18} />
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </motion.div>
-          ) : (
-            <motion.div 
-              key="carousel"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="relative aspect-[16/9] md:aspect-[21/9] rounded-3xl overflow-hidden group shadow-2xl"
-            >
-              <AnimatePresence mode="wait">
-                <motion.img
-                  key={currentIndex}
-                  src={images[currentIndex].src}
-                  initial={{ opacity: 0, scale: 1.1 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              </AnimatePresence>
-              
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
-              
-              <div className="absolute bottom-0 left-0 right-0 p-8 md:p-12 text-white">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  key={`info-${currentIndex}`}
-                  transition={{ delay: 0.3 }}
-                >
-                  <span className="text-xs md:text-sm uppercase tracking-[0.4em] text-luxury-gold font-bold mb-2 block">
-                    {images[currentIndex].category}
-                  </span>
-                  <h3 className="text-3xl md:text-5xl font-serif mb-2">
-                    {images[currentIndex].title}
-                  </h3>
-                </motion.div>
-              </div>
-
-              <div className="absolute inset-y-0 left-4 md:left-8 flex items-center">
-                <button 
-                  onClick={prevSlide}
-                  className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white hover:text-luxury-dark transition-all active:scale-90"
-                >
-                  <ChevronLeft size={24} />
-                </button>
-              </div>
-              
-              <div className="absolute inset-y-0 right-4 md:right-8 flex items-center">
-                <button 
-                  onClick={nextSlide}
-                  className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white hover:text-luxury-dark transition-all active:scale-90"
-                >
-                  <ChevronRight size={24} />
-                </button>
-              </div>
-
-              <div className="absolute bottom-8 right-8 flex gap-2">
-                {images.map((_, i) => (
-                  <button 
-                    key={i}
-                    onClick={() => setCurrentIndex(i)}
-                    className={`h-1.5 rounded-full transition-all duration-500 ${i === currentIndex ? 'w-8 bg-luxury-gold' : 'w-2 bg-white/30 hover:bg-white/50'}`}
-                  />
-                ))}
+              <img 
+                src={img.src} 
+                alt={img.title} 
+                className="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-110"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col items-center justify-center text-white p-6">
+                <span className="text-[10px] uppercase tracking-[0.3em] mb-2 text-luxury-gold font-bold">{img.category}</span>
+                <h3 className="text-xl font-serif text-center">{img.title}</h3>
+                <div className="mt-4 w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
+                  <Maximize size={18} />
+                </div>
               </div>
             </motion.div>
-          )}
-        </AnimatePresence>
+          ))}
+        </motion.div>
       </div>
     </section>
   );
@@ -714,9 +623,17 @@ const Footer = () => {
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
           <div className="space-y-6">
-            <a href="#" className="flex flex-col">
-              <span className="text-3xl font-serif font-bold tracking-tighter">UNIQUE</span>
-              <span className="text-xs tracking-[0.4em] uppercase -mt-1 text-luxury-gold">Farmhouse</span>
+            <a href="#" className="flex items-center gap-3">
+              <img 
+                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
+                alt="Unique Farmhouse Logo" 
+                className="h-16 w-auto object-contain"
+                referrerPolicy="no-referrer"
+              />
+              <div className="flex flex-col">
+                <span className="text-3xl font-serif font-bold tracking-tighter">UNIQUE</span>
+                <span className="text-xs tracking-[0.4em] uppercase -mt-1 text-luxury-gold">Farmhouse</span>
+              </div>
             </a>
             <p className="text-white/50 text-sm leading-relaxed">
               Experience the pinnacle of luxury and privacy in Noida. Our farmhouse is the ideal destination for celebrations and serene retreats.
