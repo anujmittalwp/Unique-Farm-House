@@ -147,7 +147,7 @@ const Hero = () => {
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0">
         <img 
-          src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720358/1_w50zwj.jpg" 
+          src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg" 
           alt="Unique Farmhouse Exterior" 
           className="w-full h-full object-cover scale-105 animate-slow-zoom"
           referrerPolicy="no-referrer"
@@ -228,7 +228,7 @@ const About = () => {
           >
             <div className="aspect-[4/5] overflow-hidden rounded-2xl shadow-2xl">
               <img 
-                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg" 
+                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720358/1_w50zwj.jpg" 
                 alt="Luxury Interior" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
