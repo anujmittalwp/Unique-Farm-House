@@ -228,7 +228,7 @@ const About = () => {
           >
             <div className="aspect-[4/5] overflow-hidden rounded-2xl shadow-2xl">
               <img 
-                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720359/3_n28gmr.jpg" 
+                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg" 
                 alt="Luxury Interior" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -236,7 +236,7 @@ const About = () => {
             </div>
             <div className="absolute -bottom-10 -right-10 w-2/3 aspect-square overflow-hidden rounded-2xl shadow-2xl border-8 border-white hidden md:block">
               <img 
-                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720359/2_tebs6z.jpg" 
+                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg" 
                 alt="Private Pool" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
