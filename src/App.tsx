@@ -14,6 +14,9 @@ import {
   Coffee,
   Utensils,
   Gamepad2,
+  User,
+  Mail,
+  PartyPopper,
   Menu,
   X,
   ArrowRight,
@@ -73,12 +76,10 @@ const Navbar = () => {
             </a>
           ))}
           <a 
-            href="https://wa.me/917503001001" 
-            target="_blank" 
-            rel="noopener noreferrer"
+            href="#booking" 
             className="luxury-button !py-2 !px-6 text-sm flex items-center gap-2"
           >
-            <MessageCircle size={16} />
+            <Calendar size={16} />
             Book Now
           </a>
         </div>
@@ -177,8 +178,8 @@ const Hero = () => {
           <a href="tel:+917503001001" className="luxury-button-outline !border-white !text-white hover:!bg-white hover:!text-luxury-dark w-full sm:w-auto flex items-center justify-center gap-2">
             <Phone size={18} /> Call Now
           </a>
-          <a href="https://wa.me/917503001001" target="_blank" rel="noopener noreferrer" className="luxury-button !bg-emerald-600 hover:!bg-emerald-700 w-full sm:w-auto flex items-center justify-center gap-2">
-            <MessageCircle size={18} /> Book Now
+          <a href="#booking" className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2">
+            <Calendar size={18} /> Book Now
           </a>
         </motion.div>
       </div>
@@ -445,6 +446,28 @@ const Reviews = () => {
 };
 
 const BookingSection = () => {
+  const [name, setName] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [email, setEmail] = useState('');
+  const [guests, setGuests] = useState('1-5 Guests');
+  const [occasion, setOccasion] = useState('');
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
+
+  const handleBookNow = (e: React.FormEvent) => {
+    e.preventDefault();
+    const message = `*New Booking Request for Unique Farmhouse*%0A%0A` +
+      `*Name:* ${name || 'Not specified'}%0A` +
+      `*Mobile:* ${mobile || 'Not specified'}%0A` +
+      `*Email:* ${email || 'Not specified'}%0A` +
+      `*Guests:* ${guests}%0A` +
+      `*Occasion:* ${occasion || 'Not specified'}%0A` +
+      `*Check-In:* ${checkIn || 'Not specified'}%0A` +
+      `*Check-Out:* ${checkOut || 'Not specified'}`;
+    
+    window.open(`https://wa.me/917503001001?text=${message}`, '_blank');
+  };
+
   return (
     <section id="booking" className="py-24 px-6 bg-luxury-cream">
       <div className="max-w-7xl mx-auto">
@@ -455,9 +478,9 @@ const BookingSection = () => {
             viewport={{ once: true }}
           >
             <span className="section-subtitle text-left">Reserve Your Stay</span>
-            <h2 className="section-title text-left">Check Availability</h2>
+            <h2 className="section-title text-left">Book Your Experience</h2>
             <p className="text-luxury-dark/60 mb-8 text-lg">
-              Plan your perfect getaway. Fill in your details and we'll get back to you with the best rates and availability for your selected dates.
+              Ready for an unforgettable stay? Fill in your details below and our team will contact you instantly to finalize your luxury booking at Unique Farmhouse.
             </p>
             
             <div className="space-y-6">
@@ -466,8 +489,8 @@ const BookingSection = () => {
                   <Calendar size={20} />
                 </div>
                 <div>
-                  <h4 className="font-medium">Flexible Booking</h4>
-                  <p className="text-sm text-luxury-dark/50">Contact us for custom event packages and long stays.</p>
+                  <h4 className="font-medium">Instant Response</h4>
+                  <p className="text-sm text-luxury-dark/50">Our team responds to WhatsApp inquiries within minutes.</p>
                 </div>
               </div>
               <div className="flex items-start gap-4">
@@ -475,8 +498,8 @@ const BookingSection = () => {
                   <Shield size={20} />
                 </div>
                 <div>
-                  <h4 className="font-medium">Free Cancellation</h4>
-                  <p className="text-sm text-luxury-dark/50">Enjoy peace of mind with our flexible cancellation policy.</p>
+                  <h4 className="font-medium">Verified Booking</h4>
+                  <p className="text-sm text-luxury-dark/50">Secure your dates with our official WhatsApp channel.</p>
                 </div>
               </div>
               <div className="flex items-start gap-4">
@@ -485,7 +508,7 @@ const BookingSection = () => {
                 </div>
                 <div>
                   <h4 className="font-medium">Direct Support</h4>
-                  <p className="text-sm text-luxury-dark/50">Call us directly at +91 7503001001 for instant confirmation.</p>
+                  <p className="text-sm text-luxury-dark/50">Call us directly at +91 7503001001 for any special requests.</p>
                 </div>
               </div>
             </div>
@@ -497,52 +520,126 @@ const BookingSection = () => {
             viewport={{ once: true }}
             className="bg-white p-8 md:p-12 rounded-3xl shadow-2xl border border-black/5"
           >
-            <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-xs uppercase tracking-widest font-semibold text-luxury-dark/40">Check-In</label>
+            <form className="space-y-5" onSubmit={handleBookNow}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Full Name</label>
                   <div className="relative">
-                    <input type="date" className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors" />
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="Your Name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+                    />
+                    <User className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-xs uppercase tracking-widest font-semibold text-luxury-dark/40">Check-Out</label>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Mobile No.</label>
                   <div className="relative">
-                    <input type="date" className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors" />
+                    <input 
+                      type="tel" 
+                      required
+                      placeholder="Phone Number"
+                      value={mobile}
+                      onChange={(e) => setMobile(e.target.value)}
+                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+                    />
+                    <Phone className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-xs uppercase tracking-widest font-semibold text-luxury-dark/40">Guests</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Email Address</label>
+                  <div className="relative">
+                    <input 
+                      type="email" 
+                      required
+                      placeholder="Email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+                    />
+                    <Mail className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">No. of Guests</label>
+                  <div className="relative">
+                    <select 
+                      value={guests}
+                      onChange={(e) => setGuests(e.target.value)}
+                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors appearance-none text-sm"
+                    >
+                      <option>1-5 Guests</option>
+                      <option>6-10 Guests</option>
+                      <option>11-20 Guests</option>
+                      <option>20+ Guests (Event)</option>
+                    </select>
+                    <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Occasion</label>
                 <div className="relative">
-                  <select className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors appearance-none">
-                    <option>1-5 Guests</option>
-                    <option>6-10 Guests</option>
-                    <option>11-20 Guests</option>
-                    <option>20+ Guests (Event)</option>
-                  </select>
-                  <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Birthday, Anniversary, Corporate Event"
+                    value={occasion}
+                    onChange={(e) => setOccasion(e.target.value)}
+                    className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+                  />
+                  <PartyPopper className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
                 </div>
               </div>
 
-              <div className="p-4 bg-luxury-gold/10 rounded-xl border border-luxury-gold/20">
-                <p className="text-sm text-luxury-dark/70 text-center italic">
-                  "Contact for Best Rates & Exclusive Offers"
-                </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In</label>
+                  <div className="relative">
+                    <input 
+                      type="date" 
+                      required
+                      value={checkIn}
+                      onChange={(e) => setCheckIn(e.target.value)}
+                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out</label>
+                  <div className="relative">
+                    <input 
+                      type="date" 
+                      required
+                      value={checkOut}
+                      onChange={(e) => setCheckOut(e.target.value)}
+                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+                    />
+                  </div>
+                </div>
               </div>
 
-              <button className="luxury-button w-full !py-4 flex items-center justify-center gap-2">
-                Check Availability <ArrowRight size={18} />
+              <button type="submit" className="luxury-button w-full !py-4 flex items-center justify-center gap-2 group">
+                Confirm Booking on WhatsApp <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
               </button>
               
-              <div className="flex flex-col gap-3">
-                <a href="tel:+917503001001" className="luxury-button-outline w-full text-center flex items-center justify-center gap-2">
-                  <Phone size={18} /> Call to Book
-                </a>
-                <a href="https://wa.me/917503001001" target="_blank" rel="noopener noreferrer" className="luxury-button !bg-emerald-600 hover:!bg-emerald-700 w-full flex items-center justify-center gap-2">
-                  <MessageCircle size={18} /> WhatsApp Booking
-                </a>
+              <div className="pt-2 border-t border-black/5">
+                <p className="text-[10px] text-center text-luxury-dark/40 uppercase tracking-widest">Or contact us directly</p>
+                <div className="flex gap-3 mt-3">
+                  <a href="tel:+917503001001" className="luxury-button-outline flex-1 !py-3 text-center flex items-center justify-center gap-2 text-xs">
+                    <Phone size={14} /> Call Now
+                  </a>
+                  <a href="https://wa.me/917503001001" target="_blank" rel="noopener noreferrer" className="luxury-button !bg-emerald-600 hover:!bg-emerald-700 flex-1 !py-3 flex items-center justify-center gap-2 text-xs">
+                    <MessageCircle size={14} /> WhatsApp
+                  </a>
+                </div>
               </div>
             </form>
           </motion.div>
