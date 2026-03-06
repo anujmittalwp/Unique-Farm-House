@@ -17,6 +17,22 @@ import {
   User,
   Mail,
   PartyPopper,
+  Bed,
+  Sofa,
+  Sparkles,
+  Sun,
+  Lock,
+  EyeOff,
+  ShieldCheck,
+  Smile,
+  ChefHat,
+  Dices,
+  Trophy,
+  Signal,
+  Zap,
+  Map,
+  Crown,
+  Target,
   Menu,
   X,
   ArrowRight,
@@ -234,7 +250,7 @@ const About = () => {
             viewport={{ once: true }}
           >
             <span className="section-subtitle text-left">The Experience</span>
-            <h2 className="section-title text-left">A Private Sanctuary in the Heart of Noida</h2>
+            <h2 className="section-title text-left">A Private Farm House / Villa Stay in the Heart of Noida</h2>
             <div className="space-y-6 text-luxury-dark/70 text-lg leading-relaxed">
               <p>
                 Unique Farmhouse offers a refined escape from the urban hustle. Our premium 4BHK private villa is designed for those who seek exclusivity, comfort, and a touch of nature without leaving the city.
@@ -262,16 +278,88 @@ const About = () => {
 
 const Amenities = () => {
   const amenities = [
-    { icon: <Maximize size={32} />, title: "Private Villa", desc: "Spacious 4BHK with luxury furnishings" },
-    { icon: <Waves size={32} />, title: "Private Pool", desc: "Crystal clear pool for your exclusive use" },
-    { icon: <Shield size={32} />, title: "Secure & Private", desc: "24/7 security in a gated location" },
-    { icon: <Users size={32} />, title: "Spacious Interiors", desc: "Large living areas for gatherings" },
-    { icon: <Heart size={32} />, title: "LGBTQ+ Friendly", desc: "A safe and welcoming space for all" },
-    { icon: <Coffee size={32} />, title: "Premium Stay", desc: "High-end amenities and service" },
-    { icon: <Utensils size={32} />, title: "Fully Operated Kitchen", desc: "Equipped kitchen & elegant dining area" },
-    { icon: <Gamepad2 size={32} />, title: "Indoor & Outdoor Games", desc: "Fun activities for all age groups" },
-    { icon: <Wifi size={32} />, title: "High-Speed WiFi", desc: "Stay connected in every corner" },
-    { icon: <MapPin size={32} />, title: "Easy Access", desc: "Located conveniently in Sector 135" },
+    { 
+      icon: <Maximize size={32} />, 
+      title: "Private Villa", 
+      features: [
+        { icon: <Bed size={14} />, label: "4BHK Villa" },
+        { icon: <Sofa size={14} />, label: "Luxury Decor" }
+      ]
+    },
+    { 
+      icon: <Waves size={32} />, 
+      title: "Private Pool", 
+      features: [
+        { icon: <Waves size={14} />, label: "Crystal Clear" },
+        { icon: <Sun size={14} />, label: "Exclusive" }
+      ]
+    },
+    { 
+      icon: <Shield size={32} />, 
+      title: "Secure & Private", 
+      features: [
+        { icon: <Lock size={14} />, label: "24/7 Secure" },
+        { icon: <EyeOff size={14} />, label: "Gated Entry" }
+      ]
+    },
+    { 
+      icon: <Users size={32} />, 
+      title: "Spacious Interiors", 
+      features: [
+        { icon: <Users size={14} />, label: "Large Areas" },
+        { icon: <LayoutGrid size={14} />, label: "Open Plan" }
+      ]
+    },
+    { 
+      icon: <Heart size={32} />, 
+      title: "LGBTQ+ Friendly", 
+      features: [
+        { icon: <ShieldCheck size={14} />, label: "Safe Space" },
+        { icon: <Smile size={14} />, label: "Welcoming" }
+      ]
+    },
+    { 
+      icon: <Coffee size={32} />, 
+      title: "Premium Stay", 
+      features: [
+        { icon: <Star size={14} />, label: "High-end" },
+        { icon: <Sparkles size={14} />, label: "Top Service" }
+      ]
+    },
+    { 
+      icon: <Utensils size={32} />, 
+      title: "Operated Kitchen", 
+      features: [
+        { icon: <ChefHat size={14} />, label: "Equipped" },
+        { icon: <Utensils size={14} />, label: "Dining Area" }
+      ]
+    },
+    { 
+      icon: <Gamepad2 size={32} />, 
+      title: "Games & Fun", 
+      features: [
+        { icon: <Trophy size={14} />, label: "Cricket & Badminton" },
+        { icon: <Target size={14} />, label: "Football & Basketball" },
+        { icon: <Crown size={14} />, label: "Chess & Carom" },
+        { icon: <Dices size={14} />, label: "Ludo & Cards" }
+      ]
+    },
+    { 
+      icon: <Wifi size={32} />, 
+      title: "High-Speed WiFi", 
+      features: [
+        { icon: <Signal size={14} />, label: "Connected" },
+        { icon: <Zap size={14} />, label: "Fiber Speed" }
+      ]
+    },
+    { 
+      icon: <MapPin size={32} />, 
+      title: "Easy Access", 
+      features: [
+        { icon: <Map size={14} />, label: "Sector 135" },
+        { icon: <Navigation size={14} />, label: "Convenient" }
+      ]
+    },
   ];
 
   return (
@@ -280,7 +368,7 @@ const Amenities = () => {
         <span className="section-subtitle">Curated For Comfort</span>
         <h2 className="section-title">World-Class Amenities</h2>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mt-16">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mt-16">
           {amenities.map((item, index) => (
             <motion.div 
               key={index}
@@ -288,13 +376,21 @@ const Amenities = () => {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: index * 0.1 }}
-              className="bg-white p-8 rounded-2xl shadow-sm border border-black/5 hover:shadow-xl transition-all duration-500 group"
+              className="bg-white p-6 rounded-2xl shadow-sm border border-black/5 hover:shadow-xl transition-all duration-500 group flex flex-col items-center text-center"
             >
-              <div className="text-luxury-gold mb-6 group-hover:scale-110 transition-transform duration-500">
+              <div className="text-luxury-gold mb-4 group-hover:scale-110 transition-transform duration-500">
                 {item.icon}
               </div>
-              <h3 className="text-xl font-serif mb-2">{item.title}</h3>
-              <p className="text-luxury-dark/60 text-sm leading-relaxed">{item.desc}</p>
+              <h3 className="text-lg font-serif mb-4">{item.title}</h3>
+              
+              <div className="flex flex-col gap-2 w-full">
+                {item.features.map((feature, fIndex) => (
+                  <div key={fIndex} className="flex items-center justify-center gap-2 px-3 py-1.5 bg-luxury-cream/50 rounded-lg border border-black/5">
+                    <span className="text-luxury-gold">{feature.icon}</span>
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-luxury-dark/60">{feature.label}</span>
+                  </div>
+                ))}
+              </div>
             </motion.div>
           ))}
         </div>
