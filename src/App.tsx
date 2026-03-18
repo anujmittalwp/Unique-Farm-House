@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
+import DatePicker from 'react-datepicker';
+import { format } from 'date-fns';
 import { 
   Phone, 
   MapPin, 
@@ -43,12 +45,13 @@ import {
   ChevronLeft,
   ChevronRight,
   LayoutGrid,
-  Images
+  Images,
+  Info
 } from 'lucide-react';
 
 // --- Components ---
 
-const Navbar = () => {
+const Navbar = ({ onBookClick }: { onBookClick: () => void }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -93,13 +96,13 @@ const Navbar = () => {
               {link.name}
             </a>
           ))}
-          <a 
-            href="#booking" 
+          <button 
+            onClick={onBookClick}
             className="luxury-button !py-2 !px-6 text-sm flex items-center gap-2"
           >
             <Calendar size={16} />
             Book Now
-          </a>
+          </button>
         </div>
 
         {/* Mobile Toggle */}
@@ -130,9 +133,18 @@ const Navbar = () => {
                 {link.name}
               </a>
             ))}
+            <button 
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                onBookClick();
+              }}
+              className="luxury-button w-full text-center flex justify-center items-center gap-2"
+            >
+              <Calendar size={18} /> Book Now
+            </button>
             <a 
               href="tel:+917503001001"
-              className="luxury-button w-full text-center flex justify-center items-center gap-2"
+              className="luxury-button-outline w-full text-center flex justify-center items-center gap-2"
             >
               <Phone size={18} /> Call Now
             </a>
@@ -143,7 +155,7 @@ const Navbar = () => {
   );
 };
 
-const Hero = () => {
+const Hero = ({ onBookClick }: { onBookClick: () => void }) => {
   return (
     <section className="relative h-screen w-full overflow-hidden flex items-center justify-center">
       {/* Background Image with Overlay */}
@@ -192,13 +204,13 @@ const Hero = () => {
           transition={{ delay: 0.8 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
-          <a href="#booking" className="luxury-button w-full sm:w-auto">Check Availability</a>
+          <button onClick={onBookClick} className="luxury-button w-full sm:w-auto">Check Availability</button>
           <a href="tel:+917503001001" className="luxury-button-outline !border-white !text-white hover:!bg-white hover:!text-luxury-dark w-full sm:w-auto flex items-center justify-center gap-2">
             <Phone size={18} /> Call Now
           </a>
-          <a href="#booking" className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2">
+          <button onClick={onBookClick} className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2">
             <Calendar size={18} /> Book Now
-          </a>
+          </button>
         </motion.div>
       </div>
 
@@ -543,14 +555,69 @@ const Reviews = () => {
   );
 };
 
-const BookingSection = () => {
+const FormField = ({ 
+  label, 
+  icon: Icon, 
+  children, 
+  helperText, 
+  tooltip 
+}: { 
+  label: string; 
+  icon?: any; 
+  children: React.ReactNode; 
+  helperText?: string;
+  tooltip?: string;
+}) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  return (
+    <div className="space-y-1.5 relative group">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40 flex items-center gap-1.5">
+          {label}
+          {tooltip && (
+            <div 
+              className="relative inline-block"
+              onMouseEnter={() => setShowTooltip(true)}
+              onMouseLeave={() => setShowTooltip(false)}
+            >
+              <Info size={10} className="text-luxury-gold cursor-help" />
+              <AnimatePresence>
+                {showTooltip && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 5 }}
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-luxury-dark text-white text-[10px] rounded-lg shadow-xl z-50 leading-tight text-center"
+                  >
+                    {tooltip}
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-luxury-dark"></div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </label>
+      </div>
+      <div className="relative">
+        {children}
+        {Icon && <Icon className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />}
+      </div>
+      {helperText && (
+        <p className="text-[9px] text-luxury-dark/30 italic mt-1">{helperText}</p>
+      )}
+    </div>
+  );
+};
+
+const BookingForm = ({ onComplete }: { onComplete?: () => void }) => {
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
   const [guests, setGuests] = useState('1-5 Guests');
   const [occasion, setOccasion] = useState('');
-  const [checkIn, setCheckIn] = useState('');
-  const [checkOut, setCheckOut] = useState('');
+  const [checkIn, setCheckIn] = useState<Date | null>(null);
+  const [checkOut, setCheckOut] = useState<Date | null>(null);
 
   const handleBookNow = (e: React.FormEvent) => {
     e.preventDefault();
@@ -560,12 +627,207 @@ const BookingSection = () => {
       `*Email:* ${email || 'Not specified'}%0A` +
       `*Guests:* ${guests}%0A` +
       `*Occasion:* ${occasion || 'Not specified'}%0A` +
-      `*Check-In:* ${checkIn || 'Not specified'}%0A` +
-      `*Check-Out:* ${checkOut || 'Not specified'}`;
+      `*Check-In:* ${checkIn ? format(checkIn, 'PPP') : 'Not specified'}%0A` +
+      `*Check-Out:* ${checkOut ? format(checkOut, 'PPP') : 'Not specified'}`;
     
     window.open(`https://wa.me/917503001001?text=${message}`, '_blank');
+    if (onComplete) onComplete();
   };
 
+  return (
+    <form className="space-y-5" onSubmit={handleBookNow}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <FormField 
+          label="Full Name" 
+          icon={User} 
+          helperText="Enter your legal name for verification"
+          tooltip="We need this to verify your booking upon arrival."
+        >
+          <input 
+            type="text" 
+            required
+            placeholder="Your Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+          />
+        </FormField>
+
+        <FormField 
+          label="Mobile No." 
+          icon={Phone} 
+          helperText="Include country code if outside India"
+          tooltip="We will use this to contact you via WhatsApp."
+        >
+          <input 
+            type="tel" 
+            required
+            placeholder="Phone Number"
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+            className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+          />
+        </FormField>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <FormField 
+          label="Email Address" 
+          icon={Mail} 
+          helperText="Booking confirmation will be sent here"
+        >
+          <input 
+            type="email" 
+            required
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+          />
+        </FormField>
+
+        <FormField 
+          label="No. of Guests" 
+          icon={Users} 
+          tooltip="Pricing may vary based on the number of guests."
+        >
+          <select 
+            value={guests}
+            onChange={(e) => setGuests(e.target.value)}
+            className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors appearance-none text-sm"
+          >
+            <option>1-5 Guests</option>
+            <option>6-10 Guests</option>
+            <option>11-20 Guests</option>
+            <option>20+ Guests (Event)</option>
+          </select>
+        </FormField>
+      </div>
+
+      <FormField 
+        label="Occasion" 
+        icon={PartyPopper} 
+        helperText="Help us prepare for your special day"
+        tooltip="Let us know if it's a birthday, wedding, or corporate event."
+      >
+        <input 
+          type="text" 
+          placeholder="e.g. Birthday, Anniversary, Corporate Event"
+          value={occasion}
+          onChange={(e) => setOccasion(e.target.value)}
+          className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+        />
+      </FormField>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <FormField 
+          label="Check-In" 
+          icon={Calendar} 
+          helperText="Standard check-in: 2:00 PM"
+        >
+          <DatePicker
+            selected={checkIn}
+            onChange={(date) => setCheckIn(date)}
+            selectsStart
+            startDate={checkIn}
+            endDate={checkOut}
+            minDate={new Date()}
+            placeholderText="Select Date"
+            required
+            className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm"
+          />
+        </FormField>
+
+        <FormField 
+          label="Check-Out" 
+          icon={Calendar} 
+          helperText="Standard check-out: 11:00 AM"
+        >
+          <DatePicker
+            selected={checkOut}
+            onChange={(date) => setCheckOut(date)}
+            selectsEnd
+            startDate={checkIn}
+            endDate={checkOut}
+            minDate={checkIn || new Date()}
+            placeholderText="Select Date"
+            required
+            className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm"
+          />
+        </FormField>
+      </div>
+
+      <button type="submit" className="luxury-button w-full !py-4 flex items-center justify-center gap-2 group">
+        Confirm Booking on WhatsApp <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+      </button>
+      
+      <div className="pt-2 border-t border-black/5">
+        <p className="text-[10px] text-center text-luxury-dark/40 uppercase tracking-widest">Or contact us directly</p>
+        <div className="flex gap-3 mt-3">
+          <a href="tel:+917503001001" className="luxury-button-outline flex-1 !py-3 text-center flex items-center justify-center gap-2 text-xs">
+            <Phone size={14} /> Call Now
+          </a>
+          <a href="https://wa.me/917503001001" target="_blank" rel="noopener noreferrer" className="luxury-button !bg-emerald-600 hover:!bg-emerald-700 flex-1 !py-3 flex items-center justify-center gap-2 text-xs">
+            <MessageCircle size={14} /> WhatsApp
+          </a>
+        </div>
+      </div>
+    </form>
+  );
+};
+
+const BookingModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen]);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-luxury-dark/60 backdrop-blur-sm"
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+          >
+            <div className="p-6 md:p-8 border-b border-black/5 flex items-center justify-between bg-luxury-cream">
+              <div>
+                <h3 className="text-2xl font-serif">Book Your Stay</h3>
+                <p className="text-xs text-luxury-dark/40 uppercase tracking-widest mt-1">Unique Farmhouse, Noida</p>
+              </div>
+              <button 
+                onClick={onClose}
+                className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-luxury-dark/40 hover:text-luxury-dark transition-colors shadow-sm"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 md:p-8">
+              <BookingForm onComplete={onClose} />
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const BookingSection = () => {
   return (
     <section id="booking" className="py-24 px-6 bg-luxury-cream">
       <div className="max-w-7xl mx-auto">
@@ -618,128 +880,7 @@ const BookingSection = () => {
             viewport={{ once: true }}
             className="bg-white p-8 md:p-12 rounded-3xl shadow-2xl border border-black/5"
           >
-            <form className="space-y-5" onSubmit={handleBookNow}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Full Name</label>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      required
-                      placeholder="Your Name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
-                    />
-                    <User className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Mobile No.</label>
-                  <div className="relative">
-                    <input 
-                      type="tel" 
-                      required
-                      placeholder="Phone Number"
-                      value={mobile}
-                      onChange={(e) => setMobile(e.target.value)}
-                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
-                    />
-                    <Phone className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Email Address</label>
-                  <div className="relative">
-                    <input 
-                      type="email" 
-                      required
-                      placeholder="Email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
-                    />
-                    <Mail className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">No. of Guests</label>
-                  <div className="relative">
-                    <select 
-                      value={guests}
-                      onChange={(e) => setGuests(e.target.value)}
-                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors appearance-none text-sm"
-                    >
-                      <option>1-5 Guests</option>
-                      <option>6-10 Guests</option>
-                      <option>11-20 Guests</option>
-                      <option>20+ Guests (Event)</option>
-                    </select>
-                    <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Occasion</label>
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    placeholder="e.g. Birthday, Anniversary, Corporate Event"
-                    value={occasion}
-                    onChange={(e) => setOccasion(e.target.value)}
-                    className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
-                  />
-                  <PartyPopper className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In</label>
-                  <div className="relative">
-                    <input 
-                      type="date" 
-                      required
-                      value={checkIn}
-                      onChange={(e) => setCheckIn(e.target.value)}
-                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out</label>
-                  <div className="relative">
-                    <input 
-                      type="date" 
-                      required
-                      value={checkOut}
-                      onChange={(e) => setCheckOut(e.target.value)}
-                      className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <button type="submit" className="luxury-button w-full !py-4 flex items-center justify-center gap-2 group">
-                Confirm Booking on WhatsApp <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-              </button>
-              
-              <div className="pt-2 border-t border-black/5">
-                <p className="text-[10px] text-center text-luxury-dark/40 uppercase tracking-widest">Or contact us directly</p>
-                <div className="flex gap-3 mt-3">
-                  <a href="tel:+917503001001" className="luxury-button-outline flex-1 !py-3 text-center flex items-center justify-center gap-2 text-xs">
-                    <Phone size={14} /> Call Now
-                  </a>
-                  <a href="https://wa.me/917503001001" target="_blank" rel="noopener noreferrer" className="luxury-button !bg-emerald-600 hover:!bg-emerald-700 flex-1 !py-3 flex items-center justify-center gap-2 text-xs">
-                    <MessageCircle size={14} /> WhatsApp
-                  </a>
-                </div>
-              </div>
-            </form>
+            <BookingForm />
           </motion.div>
         </div>
       </div>
@@ -930,11 +1071,13 @@ const Footer = () => {
 // --- Main App ---
 
 export default function App() {
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+
   return (
     <div className="relative">
-      <Navbar />
+      <Navbar onBookClick={() => setIsBookingModalOpen(true)} />
       <main>
-        <Hero />
+        <Hero onBookClick={() => setIsBookingModalOpen(true)} />
         <About />
         <Amenities />
         <Gallery />
@@ -944,21 +1087,24 @@ export default function App() {
       </main>
       <Footer />
       
+      <BookingModal 
+        isOpen={isBookingModalOpen} 
+        onClose={() => setIsBookingModalOpen(false)} 
+      />
+      
       {/* Floating Action Buttons for Mobile */}
       <div className="fixed bottom-6 left-6 right-6 z-40 md:hidden flex gap-3">
+        <button 
+          onClick={() => setIsBookingModalOpen(true)}
+          className="flex-1 bg-luxury-gold text-white py-4 rounded-2xl flex items-center justify-center gap-2 shadow-2xl font-bold"
+        >
+          <Calendar size={20} /> Book Now
+        </button>
         <a 
           href="tel:+917503001001" 
           className="flex-1 bg-luxury-dark text-white py-4 rounded-2xl flex items-center justify-center gap-2 shadow-2xl font-bold"
         >
           <Phone size={20} /> Call
-        </a>
-        <a 
-          href="https://wa.me/917503001001" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl flex items-center justify-center gap-2 shadow-2xl font-bold"
-        >
-          <MessageCircle size={20} /> WhatsApp
         </a>
       </div>
     </div>
