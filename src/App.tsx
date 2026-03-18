@@ -41,7 +41,8 @@ import {
   ChevronLeft,
   ChevronRight,
   LayoutGrid,
-  Images
+  Images,
+  CreditCard
 } from 'lucide-react';
 
 // --- Components ---
@@ -130,10 +131,19 @@ const Navbar = ({ onBookNow }: { onBookNow: () => void }) => {
             ))}
             <a 
               href="tel:+917503001001"
-              className="luxury-button w-full text-center flex justify-center items-center gap-2"
+              className="luxury-button-outline w-full text-center flex justify-center items-center gap-2"
             >
               <Phone size={18} /> Call Now
             </a>
+            <button 
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                onBookNow();
+              }}
+              className="luxury-button w-full text-center flex justify-center items-center gap-2"
+            >
+              <Calendar size={18} /> Book Now
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -399,7 +409,7 @@ const Amenities = () => {
   );
 };
 
-const Gallery = () => {
+const Gallery = ({ onImageClick }: { onImageClick: (img: any) => void }) => {
   const images = [
     { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/7_njohl7.jpg", title: "Grand Entrance", category: "Exterior" },
     { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/5_jgyrsh.jpg", title: "Luxury Living Room", category: "Interior" },
@@ -466,7 +476,8 @@ const Gallery = () => {
               initial={{ opacity: 0, scale: 0.9 }}
               whileInView={{ opacity: 1, scale: 1 }}
               viewport={{ once: true }}
-              className="relative group overflow-hidden rounded-2xl"
+              onClick={() => onImageClick(img)}
+              className="relative group overflow-hidden rounded-2xl cursor-zoom-in"
             >
               <img 
                 src={img.src} 
@@ -488,6 +499,50 @@ const Gallery = () => {
     </section>
   );
 };
+
+const GalleryModal = ({ image, onClose }: { image: any, onClose: () => void }) => {
+  return (
+    <AnimatePresence>
+      {image && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-10">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-black/95 backdrop-blur-xl"
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="relative max-w-7xl w-full max-h-full flex flex-col items-center"
+          >
+            <button 
+              onClick={onClose}
+              className="absolute -top-12 right-0 text-white/70 hover:text-white transition-colors p-2"
+            >
+              <X size={32} />
+            </button>
+            
+            <img 
+              src={image.src} 
+              alt={image.title} 
+              className="w-full h-auto max-h-[80vh] object-contain rounded-lg shadow-2xl"
+              referrerPolicy="no-referrer"
+            />
+            
+            <div className="mt-6 text-center text-white">
+              <span className="text-luxury-gold text-xs uppercase tracking-[0.3em] font-bold mb-2 block">{image.category}</span>
+              <h3 className="text-2xl font-serif">{image.title}</h3>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 
 const Reviews = () => {
   return (
@@ -731,11 +786,11 @@ const BookingModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => voi
   );
 };
 
-const BookingSection = () => {
+const BookingSection = ({ onBookNow }: { onBookNow: () => void }) => {
   return (
     <section id="booking" className="py-24 px-6 bg-luxury-cream">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
           <motion.div 
             initial={{ opacity: 0, x: -50 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -744,7 +799,7 @@ const BookingSection = () => {
             <span className="section-subtitle text-left">Reserve Your Stay</span>
             <h2 className="section-title text-left">Book Your Experience</h2>
             <p className="text-luxury-dark/60 mb-8 text-lg">
-              Ready for an unforgettable stay? Fill in your details below and our team will contact you instantly to finalize your luxury booking at Unique Farmhouse.
+              Ready for an unforgettable stay? Our premium 4BHK villa is waiting for you. Experience the pinnacle of luxury and privacy in Noida.
             </p>
             
             <div className="space-y-6">
@@ -782,15 +837,41 @@ const BookingSection = () => {
             initial={{ opacity: 0, x: 50 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
-            className="bg-white p-8 md:p-12 rounded-3xl shadow-2xl border border-black/5"
+            className="bg-luxury-dark p-12 rounded-3xl shadow-2xl border border-white/10 text-center text-white relative overflow-hidden group"
           >
-            <BookingForm />
+            <div className="absolute inset-0 bg-luxury-gold/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+            <div className="relative z-10">
+              <div className="w-20 h-20 bg-luxury-gold/20 rounded-full flex items-center justify-center mx-auto mb-8">
+                <Calendar size={40} className="text-luxury-gold" />
+              </div>
+              <h3 className="text-3xl font-serif mb-6">Ready to Experience Luxury?</h3>
+              <p className="text-white/60 mb-10 max-w-md mx-auto">
+                Check availability and book your stay instantly through our secure booking portal.
+              </p>
+              <button 
+                onClick={onBookNow}
+                className="luxury-button w-full !py-5 text-lg flex items-center justify-center gap-3 group/btn"
+              >
+                Open Booking Portal <ArrowRight size={20} className="group-hover/btn:translate-x-2 transition-transform" />
+              </button>
+              <div className="mt-8 flex items-center justify-center gap-6 text-white/40">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-luxury-gold" />
+                  <span className="text-[10px] uppercase tracking-widest">Secure Booking</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Zap size={16} className="text-luxury-gold" />
+                  <span className="text-[10px] uppercase tracking-widest">Instant Confirmation</span>
+                </div>
+              </div>
+            </div>
           </motion.div>
         </div>
       </div>
     </section>
   );
 };
+
 
 const LocationSection = () => {
   return (
@@ -924,18 +1005,59 @@ const Footer = () => {
           <div>
             <h4 className="text-lg font-serif mb-6">Newsletter</h4>
             <p className="text-white/50 text-sm mb-4">Subscribe for exclusive offers and updates.</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2 mb-8">
               <input type="email" placeholder="Email Address" className="bg-white/5 border border-white/10 px-4 py-2 rounded-lg text-sm focus:outline-none focus:border-luxury-gold w-full" />
               <button className="bg-luxury-gold text-luxury-dark px-4 py-2 rounded-lg text-sm font-bold hover:bg-white transition-colors">Join</button>
+            </div>
+            
+            <div className="pt-6 border-t border-white/5">
+              <h5 className="text-[10px] uppercase tracking-[0.2em] text-white/30 mb-4">Secure Payments</h5>
+              <div className="flex flex-wrap gap-3 opacity-50 grayscale hover:grayscale-0 transition-all duration-500">
+                <div className="bg-white/10 p-2 rounded flex items-center justify-center" title="Visa">
+                  <CreditCard size={16} />
+                </div>
+                <div className="bg-white/10 p-2 rounded flex items-center justify-center" title="Mastercard">
+                  <CreditCard size={16} />
+                </div>
+                <div className="bg-white/10 p-2 rounded flex items-center justify-center" title="UPI">
+                  <Zap size={16} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-16 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-4 text-white/30 text-xs uppercase tracking-widest">
-          <p>© 2024 Unique Farmhouse. All Rights Reserved.</p>
-          <div className="flex gap-6">
-            <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-            <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+        <div className="mt-16 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8">
+          <div className="flex flex-wrap justify-center md:justify-start gap-8">
+            <div className="flex items-center gap-3 text-white/40">
+              <ShieldCheck size={24} className="text-luxury-gold/50" />
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-widest leading-none">SSL Secured</span>
+                <span className="text-[9px] opacity-60">256-bit Encryption</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-white/40">
+              <Lock size={24} className="text-luxury-gold/50" />
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-widest leading-none">Safe Booking</span>
+                <span className="text-[9px] opacity-60">Privacy Protected</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-white/40">
+              <Star size={24} className="text-luxury-gold/50" />
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-widest leading-none">Top Rated</span>
+                <span className="text-[9px] opacity-60">Verified Property</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center md:items-end gap-4">
+            <div className="flex gap-6 text-white/30 text-xs uppercase tracking-widest">
+              <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
+              <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+            </div>
+            <p className="text-white/20 text-[10px] uppercase tracking-[0.3em]">© 2024 Unique Farmhouse. All Rights Reserved.</p>
           </div>
         </div>
       </div>
@@ -947,6 +1069,7 @@ const Footer = () => {
 
 export default function App() {
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<any>(null);
 
   const openBookingModal = () => setIsBookingModalOpen(true);
   const closeBookingModal = () => setIsBookingModalOpen(false);
@@ -958,14 +1081,15 @@ export default function App() {
         <Hero onBookNow={openBookingModal} />
         <About />
         <Amenities />
-        <Gallery />
+        <Gallery onImageClick={setSelectedImage} />
         <Reviews />
-        <BookingSection />
+        <BookingSection onBookNow={openBookingModal} />
         <LocationSection />
       </main>
       <Footer />
       
       <BookingModal isOpen={isBookingModalOpen} onClose={closeBookingModal} />
+      <GalleryModal image={selectedImage} onClose={() => setSelectedImage(null)} />
 
       {/* Floating Action Buttons for Mobile */}
       <div className="fixed bottom-6 left-6 right-6 z-40 md:hidden flex gap-3">
@@ -984,6 +1108,7 @@ export default function App() {
           <MessageCircle size={20} /> WhatsApp
         </a>
       </div>
+
 
       {/* Desktop Floating Book Now Button */}
       <motion.button
