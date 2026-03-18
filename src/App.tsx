@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
 import { 
   Phone, 
   MapPin, 
@@ -746,6 +748,17 @@ const BookingSection = () => {
 };
 
 const LocationSection = () => {
+  const position: [number, number] = [28.4865377, 77.3948327];
+  
+  const luxuryIcon = new L.Icon({
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+  });
+
   return (
     <section id="location" className="py-24 px-6 bg-white">
       <div className="max-w-7xl mx-auto">
@@ -775,7 +788,7 @@ const LocationSection = () => {
 
               <div className="flex flex-col sm:flex-row gap-4">
                 <a 
-                  href="https://www.google.com/maps/place/ELIVAAS+Unique+Farmhouse/data=!4m2!3m1!1s0x0:0x96585d25a6908e74?sa=X&ved=1t:2428&ictx=111" 
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${position[0]},${position[1]}`}
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="luxury-button flex items-center justify-center gap-2"
@@ -796,17 +809,35 @@ const LocationSection = () => {
             initial={{ opacity: 0, scale: 0.95 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}
-            className="h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-black/5"
+            className="h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-black/5 z-0"
           >
-            <iframe 
-              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3506.223456789!2d77.4012!3d28.5034!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x96585d25a6908e74!2sELIVAAS%20Unique%20Farmhouse!5e0!3m2!1sen!2sin!4v1710000000000!5m2!1sen!2sin" 
-              width="100%" 
-              height="100%" 
-              style={{ border: 0 }} 
-              allowFullScreen 
-              loading="lazy"
-              title="Unique Farmhouse Location"
-            ></iframe>
+            <MapContainer 
+              center={position} 
+              zoom={15} 
+              scrollWheelZoom={false} 
+              style={{ height: '100%', width: '100%' }}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <Marker position={position} icon={luxuryIcon}>
+                <Popup>
+                  <div className="text-center">
+                    <h4 className="font-serif font-bold text-luxury-dark">Unique Farmhouse</h4>
+                    <p className="text-xs text-luxury-dark/60">Sector 135, Noida</p>
+                    <a 
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${position[0]},${position[1]}`}
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-luxury-gold font-bold uppercase mt-2 inline-block"
+                    >
+                      Get Directions
+                    </a>
+                  </div>
+                </Popup>
+              </Marker>
+            </MapContainer>
           </motion.div>
         </div>
       </div>
