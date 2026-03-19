@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Phone, 
@@ -42,12 +42,624 @@ import {
   ChevronRight,
   LayoutGrid,
   Images,
-  CreditCard
+  CreditCard,
+  LogOut,
+  History,
+  LayoutDashboard,
+  Eye,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  IndianRupee,
+  Copy,
+  MessageSquare
 } from 'lucide-react';
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut,
+  User as FirebaseUser,
+  GoogleAuthProvider,
+  signInWithPopup
+} from 'firebase/auth';
+import { 
+  collection, 
+  query, 
+  where, 
+  onSnapshot, 
+  addDoc, 
+  serverTimestamp,
+  orderBy,
+  doc,
+  setDoc,
+  getDoc
+} from 'firebase/firestore';
+import { format } from 'date-fns';
+import { auth, db } from './firebase';
 
-// --- Components ---
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
 
-const Navbar = ({ onBookNow }: { onBookNow: () => void }) => {
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  // throw new Error(JSON.stringify(errInfo)); // Optional: throw to propagate
+}
+
+const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (isLogin) {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        // Create user document
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          uid: userCredential.user.uid,
+          email: userCredential.user.email,
+          displayName: name,
+          role: 'client'
+        });
+      }
+      onClose();
+    } catch (err: any) {
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Email/Password sign-in is not enabled in the Firebase Console. Please enable it in Authentication > Sign-in method.');
+      } else {
+        setError(err.message || 'An error occurred');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setError('');
+    setLoading(true);
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      // Check if user document exists, if not create it
+      await setDoc(doc(db, 'users', result.user.uid), {
+        uid: result.user.uid,
+        email: result.user.email,
+        displayName: result.user.displayName,
+        role: result.user.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client'
+      }, { merge: true });
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'An error occurred during Google Login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-luxury-dark/90 backdrop-blur-md"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="relative bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
+          >
+            <button 
+              onClick={onClose}
+              className="absolute top-6 right-6 text-luxury-dark/20 hover:text-luxury-dark transition-colors z-10"
+            >
+              <X size={24} />
+            </button>
+
+            <div className="p-8 md:p-12">
+              <div className="text-center mb-8">
+                <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-2">
+                  {isLogin ? 'Welcome Back' : 'Create Account'}
+                </h2>
+                <p className="text-luxury-dark/60 text-sm">
+                  {isLogin ? 'Enter your details to manage your bookings' : 'Join us for a luxury farmhouse experience'}
+                </p>
+              </div>
+
+              {error && (
+                <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm flex items-center gap-3">
+                  <AlertCircle size={18} />
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {!isLogin && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/40 mb-2 ml-1">Full Name</label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
+                      <input 
+                        type="text" 
+                        required
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="w-full bg-luxury-dark/5 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                        placeholder="John Doe"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/40 mb-2 ml-1">Email Address</label>
+                  <div className="relative">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
+                    <input 
+                      type="email" 
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-luxury-dark/5 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/40 mb-2 ml-1">Password</label>
+                  <div className="relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
+                    <input 
+                      type="password" 
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-luxury-dark/5 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-luxury-dark text-white py-4 rounded-2xl font-bold hover:bg-luxury-gold hover:text-luxury-dark transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {loading ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    isLogin ? 'Sign In' : 'Create Account'
+                  )}
+                </button>
+
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-luxury-dark/10"></div>
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase tracking-widest">
+                    <span className="px-4 bg-white text-luxury-dark/40">Or continue with</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={loading}
+                  className="w-full flex items-center justify-center gap-3 bg-white border border-luxury-dark/10 text-luxury-dark py-4 rounded-2xl font-bold hover:bg-luxury-dark/5 transition-all disabled:opacity-50"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path
+                      fill="currentColor"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="currentColor"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="currentColor"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                    />
+                    <path
+                      fill="currentColor"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                    />
+                  </svg>
+                  Google
+                </button>
+              </form>
+
+              <div className="mt-8 text-center">
+                <button 
+                  onClick={() => setIsLogin(!isLogin)}
+                  className="text-sm text-luxury-dark/60 hover:text-luxury-dark transition-colors"
+                >
+                  {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole: string | null; onClose: () => void }) => {
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let q;
+    if (userRole === 'admin') {
+      q = query(
+        collection(db, 'bookings'),
+        orderBy('createdAt', 'desc')
+      );
+    } else {
+      q = query(
+        collection(db, 'bookings'),
+        where('uid', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
+    }
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const bookingsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setBookings(bookingsData);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'bookings');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user.uid, userRole]);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'confirmed': return 'text-emerald-600 bg-emerald-50';
+      case 'cancelled': return 'text-red-600 bg-red-50';
+      default: return 'text-amber-600 bg-amber-50';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'confirmed': return <CheckCircle2 size={16} />;
+      case 'cancelled': return <AlertCircle size={16} />;
+      default: return <Clock size={16} />;
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] bg-white overflow-y-auto"
+    >
+      <div className="max-w-7xl mx-auto px-6 py-12 md:py-24">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
+          <div>
+            <button 
+              onClick={onClose}
+              className="flex items-center gap-2 text-luxury-dark/40 hover:text-luxury-dark transition-colors mb-4 group"
+            >
+              <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+              Back to Home
+            </button>
+            <h1 className="text-4xl md:text-5xl font-serif font-bold text-luxury-dark">
+              {userRole === 'admin' ? 'All Bookings' : 'My Bookings'}
+            </h1>
+            <p className="text-luxury-dark/60 mt-2">
+              {userRole === 'admin' ? 'Manage all luxury stays and celebration details' : 'Manage your luxury stays and celebration details'}
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-4 p-4 bg-luxury-dark/5 rounded-2xl">
+            <div className="w-12 h-12 rounded-full bg-luxury-gold flex items-center justify-center text-luxury-dark font-bold text-xl">
+              {user.displayName?.[0] || user.email?.[0].toUpperCase()}
+            </div>
+            <div>
+              <p className="font-bold text-luxury-dark">{user.displayName || 'Guest'}</p>
+              <p className="text-xs text-luxury-dark/40">{user.email}</p>
+            </div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <div className="w-12 h-12 border-4 border-luxury-gold/20 border-t-luxury-gold rounded-full animate-spin" />
+            <p className="text-luxury-dark/40 font-medium">Loading your bookings...</p>
+          </div>
+        ) : bookings.length === 0 ? (
+          <div className="bg-luxury-dark/5 rounded-3xl p-12 md:p-24 text-center">
+            <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+              <Calendar size={32} className="text-luxury-dark/20" />
+            </div>
+            <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">
+              {userRole === 'admin' ? 'No Bookings in System' : 'No Bookings Found'}
+            </h3>
+            <p className="text-luxury-dark/60 mb-8 max-w-md mx-auto">
+              {userRole === 'admin' 
+                ? 'There are currently no bookings in the system. New bookings will appear here as they are made.' 
+                : "You haven't made any bookings yet. Start planning your perfect celebration today!"}
+            </p>
+            <button 
+              onClick={onClose}
+              className="luxury-button"
+            >
+              Explore Farmhouse
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {bookings.map((booking) => (
+              <motion.div 
+                key={booking.id}
+                layout
+                className="bg-white border border-luxury-dark/5 rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 group"
+              >
+                <div className="p-8">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest ${getStatusColor(booking.status)}`}>
+                        {getStatusIcon(booking.status)}
+                        {booking.status}
+                      </span>
+                      {userRole === 'admin' && (
+                        <div className="mt-3 p-3 bg-luxury-dark/5 rounded-xl border border-luxury-dark/5">
+                          <p className="text-xs font-bold text-luxury-dark flex items-center gap-2">
+                            <User size={12} className="text-luxury-gold" />
+                            {booking.name || 'Guest'}
+                          </p>
+                          <p className="text-[10px] text-luxury-dark/60 flex items-center gap-2 mt-1">
+                            <Mail size={10} />
+                            {booking.email}
+                          </p>
+                          <p className="text-[10px] text-luxury-dark/60 flex items-center gap-2 mt-1">
+                            <Phone size={10} />
+                            {booking.mobile}
+                          </p>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-[0.2em] mt-3">Booking ID: {booking.id.slice(0, 8)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-serif font-bold text-luxury-dark">₹{booking.totalAmount.toLocaleString()}</p>
+                      <p className={`text-xs font-bold mt-1 ${booking.paymentStatus === 'paid' ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {booking.paymentStatus === 'paid' ? 'Payment Completed' : 'Payment Pending'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6 py-6 border-y border-luxury-dark/5">
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Check-In (2 PM)</p>
+                      <p className="font-bold text-luxury-dark">{format(new Date(booking.checkIn), 'MMM dd, yyyy')}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Check-Out (11 AM)</p>
+                      <p className="font-bold text-luxury-dark">{format(new Date(booking.checkOut), 'MMM dd, yyyy')}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests</p>
+                      <p className="font-bold text-luxury-dark">{booking.guests} Guests</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Occasion</p>
+                      <p className="font-bold text-luxury-dark">{booking.occasion || 'General Stay'}</p>
+                    </div>
+                  </div>
+
+                  {booking.paymentStatus === 'unpaid' && booking.status === 'confirmed' && (
+                    <div className="mt-8 p-6 bg-luxury-gold/5 rounded-2xl border border-luxury-gold/20">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-luxury-gold rounded-full flex items-center justify-center text-luxury-dark">
+                            <IndianRupee size={20} />
+                          </div>
+                          <div>
+                            <p className="font-bold text-luxury-dark">Complete Payment</p>
+                            <p className="text-xs text-luxury-dark/40">Pay via UPI to secure your booking</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div className="flex flex-col md:flex-row gap-6 items-center bg-white p-4 rounded-2xl border border-luxury-dark/5">
+                          <div className="w-32 h-32 bg-luxury-cream rounded-xl flex items-center justify-center border border-luxury-dark/5 overflow-hidden shrink-0">
+                            <img 
+                              src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${booking.totalAmount}&cu=INR&tn=Booking%20${booking.id.slice(0, 8)}`)}`}
+                              alt="Payment QR Code"
+                              className="w-full h-full object-contain"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                          <div className="flex-1 space-y-3 w-full">
+                            <a 
+                              href={`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${booking.totalAmount}&cu=INR&tn=Booking%20${booking.id.slice(0, 8)}`}
+                              className="w-full bg-luxury-dark text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10"
+                            >
+                              <Zap size={18} />
+                              Pay ₹{booking.totalAmount.toLocaleString()} Now
+                            </a>
+                            
+                            <div className="grid grid-cols-2 gap-3">
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText('9313501001@pthdfc');
+                                  alert('UPI ID copied to clipboard!');
+                                }}
+                                className="py-2.5 px-4 bg-white border border-luxury-dark/10 rounded-xl text-[10px] font-bold text-luxury-dark hover:bg-luxury-cream transition-colors flex items-center justify-center gap-2"
+                              >
+                                <Copy size={12} /> Copy UPI ID
+                              </button>
+                              <a 
+                                href={`https://wa.me/919313501001?text=I%20have%20made%20the%20payment%20for%20Booking%20ID:%20${booking.id.slice(0, 8)}.%20Please%20verify.`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="py-2.5 px-4 bg-emerald-600 text-white rounded-xl text-[10px] font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+                              >
+                                <MessageSquare size={12} /> Send Proof
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <p className="text-[10px] text-center text-luxury-dark/30 mt-4 uppercase tracking-widest leading-relaxed">
+                        Scan QR code with any UPI App or click "Pay Now" on mobile. <br />
+                        After payment, send proof via WhatsApp for instant confirmation.
+                      </p>
+                    </div>
+                  )}
+
+                  {booking.status === 'pending' && booking.paymentStatus === 'unpaid' && (
+                    <div className="mt-8 p-6 bg-amber-50 rounded-2xl border border-amber-100 flex items-center gap-4">
+                      <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-amber-600">
+                        <Clock size={24} />
+                      </div>
+                      <div>
+                        <p className="font-bold text-amber-900">Awaiting Confirmation</p>
+                        <p className="text-sm text-amber-700/70">The owner will confirm your booking shortly. Payment option will appear once confirmed.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {booking.status === 'confirmed' && booking.paymentStatus === 'paid' && (
+                    <div className="mt-8 p-6 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center gap-4">
+                      <div className="w-12 h-12 bg-emerald-600 rounded-full flex items-center justify-center text-white">
+                        <CheckCircle2 size={24} />
+                      </div>
+                      <div>
+                        <p className="font-bold text-emerald-900">Booking Confirmed</p>
+                        <p className="text-sm text-emerald-700/70">We are excited to host you! See you soon.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {userRole === 'admin' && (
+                    <div className="mt-8 pt-8 border-t border-luxury-dark/5 flex flex-wrap gap-3">
+                      <p className="w-full text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-1">Admin Controls</p>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await setDoc(doc(db, 'bookings', booking.id), { status: 'confirmed' }, { merge: true });
+                          } catch (error) {
+                            handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
+                          }
+                        }}
+                        disabled={booking.status === 'confirmed'}
+                        className="flex-1 min-w-[120px] px-4 py-3 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Confirm Booking
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await setDoc(doc(db, 'bookings', booking.id), { status: 'cancelled' }, { merge: true });
+                          } catch (error) {
+                            handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
+                          }
+                        }}
+                        disabled={booking.status === 'cancelled'}
+                        className="flex-1 min-w-[120px] px-4 py-3 bg-red-600 text-white text-xs font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Cancel Booking
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            const newPaymentStatus = booking.paymentStatus === 'paid' ? 'unpaid' : 'paid';
+                            await setDoc(doc(db, 'bookings', booking.id), { paymentStatus: newPaymentStatus }, { merge: true });
+                          } catch (error) {
+                            handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
+                          }
+                        }}
+                        className={`flex-1 min-w-[120px] px-4 py-3 ${booking.paymentStatus === 'paid' ? 'bg-amber-600' : 'bg-luxury-dark'} text-white text-xs font-bold rounded-xl hover:opacity-90 transition-colors`}
+                      >
+                        Mark as {booking.paymentStatus === 'paid' ? 'Unpaid' : 'Paid'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: { 
+  onBookNow: () => void; 
+  onLogin: () => void;
+  user: FirebaseUser | null;
+  userRole: string | null;
+  onMyBookings: () => void;
+}) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -64,6 +676,10 @@ const Navbar = ({ onBookNow }: { onBookNow: () => void }) => {
     { name: 'Reviews', href: '#reviews' },
     { name: 'Location', href: '#location' },
   ];
+
+  const handleSignOut = () => {
+    signOut(auth);
+  };
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${isScrolled ? 'glass-nav py-4' : 'bg-transparent py-6'}`}>
@@ -92,6 +708,38 @@ const Navbar = ({ onBookNow }: { onBookNow: () => void }) => {
               {link.name}
             </a>
           ))}
+          
+          <div className="h-4 w-px bg-white/20" />
+
+          {user ? (
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={onMyBookings}
+                className={`flex items-center gap-2 text-sm font-medium hover:text-luxury-gold transition-colors ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}
+              >
+                {userRole === 'admin' ? <LayoutDashboard size={18} /> : <History size={18} />}
+                {userRole === 'admin' ? 'Admin Dashboard' : 'My Bookings'}
+              </button>
+              {userRole === 'admin' && (
+                <span className="px-2 py-0.5 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded uppercase tracking-widest">Admin</span>
+              )}
+              <button 
+                onClick={handleSignOut}
+                className={`flex items-center gap-2 text-sm font-medium hover:text-red-500 transition-colors ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={onLogin}
+              className={`flex items-center gap-2 text-sm font-medium hover:text-luxury-gold transition-colors ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}
+            >
+              <User size={18} />
+              Sign In
+            </button>
+          )}
+
           <button 
             onClick={onBookNow}
             className="luxury-button !py-2 !px-6 text-sm flex items-center gap-2"
@@ -129,21 +777,51 @@ const Navbar = ({ onBookNow }: { onBookNow: () => void }) => {
                 {link.name}
               </a>
             ))}
-            <a 
-              href="tel:+917503001001"
-              className="luxury-button-outline w-full text-center flex justify-center items-center gap-2"
-            >
-              <Phone size={18} /> Call Now
-            </a>
-            <button 
-              onClick={() => {
-                setIsMobileMenuOpen(false);
-                onBookNow();
-              }}
-              className="luxury-button w-full text-center flex justify-center items-center gap-2"
-            >
-              <Calendar size={18} /> Book Now
-            </button>
+            
+            <div className="pt-6 border-t border-luxury-dark/5 flex flex-col gap-4">
+              {user ? (
+                <>
+                  <button 
+                    onClick={() => {
+                      onMyBookings();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="flex items-center gap-3 text-luxury-dark font-bold"
+                  >
+                    {userRole === 'admin' ? <LayoutDashboard size={20} /> : <History size={20} />}
+                    {userRole === 'admin' ? 'Admin Dashboard' : 'My Bookings'}
+                  </button>
+                  <button 
+                    onClick={handleSignOut}
+                    className="flex items-center gap-3 text-red-500 font-bold"
+                  >
+                    <LogOut size={20} />
+                    Sign Out
+                  </button>
+                </>
+              ) : (
+                <button 
+                  onClick={() => {
+                    onLogin();
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 text-luxury-dark font-bold"
+                >
+                  <User size={20} />
+                  Sign In / Sign Up
+                </button>
+              )}
+              <button 
+                onClick={() => {
+                  onBookNow();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="luxury-button w-full flex items-center justify-center gap-2"
+              >
+                <Calendar size={20} />
+                Book Now
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -201,7 +879,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
           <button onClick={onBookNow} className="luxury-button w-full sm:w-auto">Check Availability</button>
-          <a href="tel:+917503001001" className="luxury-button-outline !border-white !text-white hover:!bg-white hover:!text-luxury-dark w-full sm:w-auto flex items-center justify-center gap-2">
+          <a href="tel:+919313501001" className="luxury-button-outline !border-white !text-white hover:!bg-white hover:!text-luxury-dark w-full sm:w-auto flex items-center justify-center gap-2">
             <Phone size={18} /> Call Now
           </a>
           <button onClick={onBookNow} className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2">
@@ -596,32 +1274,96 @@ const Reviews = () => {
   );
 };
 
-const BookingForm = ({ isModal = false, onClose }: { isModal?: boolean, onClose?: () => void }) => {
-  const [name, setName] = useState('');
+const BookingForm = ({ isModal = false, onClose, user }: { 
+  isModal?: boolean, 
+  onClose?: () => void,
+  user: FirebaseUser | null
+}) => {
+  const [name, setName] = useState(user?.displayName || '');
   const [mobile, setMobile] = useState('');
-  const [email, setEmail] = useState('');
-  const [guests, setGuests] = useState('1-5 Guests');
+  const [email, setEmail] = useState(user?.email || '');
+  const [guests, setGuests] = useState(1);
   const [occasion, setOccasion] = useState('');
   const [checkIn, setCheckIn] = useState('');
   const [checkOut, setCheckOut] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
-  const handleBookNow = (e: React.FormEvent) => {
+  const handleBookNow = async (e: React.FormEvent) => {
     e.preventDefault();
-    const message = `*New Booking Request for Unique Farmhouse*%0A%0A` +
-      `*Name:* ${name || 'Not specified'}%0A` +
-      `*Mobile:* ${mobile || 'Not specified'}%0A` +
-      `*Email:* ${email || 'Not specified'}%0A` +
-      `*Guests:* ${guests}%0A` +
-      `*Occasion:* ${occasion || 'Not specified'}%0A` +
-      `*Check-In:* ${checkIn || 'Not specified'}%0A` +
-      `*Check-Out:* ${checkOut || 'Not specified'}`;
-    
-    window.open(`https://wa.me/917503001001?text=${message}`, '_blank');
-    if (onClose) onClose();
+    setLoading(true);
+
+    const guestCount = guests;
+    const nights = checkIn && checkOut ? Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24)) : 1;
+    const totalAmount = Math.max(1, nights) * 25000; // Base price per night
+
+    try {
+      if (user) {
+        // Save to Firestore
+        await addDoc(collection(db, 'bookings'), {
+          uid: user.uid,
+          checkIn,
+          checkOut,
+          guests: guestCount,
+          status: 'pending',
+          totalAmount,
+          paymentStatus: 'unpaid',
+          createdAt: new Date().toISOString(),
+          name,
+          mobile,
+          email,
+          occasion
+        });
+      }
+
+      // Also send WhatsApp message for immediate attention
+      const message = `*New Booking Request for Unique Farmhouse*%0A%0A` +
+        `*Name:* ${name || 'Not specified'}%0A` +
+        `*Mobile:* ${mobile || 'Not specified'}%0A` +
+        `*Email:* ${email || 'Not specified'}%0A` +
+        `*Guests:* ${guests}%0A` +
+        `*Occasion:* ${occasion || 'Not specified'}%0A` +
+        `*Check-In:* ${checkIn || 'Not specified'}%0A` +
+        `*Check-Out:* ${checkOut || 'Not specified'}%0A` +
+        `*Total Amount:* ₹${totalAmount.toLocaleString()}`;
+      
+      window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
+      
+      setSuccess(true);
+      setTimeout(() => {
+        if (onClose) onClose();
+      }, 3000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'bookings');
+      alert('Failed to save booking. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (success) {
+    return (
+      <div className="py-12 text-center">
+        <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+          <CheckCircle2 size={40} />
+        </div>
+        <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Request Sent!</h3>
+        <p className="text-luxury-dark/60 mb-8">We've received your booking request. You can track the status in "My Bookings".</p>
+        <p className="text-xs text-luxury-dark/30 uppercase tracking-widest">Redirecting...</p>
+      </div>
+    );
+  }
 
   return (
     <form className="space-y-5" onSubmit={handleBookNow}>
+      {!user && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl mb-6 flex items-start gap-3">
+          <AlertCircle size={18} className="text-amber-600 mt-0.5" />
+          <p className="text-xs text-amber-800 leading-relaxed">
+            <strong>Note:</strong> You are not signed in. Sign in to track your booking status and pay online.
+          </p>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Full Name</label>
@@ -671,16 +1413,15 @@ const BookingForm = ({ isModal = false, onClose }: { isModal?: boolean, onClose?
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">No. of Guests</label>
           <div className="relative">
-            <select 
+            <input 
+              type="number" 
+              min="1"
+              max="50"
               value={guests}
-              onChange={(e) => setGuests(e.target.value)}
-              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors appearance-none text-sm"
-            >
-              <option>1-5 Guests</option>
-              <option>6-10 Guests</option>
-              <option>11-20 Guests</option>
-              <option>20+ Guests (Event)</option>
-            </select>
+              onChange={(e) => setGuests(parseInt(e.target.value) || 1)}
+              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm"
+              placeholder="Number of guests"
+            />
             <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
           </div>
         </div>
@@ -702,7 +1443,7 @@ const BookingForm = ({ isModal = false, onClose }: { isModal?: boolean, onClose?
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In</label>
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In (At 2:00 PM)</label>
           <div className="relative">
             <input 
               type="date" 
@@ -714,7 +1455,7 @@ const BookingForm = ({ isModal = false, onClose }: { isModal?: boolean, onClose?
           </div>
         </div>
         <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out</label>
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out (At 11:00 AM)</label>
           <div className="relative">
             <input 
               type="date" 
@@ -727,26 +1468,29 @@ const BookingForm = ({ isModal = false, onClose }: { isModal?: boolean, onClose?
         </div>
       </div>
 
-      <button type="submit" className="luxury-button w-full !py-4 flex items-center justify-center gap-2 group">
-        Confirm Booking on WhatsApp <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+      <button 
+        type="submit"
+        disabled={loading}
+        className="w-full bg-luxury-dark text-white py-4 rounded-xl font-bold hover:bg-luxury-gold hover:text-luxury-dark transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {loading ? (
+          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+        ) : (
+          <>
+            <Calendar size={18} />
+            Request Booking
+          </>
+        )}
       </button>
       
-      <div className="pt-2 border-t border-black/5">
-        <p className="text-[10px] text-center text-luxury-dark/40 uppercase tracking-widest">Or contact us directly</p>
-        <div className="flex gap-3 mt-3">
-          <a href="tel:+917503001001" className="luxury-button-outline flex-1 !py-3 text-center flex items-center justify-center gap-2 text-xs">
-            <Phone size={14} /> Call Now
-          </a>
-          <a href="https://wa.me/917503001001" target="_blank" rel="noopener noreferrer" className="luxury-button !bg-emerald-600 hover:!bg-emerald-700 flex-1 !py-3 flex items-center justify-center gap-2 text-xs">
-            <MessageCircle size={14} /> WhatsApp
-          </a>
-        </div>
-      </div>
+      <p className="text-[10px] text-center text-luxury-dark/30 uppercase tracking-widest mt-4">
+        By clicking, you agree to our terms and conditions.
+      </p>
     </form>
   );
 };
 
-const BookingModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
+const BookingModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () => void, user: FirebaseUser | null }) => {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -777,7 +1521,7 @@ const BookingModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => voi
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} />
+              <BookingForm isModal onClose={onClose} user={user} />
             </div>
           </motion.div>
         </div>
@@ -827,7 +1571,7 @@ const BookingSection = ({ onBookNow }: { onBookNow: () => void }) => {
                 </div>
                 <div>
                   <h4 className="font-medium">Direct Support</h4>
-                  <p className="text-sm text-luxury-dark/50">Call us directly at +91 7503001001 for any special requests.</p>
+                  <p className="text-sm text-luxury-dark/50">Call us directly at +91 9313501001 for any special requests.</p>
                 </div>
               </div>
             </div>
@@ -911,7 +1655,7 @@ const LocationSection = () => {
                   <Navigation size={18} /> Get Directions
                 </a>
                 <a 
-                  href="tel:+917503001001" 
+                  href="tel:+919313501001" 
                   className="luxury-button-outline flex items-center justify-center gap-2"
                 >
                   <Phone size={18} /> Call Property
@@ -989,7 +1733,7 @@ const Footer = () => {
             <ul className="space-y-4 text-white/50 text-sm">
               <li className="flex items-center gap-3">
                 <Phone size={16} className="text-luxury-gold" />
-                <a href="tel:+917503001001" className="hover:text-luxury-gold transition-colors">+91 7503001001</a>
+                <a href="tel:+919313501001" className="hover:text-luxury-gold transition-colors">+91 9313501001</a>
               </li>
               <li className="flex items-start gap-3">
                 <MapPin size={16} className="text-luxury-gold mt-1" />
@@ -1069,14 +1813,75 @@ const Footer = () => {
 
 export default function App() {
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<any>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        // Fetch user role
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists()) {
+          setUserRole(userDoc.data().role);
+        } else {
+          // Default for new users if not set during signup
+          const role = currentUser.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client';
+          setUserRole(role);
+          await setDoc(doc(db, 'users', currentUser.uid), {
+            uid: currentUser.uid,
+            email: currentUser.email,
+            displayName: currentUser.displayName,
+            role: role
+          }, { merge: true });
+        }
+      } else {
+        setUserRole(null);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const openBookingModal = () => setIsBookingModalOpen(true);
   const closeBookingModal = () => setIsBookingModalOpen(false);
 
+  if (loading) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-luxury-dark">
+        <div className="flex flex-col items-center gap-6">
+          <img 
+            src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
+            alt="Logo" 
+            className="h-24 w-auto animate-pulse"
+            referrerPolicy="no-referrer"
+          />
+          <div className="w-48 h-1 bg-white/10 rounded-full overflow-hidden">
+            <motion.div 
+              initial={{ x: '-100%' }}
+              animate={{ x: '100%' }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+              className="w-full h-full bg-luxury-gold"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative">
-      <Navbar onBookNow={openBookingModal} />
+      <Navbar 
+        onBookNow={openBookingModal} 
+        onLogin={() => setIsAuthModalOpen(true)}
+        user={user}
+        userRole={userRole}
+        onMyBookings={() => setIsDashboardOpen(true)}
+      />
       <main>
         <Hero onBookNow={openBookingModal} />
         <About />
@@ -1088,8 +1893,15 @@ export default function App() {
       </main>
       <Footer />
       
-      <BookingModal isOpen={isBookingModalOpen} onClose={closeBookingModal} />
+      <BookingModal isOpen={isBookingModalOpen} onClose={closeBookingModal} user={user} />
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <GalleryModal image={selectedImage} onClose={() => setSelectedImage(null)} />
+      
+      <AnimatePresence>
+        {isDashboardOpen && user && (
+          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} />
+        )}
+      </AnimatePresence>
 
       {/* Floating Action Buttons for Mobile */}
       <div className="fixed bottom-6 left-6 right-6 z-40 md:hidden flex gap-3">
@@ -1100,7 +1912,7 @@ export default function App() {
           <Calendar size={20} /> Book Now
         </button>
         <a 
-          href="https://wa.me/917503001001" 
+          href="https://wa.me/919313501001" 
           target="_blank" 
           rel="noopener noreferrer"
           className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl flex items-center justify-center gap-2 shadow-2xl font-bold"

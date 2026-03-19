@@ -1,0 +1,124 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (matches request.auth.uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string (optional)
+    //   - role: string (required, 'client' or 'admin')
+    //
+    // Collection: bookings
+    // Document ID: auto-generated
+    // Fields:
+    //   - uid: string (required, owner's UID)
+    //   - checkIn: string (required, ISO date)
+    //   - checkOut: string (required, ISO date)
+    //   - guests: number (required, > 0)
+    //   - status: string (required, 'pending', 'confirmed', 'cancelled')
+    //   - totalAmount: number (required, >= 0)
+    //   - paymentStatus: string (required, 'unpaid', 'paid')
+    //   - createdAt: string (required, ISO date-time)
+    //   - name: string (optional)
+    //   - mobile: string (optional)
+    //   - email: string (optional)
+    //   - occasion: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "anujkumarmittal@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}.*");
+    }
+
+    function isValidDateTimeString(dateTimeStr) {
+      return dateTimeStr is string && dateTimeStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['client', 'admin'] &&
+             data.keys().hasOnly(['uid', 'email', 'displayName', 'role']);
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             isValidDateString(data.checkIn) &&
+             isValidDateString(data.checkOut) &&
+             data.guests is int && data.guests > 0 &&
+             data.status in ['pending', 'confirmed', 'cancelled'] &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.paymentStatus in ['unpaid', 'paid'] &&
+             isValidDateTimeString(data.createdAt) &&
+             (!('name' in data) || data.name is string) &&
+             (!('mobile' in data) || data.mobile is string) &&
+             (!('email' in data) || isValidEmail(data.email)) &&
+             (!('occasion' in data) || data.occasion is string) &&
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion']);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'client' || isAdmin());
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidBooking(request.resource.data) && request.resource.data.status == 'pending';
+      allow update: if isAuthenticated() && (
+        // Owner can cancel their own pending booking
+        (resource.data.uid == request.auth.uid && isValidBooking(request.resource.data) && 
+         request.resource.data.uid == resource.data.uid &&
+         request.resource.data.status == 'cancelled' && resource.data.status == 'pending' &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+        // Admin can update anything
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

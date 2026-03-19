@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the application.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique identifier for the user."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The user's display name."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["client", "admin"],
+          "description": "The user's role in the application."
+        }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "A farmhouse booking.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The UID of the user who made the booking."
+        },
+        "checkIn": {
+          "type": "string",
+          "format": "date",
+          "description": "The check-in date."
+        },
+        "checkOut": {
+          "type": "string",
+          "format": "date",
+          "description": "The check-out date."
+        },
+        "guests": {
+          "type": "integer",
+          "description": "The number of guests."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "confirmed", "cancelled"],
+          "description": "The status of the booking."
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "The total amount for the booking."
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["unpaid", "paid"],
+          "description": "The payment status of the booking."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the booking was created."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the guest."
+        },
+        "mobile": {
+          "type": "string",
+          "description": "The mobile number of the guest."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The email address of the guest."
+        },
+        "occasion": {
+          "type": "string",
+          "description": "The occasion for the booking."
+        }
+      },
+      "required": ["uid", "checkIn", "checkOut", "guests", "status", "totalAmount", "paymentStatus", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profile data."
+    },
+    "bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Booking records."
+    }
+  }
+}
