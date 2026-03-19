@@ -50,6 +50,7 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  Edit3,
   IndianRupee,
   Copy,
   MessageSquare
@@ -345,6 +346,7 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
 const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole: string | null; onClose: () => void }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingBooking, setEditingBooking] = useState<any | null>(null);
 
   useEffect(() => {
     let q;
@@ -400,7 +402,23 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
       className="fixed inset-0 z-[100] bg-white overflow-y-auto"
     >
       <div className="max-w-7xl mx-auto px-6 py-12 md:py-24">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
+        {editingBooking ? (
+          <div className="max-w-2xl mx-auto">
+            <button 
+              onClick={() => setEditingBooking(null)}
+              className="flex items-center gap-2 text-luxury-dark/40 hover:text-luxury-dark transition-colors mb-8 group"
+            >
+              <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+              Back to Bookings
+            </button>
+            <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
+            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
+              <BookingForm user={user} editBooking={editingBooking} onClose={() => setEditingBooking(null)} />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
           <div>
             <button 
               onClick={onClose}
@@ -468,23 +486,34 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                         {getStatusIcon(booking.status)}
                         {booking.status}
                       </span>
-                      {userRole === 'admin' && (
-                        <div className="mt-3 p-3 bg-luxury-dark/5 rounded-xl border border-luxury-dark/5">
-                          <p className="text-xs font-bold text-luxury-dark flex items-center gap-2">
-                            <User size={12} className="text-luxury-gold" />
+                      <div className="mt-4 p-4 bg-luxury-dark/5 rounded-2xl border border-luxury-dark/5">
+                        <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold mb-3">Guest Details</p>
+                        <div className="space-y-2">
+                          <p className="text-sm font-bold text-luxury-dark flex items-center gap-2">
+                            <User size={14} className="text-luxury-gold" />
                             {booking.name || 'Guest'}
                           </p>
-                          <p className="text-[10px] text-luxury-dark/60 flex items-center gap-2 mt-1">
-                            <Mail size={10} />
+                          <p className="text-xs text-luxury-dark/60 flex items-center gap-2">
+                            <Mail size={12} />
                             {booking.email}
                           </p>
-                          <p className="text-[10px] text-luxury-dark/60 flex items-center gap-2 mt-1">
-                            <Phone size={10} />
+                          <p className="text-xs text-luxury-dark/60 flex items-center gap-2">
+                            <Phone size={12} />
                             {booking.mobile}
                           </p>
                         </div>
-                      )}
-                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-[0.2em] mt-3">Booking ID: {booking.id.slice(0, 8)}</p>
+                      </div>
+                      <div className="flex items-center gap-3 mt-4">
+                        <p className="text-[10px] text-luxury-dark/30 uppercase tracking-[0.2em]">Booking ID: {booking.id.slice(0, 8)}</p>
+                        {(userRole === 'admin' || booking.status === 'pending') && (
+                          <button 
+                            onClick={() => setEditingBooking(booking)}
+                            className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold hover:text-luxury-dark transition-colors flex items-center gap-1"
+                          >
+                            <Edit3 size={10} /> Modify
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="text-2xl font-serif font-bold text-luxury-dark">₹{booking.totalAmount.toLocaleString()}</p>
@@ -510,6 +539,10 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Occasion</p>
                       <p className="font-bold text-luxury-dark">{booking.occasion || 'General Stay'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
+                      <p className="font-bold text-luxury-dark">{format(new Date(booking.createdAt), 'MMM dd, yyyy')}</p>
                     </div>
                   </div>
 
@@ -649,9 +682,11 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
             ))}
           </div>
         )}
-      </div>
-    </motion.div>
-  );
+      </>
+    )}
+  </div>
+</motion.div>
+);
 };
 const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: { 
   onBookNow: () => void; 
@@ -1274,18 +1309,19 @@ const Reviews = () => {
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking }: { 
   isModal?: boolean, 
   onClose?: () => void,
-  user: FirebaseUser | null
+  user: FirebaseUser | null,
+  editBooking?: any
 }) => {
-  const [name, setName] = useState(user?.displayName || '');
-  const [mobile, setMobile] = useState('');
-  const [email, setEmail] = useState(user?.email || '');
-  const [guests, setGuests] = useState(1);
-  const [occasion, setOccasion] = useState('');
-  const [checkIn, setCheckIn] = useState('');
-  const [checkOut, setCheckOut] = useState('');
+  const [name, setName] = useState(editBooking?.name || user?.displayName || '');
+  const [mobile, setMobile] = useState(editBooking?.mobile || '');
+  const [email, setEmail] = useState(editBooking?.email || user?.email || '');
+  const [guests, setGuests] = useState(editBooking?.guests || 1);
+  const [occasion, setOccasion] = useState(editBooking?.occasion || '');
+  const [checkIn, setCheckIn] = useState(editBooking?.checkIn || '');
+  const [checkOut, setCheckOut] = useState(editBooking?.checkOut || '');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -1299,25 +1335,31 @@ const BookingForm = ({ isModal = false, onClose, user }: {
 
     try {
       if (user) {
-        // Save to Firestore
-        await addDoc(collection(db, 'bookings'), {
-          uid: user.uid,
+        const bookingData = {
+          uid: editBooking ? editBooking.uid : user.uid,
           checkIn,
           checkOut,
           guests: guestCount,
-          status: 'pending',
+          status: editBooking ? editBooking.status : 'pending',
           totalAmount,
-          paymentStatus: 'unpaid',
-          createdAt: new Date().toISOString(),
+          paymentStatus: editBooking ? editBooking.paymentStatus : 'unpaid',
+          createdAt: editBooking ? editBooking.createdAt : new Date().toISOString(),
           name,
           mobile,
           email,
           occasion
-        });
+        };
+
+        if (editBooking) {
+          await setDoc(doc(db, 'bookings', editBooking.id), bookingData);
+        } else {
+          await addDoc(collection(db, 'bookings'), bookingData);
+        }
       }
 
       // Also send WhatsApp message for immediate attention
-      const message = `*New Booking Request for Unique Farmhouse*%0A%0A` +
+      const message = `*${editBooking ? 'Updated' : 'New'} Booking Request for Unique Farmhouse*%0A%0A` +
+        `*Booking ID:* ${editBooking ? editBooking.id.slice(0, 8) : 'New'}%0A` +
         `*Name:* ${name || 'Not specified'}%0A` +
         `*Mobile:* ${mobile || 'Not specified'}%0A` +
         `*Email:* ${email || 'Not specified'}%0A` +
@@ -1334,22 +1376,93 @@ const BookingForm = ({ isModal = false, onClose, user }: {
         if (onClose) onClose();
       }, 3000);
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, 'bookings');
-      alert('Failed to save booking. Please try again.');
+      handleFirestoreError(err, editBooking ? OperationType.UPDATE : OperationType.CREATE, editBooking ? `bookings/${editBooking.id}` : 'bookings');
+      alert(`Failed to ${editBooking ? 'update' : 'save'} booking. Please try again.`);
     } finally {
       setLoading(false);
     }
   };
 
   if (success) {
+    const nights = checkIn && checkOut ? Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24)) : 1;
+    const totalAmount = Math.max(1, nights) * 25000;
+
     return (
-      <div className="py-12 text-center">
+      <div className="py-8 text-center">
         <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
           <CheckCircle2 size={40} />
         </div>
-        <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Request Sent!</h3>
-        <p className="text-luxury-dark/60 mb-8">We've received your booking request. You can track the status in "My Bookings".</p>
-        <p className="text-xs text-luxury-dark/30 uppercase tracking-widest">Redirecting...</p>
+        <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Booking {editBooking ? 'Updated' : 'Request Sent'}!</h3>
+        <p className="text-luxury-dark/60 mb-8">
+          {editBooking 
+            ? 'Your booking details have been successfully updated.' 
+            : "We've received your request. Our team will contact you shortly for confirmation."}
+        </p>
+        
+        <div className="bg-luxury-cream/50 rounded-3xl p-8 text-left border border-luxury-dark/5 mb-8">
+          <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold mb-6 border-b border-luxury-dark/5 pb-2">Booking Summary</p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guest Name</p>
+                <p className="font-bold text-luxury-dark flex items-center gap-2">
+                  <User size={14} className="text-luxury-gold" />
+                  {name}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Mobile Number</p>
+                <p className="font-bold text-luxury-dark flex items-center gap-2">
+                  <Phone size={14} className="text-luxury-gold" />
+                  {mobile}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Email Address</p>
+                <p className="font-bold text-luxury-dark flex items-center gap-2">
+                  <Mail size={14} className="text-luxury-gold" />
+                  {email}
+                </p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Check-In</p>
+                  <p className="font-bold text-luxury-dark">{format(new Date(checkIn), 'MMM dd, yyyy')}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Check-Out</p>
+                  <p className="font-bold text-luxury-dark">{format(new Date(checkOut), 'MMM dd, yyyy')}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guests</p>
+                  <p className="font-bold text-luxury-dark">{guests} Guests</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Occasion</p>
+                  <p className="font-bold text-luxury-dark">{occasion || 'General Stay'}</p>
+                </div>
+              </div>
+              <div className="pt-4 border-t border-luxury-dark/5">
+                <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Estimated Amount</p>
+                <p className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button 
+          onClick={onClose}
+          className="luxury-button w-full"
+        >
+          Close & Return
+        </button>
+        <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mt-6">You can track this booking in "My Bookings" section</p>
       </div>
     );
   }
@@ -1478,7 +1591,7 @@ const BookingForm = ({ isModal = false, onClose, user }: {
         ) : (
           <>
             <Calendar size={18} />
-            Request Booking
+            {editBooking ? 'Update Booking' : 'Request Booking'}
           </>
         )}
       </button>
