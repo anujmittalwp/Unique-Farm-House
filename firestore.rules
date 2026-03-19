@@ -75,20 +75,22 @@ service cloud.firestore {
     }
 
     function isValidBooking(data) {
-      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt']) &&
+      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit']) &&
              data.uid is string && data.uid.size() > 0 &&
              isValidDateString(data.checkIn) &&
              isValidDateString(data.checkOut) &&
              data.guests is int && data.guests > 0 &&
              data.status in ['pending', 'confirmed', 'cancelled'] &&
              data.totalAmount is number && data.totalAmount >= 0 &&
-             data.paymentStatus in ['unpaid', 'paid'] &&
+             data.amountPaid is number && data.amountPaid >= 0 &&
+             data.securityDeposit is number && data.securityDeposit >= 0 &&
+             data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
              isValidDateTimeString(data.createdAt) &&
              (!('name' in data) || data.name is string) &&
              (!('mobile' in data) || data.mobile is string) &&
              (!('email' in data) || isValidEmail(data.email)) &&
              (!('occasion' in data) || data.occasion is string) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion']);
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit']);
     }
 
     // ===============================================================
@@ -111,6 +113,7 @@ service cloud.firestore {
          request.resource.data.uid == resource.data.uid &&
          request.resource.data.status == 'pending' &&
          request.resource.data.paymentStatus == resource.data.paymentStatus &&
+         request.resource.data.amountPaid == resource.data.amountPaid &&
          request.resource.data.createdAt == resource.data.createdAt) ||
         // Client can cancel their own pending booking
         (resource.data.uid == request.auth.uid && 

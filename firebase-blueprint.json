@@ -58,9 +58,17 @@
           "type": "number",
           "description": "The total amount for the booking."
         },
+        "amountPaid": {
+          "type": "number",
+          "description": "The amount paid by the guest."
+        },
+        "securityDeposit": {
+          "type": "number",
+          "description": "The security deposit amount."
+        },
         "paymentStatus": {
           "type": "string",
-          "enum": ["unpaid", "paid"],
+          "enum": ["unpaid", "part-paid", "paid"],
           "description": "The payment status of the booking."
         },
         "createdAt": {

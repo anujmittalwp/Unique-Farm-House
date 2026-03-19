@@ -394,6 +394,39 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
     }
   };
 
+  const getPaymentStatusColor = (status: string) => {
+    switch (status) {
+      case 'paid': return 'text-emerald-600 bg-emerald-50';
+      case 'part-paid': return 'text-blue-600 bg-blue-50';
+      default: return 'text-red-600 bg-red-50';
+    }
+  };
+
+  const [paymentInputs, setPaymentInputs] = useState<{[key: string]: string}>({});
+
+  const handleUpdatePayment = async (bookingId: string, totalAmount: number) => {
+    const amount = parseFloat(paymentInputs[bookingId]);
+    if (isNaN(amount)) return;
+
+    let status: 'unpaid' | 'part-paid' | 'paid' = 'unpaid';
+    if (amount >= totalAmount) status = 'paid';
+    else if (amount > 0) status = 'part-paid';
+
+    try {
+      await setDoc(doc(db, 'bookings', bookingId), { 
+        amountPaid: amount,
+        paymentStatus: status
+      }, { merge: true });
+      setPaymentInputs(prev => {
+        const next = {...prev};
+        delete next[bookingId];
+        return next;
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `bookings/${bookingId}`);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -517,9 +550,15 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                     </div>
                     <div className="text-right">
                       <p className="text-2xl font-serif font-bold text-luxury-dark">₹{booking.totalAmount.toLocaleString()}</p>
-                      <p className={`text-xs font-bold mt-1 ${booking.paymentStatus === 'paid' ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {booking.paymentStatus === 'paid' ? 'Payment Completed' : 'Payment Pending'}
-                      </p>
+                      <div className="mt-2 space-y-1">
+                        <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${getPaymentStatusColor(booking.paymentStatus)}`}>
+                          {booking.paymentStatus === 'paid' ? 'Paid' : booking.paymentStatus === 'part-paid' ? 'Partially Paid' : 'Unpaid'}
+                        </div>
+                        <div className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold space-y-0.5">
+                          <p>Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
+                          <p className="text-luxury-gold">Balance: ₹{(booking.totalAmount - (booking.amountPaid || 0)).toLocaleString()}</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -564,7 +603,7 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                         <div className="flex flex-col md:flex-row gap-6 items-center bg-white p-4 rounded-2xl border border-luxury-dark/5">
                           <div className="w-32 h-32 bg-luxury-cream rounded-xl flex items-center justify-center border border-luxury-dark/5 overflow-hidden shrink-0">
                             <img 
-                              src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${booking.totalAmount}&cu=INR&tn=Booking%20${booking.id.slice(0, 8)}`)}`}
+                              src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${booking.totalAmount - (booking.amountPaid || 0)}&cu=INR&tn=Booking%20${booking.id.slice(0, 8)}`)}`}
                               alt="Payment QR Code"
                               className="w-full h-full object-contain"
                               referrerPolicy="no-referrer"
@@ -572,11 +611,11 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                           </div>
                           <div className="flex-1 space-y-3 w-full">
                             <a 
-                              href={`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${booking.totalAmount}&cu=INR&tn=Booking%20${booking.id.slice(0, 8)}`}
+                              href={`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${booking.totalAmount - (booking.amountPaid || 0)}&cu=INR&tn=Booking%20${booking.id.slice(0, 8)}`}
                               className="w-full bg-luxury-dark text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10"
                             >
                               <Zap size={18} />
-                              Pay ₹{booking.totalAmount.toLocaleString()} Now
+                              Pay ₹{(booking.totalAmount - (booking.amountPaid || 0)).toLocaleString()} Now
                             </a>
                             
                             <div className="grid grid-cols-2 gap-3">
@@ -634,47 +673,64 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                   )}
 
                   {userRole === 'admin' && (
-                    <div className="mt-8 pt-8 border-t border-luxury-dark/5 flex flex-wrap gap-3">
-                      <p className="w-full text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-1">Admin Controls</p>
-                      <button 
-                        onClick={async () => {
-                          try {
-                            await setDoc(doc(db, 'bookings', booking.id), { status: 'confirmed' }, { merge: true });
-                          } catch (error) {
-                            handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
-                          }
-                        }}
-                        disabled={booking.status === 'confirmed'}
-                        className="flex-1 min-w-[120px] px-4 py-3 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Confirm Booking
-                      </button>
-                      <button 
-                        onClick={async () => {
-                          try {
-                            await setDoc(doc(db, 'bookings', booking.id), { status: 'cancelled' }, { merge: true });
-                          } catch (error) {
-                            handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
-                          }
-                        }}
-                        disabled={booking.status === 'cancelled'}
-                        className="flex-1 min-w-[120px] px-4 py-3 bg-red-600 text-white text-xs font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Cancel Booking
-                      </button>
-                      <button 
-                        onClick={async () => {
-                          try {
-                            const newPaymentStatus = booking.paymentStatus === 'paid' ? 'unpaid' : 'paid';
-                            await setDoc(doc(db, 'bookings', booking.id), { paymentStatus: newPaymentStatus }, { merge: true });
-                          } catch (error) {
-                            handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
-                          }
-                        }}
-                        className={`flex-1 min-w-[120px] px-4 py-3 ${booking.paymentStatus === 'paid' ? 'bg-amber-600' : 'bg-luxury-dark'} text-white text-xs font-bold rounded-xl hover:opacity-90 transition-colors`}
-                      >
-                        Mark as {booking.paymentStatus === 'paid' ? 'Unpaid' : 'Paid'}
-                      </button>
+                    <div className="mt-8 pt-8 border-t border-luxury-dark/5">
+                      <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-4">Admin Controls</p>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold">Update Payment Received</label>
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-luxury-dark/40 text-xs">₹</span>
+                              <input 
+                                type="number"
+                                placeholder="Amount"
+                                value={paymentInputs[booking.id] ?? (booking.amountPaid || '')}
+                                onChange={(e) => setPaymentInputs(prev => ({...prev, [booking.id]: e.target.value}))}
+                                className="w-full pl-7 pr-4 py-2 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold text-xs font-bold"
+                              />
+                            </div>
+                            <button 
+                              onClick={() => handleUpdatePayment(booking.id, booking.totalAmount)}
+                              className="px-4 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all"
+                            >
+                              Update
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold">Status Actions</label>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={async () => {
+                                try {
+                                  await setDoc(doc(db, 'bookings', booking.id), { status: 'confirmed' }, { merge: true });
+                                } catch (error) {
+                                  handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
+                                }
+                              }}
+                              disabled={booking.status === 'confirmed'}
+                              className="flex-1 px-3 py-2 bg-emerald-600 text-white text-[10px] font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                            >
+                              Confirm
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                try {
+                                  await setDoc(doc(db, 'bookings', booking.id), { status: 'cancelled' }, { merge: true });
+                                } catch (error) {
+                                  handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
+                                }
+                              }}
+                              disabled={booking.status === 'cancelled'}
+                              className="flex-1 px-3 py-2 bg-red-600 text-white text-[10px] font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1329,9 +1385,29 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
     e.preventDefault();
     setLoading(true);
 
-    const guestCount = guests;
-    const nights = checkIn && checkOut ? Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24)) : 1;
-    const totalAmount = Math.max(1, nights) * 25000; // Base price per night
+    const calculateTotal = () => {
+      if (!checkIn || !checkOut) return 0;
+      const start = new Date(checkIn);
+      const end = new Date(checkOut);
+      let total = 0;
+      let current = new Date(start);
+      
+      while (current < end) {
+        const day = current.getDay(); 
+        // Weekdays: Mon-Thu (1-4)
+        // Weekends: Fri-Sun (5, 6, 0)
+        if (day >= 1 && day <= 4) {
+          total += 15000;
+        } else {
+          total += 18000;
+        }
+        current.setDate(current.getDate() + 1);
+      }
+      return total + 5000; // Adding Security Deposit
+    };
+
+    const totalAmount = calculateTotal();
+    const securityDeposit = 5000;
 
     try {
       if (user) {
@@ -1339,9 +1415,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
           uid: editBooking ? editBooking.uid : user.uid,
           checkIn,
           checkOut,
-          guests: guestCount,
+          guests: guests,
           status: editBooking ? editBooking.status : 'pending',
           totalAmount,
+          amountPaid: editBooking ? (editBooking.amountPaid || 0) : 0,
+          securityDeposit,
           paymentStatus: editBooking ? editBooking.paymentStatus : 'unpaid',
           createdAt: editBooking ? editBooking.createdAt : new Date().toISOString(),
           name,
@@ -1367,7 +1445,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
         `*Occasion:* ${occasion || 'Not specified'}%0A` +
         `*Check-In:* ${checkIn || 'Not specified'}%0A` +
         `*Check-Out:* ${checkOut || 'Not specified'}%0A` +
-        `*Total Amount:* ₹${totalAmount.toLocaleString()}`;
+        `*Total Amount:* ₹${totalAmount.toLocaleString()} (Includes ₹5,000 Security)`;
       
       window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
       
@@ -1384,8 +1462,21 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
   };
 
   if (success) {
-    const nights = checkIn && checkOut ? Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24)) : 1;
-    const totalAmount = Math.max(1, nights) * 25000;
+    const calculateTotal = () => {
+      if (!checkIn || !checkOut) return 0;
+      const start = new Date(checkIn);
+      const end = new Date(checkOut);
+      let total = 0;
+      let current = new Date(start);
+      while (current < end) {
+        const day = current.getDay();
+        if (day >= 1 && day <= 4) total += 15000;
+        else total += 18000;
+        current.setDate(current.getDate() + 1);
+      }
+      return total + 5000;
+    };
+    const totalAmount = calculateTotal();
 
     return (
       <div className="py-8 text-center">
@@ -1451,6 +1542,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
               <div className="pt-4 border-t border-luxury-dark/5">
                 <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Estimated Amount</p>
                 <p className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</p>
+                <p className="text-[10px] text-luxury-dark/40 italic mt-1">(Includes ₹5,000 Refundable Security)</p>
               </div>
             </div>
           </div>
