@@ -1389,7 +1389,14 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           transition={{ delay: 0.8 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
-          <button onClick={onBookNow} className="luxury-button w-full sm:w-auto">Check Availability</button>
+          <a 
+            href="https://wa.me/919313501001" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] border-none text-white"
+          >
+            <MessageCircle size={18} /> Send WhatsApp
+          </a>
           <a href="tel:+919313501001" className="luxury-button-outline !border-white !text-white hover:!bg-white hover:!text-luxury-dark w-full sm:w-auto flex items-center justify-center gap-2">
             <Phone size={18} /> Call Now
           </a>
@@ -2938,20 +2945,22 @@ export default function App() {
         </a>
       </div>
 
-
-      {/* Desktop Floating Book Now Button */}
-      <motion.button
-        initial={{ opacity: 0, x: 100 }}
-        animate={{ opacity: 1, x: 0 }}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={openBookingModal}
-        className="fixed bottom-8 right-8 z-40 hidden md:flex bg-luxury-gold text-luxury-dark px-8 py-4 rounded-full items-center gap-3 shadow-2xl font-bold group"
+      {/* Desktop Floating WhatsApp Button */}
+      <motion.a
+        initial={{ opacity: 0, scale: 0.5 }}
+        animate={{ opacity: 1, scale: 1 }}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
+        href="https://wa.me/919313501001"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-8 right-8 z-50 hidden md:flex bg-[#25D366] text-white p-4 rounded-full shadow-2xl items-center justify-center group"
       >
-        <Calendar size={20} />
-        <span>Book Your Stay</span>
-        <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-      </motion.button>
+        <MessageCircle size={28} />
+        <span className="absolute right-full mr-4 bg-white text-luxury-dark px-4 py-2 rounded-xl text-xs font-bold shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+          Chat with us on WhatsApp
+        </span>
+      </motion.a>
     </div>
   );
 }
