@@ -345,12 +345,41 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
   );
 };
 
-const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole: string | null; onClose: () => void }) => {
+const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
+  const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews'>('all');
+  const [isAdminCreating, setIsAdminCreating] = useState(false);
+  const [reviews, setReviews] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (userRole === 'admin' && activeFilter === 'reviews') {
+      const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setReviews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+      return () => unsubscribe();
+    }
+  }, [userRole, activeFilter]);
+
+  const handleReviewStatus = async (reviewId: string, status: 'approved' | 'rejected' | 'pending') => {
+    try {
+      await setDoc(doc(db, 'reviews', reviewId), { status }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `reviews/${reviewId}`);
+    }
+  };
+
+  const handleDeleteReview = async (reviewId: string) => {
+    try {
+      await deleteDoc(doc(db, 'reviews', reviewId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `reviews/${reviewId}`);
+    }
+  };
 
   useEffect(() => {
     let q;
@@ -472,7 +501,34 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} editBooking={editingBooking} onClose={() => setEditingBooking(null)} />
+              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} />
+            </div>
+          </div>
+        ) : reviewingBooking ? (
+          <div className="max-w-2xl mx-auto">
+            <button 
+              onClick={() => setReviewingBooking(null)}
+              className="flex items-center gap-2 text-luxury-dark/40 hover:text-luxury-dark transition-colors mb-8 group"
+            >
+              <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+              Back to Bookings
+            </button>
+            <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-xl overflow-hidden">
+              <ReviewForm booking={reviewingBooking} user={user} onClose={() => setReviewingBooking(null)} />
+            </div>
+          </div>
+        ) : isAdminCreating ? (
+          <div className="max-w-2xl mx-auto">
+            <button 
+              onClick={() => setIsAdminCreating(false)}
+              className="flex items-center gap-2 text-luxury-dark/40 hover:text-luxury-dark transition-colors mb-8 group"
+            >
+              <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+              Back to Bookings
+            </button>
+            <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Create Manual Booking</h2>
+            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
+              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} />
             </div>
           </div>
         ) : (
@@ -486,9 +542,19 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
               <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
               Back to Home
             </button>
-            <h1 className="text-4xl md:text-5xl font-serif font-bold text-luxury-dark">
-              {userRole === 'admin' ? 'All Bookings' : 'My Bookings'}
-            </h1>
+            <div className="flex items-center gap-4">
+              <h1 className="text-4xl md:text-5xl font-serif font-bold text-luxury-dark">
+                {userRole === 'admin' ? 'All Bookings' : 'My Bookings'}
+              </h1>
+              {userRole === 'admin' && (
+                <button 
+                  onClick={() => setIsAdminCreating(true)}
+                  className="px-6 py-2 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center gap-2"
+                >
+                  <Calendar size={16} /> Create Booking
+                </button>
+              )}
+            </div>
             <p className="text-luxury-dark/60 mt-2">
               {userRole === 'admin' ? 'Manage all luxury stays and celebration details' : 'Manage your luxury stays and celebration details'}
             </p>
@@ -512,7 +578,8 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
               { id: 'upcoming', label: 'Upcoming' },
               { id: 'completed', label: 'Completed' },
               { id: 'pending', label: 'Pending' },
-              { id: 'cancelled', label: 'Cancelled' }
+              { id: 'cancelled', label: 'Cancelled' },
+              { id: 'reviews', label: 'Manage Reviews' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -525,7 +592,7 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
               >
                 {tab.label}
                 <span className="ml-2 opacity-50">
-                  ({bookings.filter(b => {
+                  ({tab.id === 'reviews' ? reviews.length : bookings.filter(b => {
                     if (tab.id === 'all') return true;
                     if (tab.id === 'pending') return b.status === 'pending';
                     if (tab.id === 'cancelled') return b.status === 'cancelled';
@@ -547,6 +614,68 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <div className="w-12 h-12 border-4 border-luxury-gold/20 border-t-luxury-gold rounded-full animate-spin" />
             <p className="text-luxury-dark/40 font-medium">Loading your bookings...</p>
+          </div>
+        ) : activeFilter === 'reviews' && userRole === 'admin' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {reviews.map(review => (
+              <div key={review.id} className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-luxury-gold/20 flex items-center justify-center text-luxury-gold font-bold">
+                      {review.userName[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-bold text-luxury-dark">{review.userName}</p>
+                      <p className="text-[10px] text-luxury-dark/40">{format(new Date(review.createdAt), 'MMM dd, yyyy')}</p>
+                    </div>
+                  </div>
+                  <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+                    review.status === 'approved' ? 'bg-emerald-50 text-emerald-600' : 
+                    review.status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'
+                  }`}>
+                    {review.status}
+                  </div>
+                </div>
+                <div className="flex gap-1 mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} size={14} className={i < review.rating ? 'text-luxury-gold fill-luxury-gold' : 'text-luxury-dark/10'} />
+                  ))}
+                </div>
+                <p className="text-sm text-luxury-dark/70 italic mb-6">"{review.comment}"</p>
+                <div className="flex gap-2">
+                  {review.status === 'pending' && (
+                    <>
+                      <button 
+                        onClick={() => handleReviewStatus(review.id, 'approved')}
+                        className="flex-1 py-2 bg-emerald-600 text-white text-[10px] font-bold rounded-xl hover:bg-emerald-700 transition-colors"
+                      >
+                        Approve
+                      </button>
+                      <button 
+                        onClick={() => handleReviewStatus(review.id, 'rejected')}
+                        className="flex-1 py-2 bg-red-600 text-white text-[10px] font-bold rounded-xl hover:bg-red-700 transition-colors"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                  {review.status !== 'pending' && (
+                    <button 
+                      onClick={() => handleReviewStatus(review.id, 'pending')}
+                      className="flex-1 py-2 bg-luxury-dark/5 text-luxury-dark/40 text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all"
+                    >
+                      Reset to Pending
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => handleDeleteReview(review.id)}
+                    className="p-2 border border-red-100 text-red-600 rounded-xl hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         ) : filteredBookings.length === 0 ? (
           <div className="bg-luxury-dark/5 rounded-3xl p-12 md:p-24 text-center">
@@ -619,7 +748,9 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                           {booking.paymentStatus === 'paid' ? 'Paid' : booking.paymentStatus === 'part-paid' ? 'Partially Paid' : 'Unpaid'}
                         </div>
                         <div className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold space-y-0.5">
-                          <p>Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
+                          <p>Booking: ₹{(booking.bookingAmount || (booking.totalAmount - (booking.securityDeposit || 5000))).toLocaleString()}</p>
+                          <p>Security: ₹{(booking.securityDeposit || 5000).toLocaleString()}</p>
+                          <p className="pt-1 border-t border-luxury-dark/5">Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
                           <p className="text-luxury-gold">Balance: ₹{(booking.totalAmount - (booking.amountPaid || 0)).toLocaleString()}</p>
                         </div>
                       </div>
@@ -725,14 +856,25 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                   )}
 
                   {booking.status === 'confirmed' && booking.paymentStatus === 'paid' && (
-                    <div className="mt-8 p-6 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center gap-4">
-                      <div className="w-12 h-12 bg-emerald-600 rounded-full flex items-center justify-center text-white">
-                        <CheckCircle2 size={24} />
+                    <div className="mt-8 flex flex-col md:flex-row gap-4">
+                      <div className="flex-1 p-6 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center gap-4">
+                        <div className="w-12 h-12 bg-emerald-600 rounded-full flex items-center justify-center text-white">
+                          <CheckCircle2 size={24} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-emerald-900">Booking Confirmed</p>
+                          <p className="text-sm text-emerald-700/70">We are excited to host you! See you soon.</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-bold text-emerald-900">Booking Confirmed</p>
-                        <p className="text-sm text-emerald-700/70">We are excited to host you! See you soon.</p>
-                      </div>
+                      
+                      {new Date(booking.checkOut) <= new Date() && (
+                        <button 
+                          onClick={() => setReviewingBooking(booking)}
+                          className="px-8 py-4 bg-luxury-dark text-white rounded-2xl font-bold hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 shadow-lg shadow-luxury-dark/10"
+                        >
+                          <Star size={20} /> Leave a Review
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -1413,80 +1555,254 @@ const GalleryModal = ({ image, onClose }: { image: any, onClose: () => void }) =
 };
 
 
-const Reviews = () => {
+const ReviewForm = ({ booking, user, onClose }: { booking: any; user: FirebaseUser; onClose: () => void }) => {
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      await addDoc(collection(db, 'reviews'), {
+        uid: user.uid,
+        bookingId: booking.id,
+        rating,
+        comment,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        userName: user.displayName || user.email?.split('@')[0] || 'Guest'
+      });
+      onClose();
+      alert('Thank you for your review! It will be visible once approved by the admin.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'reviews');
+      setError('Failed to submit review. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <section id="reviews" className="py-24 px-6 bg-luxury-dark text-white">
+    <div className="p-8">
+      <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Leave a Review</h3>
+      <p className="text-sm text-luxury-dark/60 mb-8">Share your experience at Unique Farmhouse</p>
+
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm flex items-center gap-3">
+          <AlertCircle size={18} />
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/40 mb-4">Rating</label>
+          <div className="flex gap-2">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <button
+                key={star}
+                type="button"
+                onClick={() => setRating(star)}
+                className="transition-transform hover:scale-110"
+              >
+                <Star 
+                  size={32} 
+                  className={star <= rating ? 'text-luxury-gold fill-luxury-gold' : 'text-luxury-dark/10'} 
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/40 mb-2">Your Comment</label>
+          <textarea
+            required
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={4}
+            maxLength={1000}
+            className="w-full bg-luxury-dark/5 border-none rounded-2xl py-4 px-4 focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none"
+            placeholder="Tell us about your stay..."
+          />
+          <p className="text-[10px] text-right text-luxury-dark/30 mt-1">{comment.length}/1000 characters</p>
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-luxury-dark text-white py-4 rounded-2xl font-bold hover:bg-luxury-gold hover:text-luxury-dark transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {loading ? (
+            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            'Submit Review'
+          )}
+        </button>
+      </form>
+    </div>
+  );
+};
+
+
+const Reviews = () => {
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'reviews'),
+      where('status', '==', 'approved'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const reviewsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setReviews(reviewsData);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'reviews');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const averageRating = useMemo(() => {
+    if (reviews.length === 0) return 5.0;
+    const sum = reviews.reduce((acc, rev) => acc + rev.rating, 0);
+    return (sum / reviews.length).toFixed(1);
+  }, [reviews]);
+
+  if (loading) return null;
+
+  const displayReviews = reviews.length > 0 ? reviews : [{
+    id: 'default',
+    userName: 'Anuj Mittal',
+    rating: 5,
+    comment: 'An absolutely stunning property! We hosted a family get-together here and everything was perfect. The pool is clean, the rooms are massive, and the staff is very helpful. Highly recommended for anyone looking for a private luxury stay in Noida.',
+    createdAt: new Date().toISOString()
+  }];
+
+  const currentReview = displayReviews[currentIndex % displayReviews.length];
+
+  return (
+    <section id="reviews" className="py-24 px-6 bg-luxury-dark text-white overflow-hidden">
       <div className="max-w-4xl mx-auto text-center">
         <span className="section-subtitle !text-luxury-gold">Guest Testimonials</span>
         <h2 className="section-title !text-white">What Our Guests Say</h2>
         
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="mt-16 p-12 bg-white/5 backdrop-blur-sm rounded-3xl border border-white/10 relative"
-        >
-          <div className="flex justify-center gap-1 mb-6">
-            {[...Array(5)].map((_, i) => (
-              <Star key={i} size={24} className="text-luxury-gold fill-luxury-gold" />
-            ))}
-          </div>
-          
-          <p className="text-2xl md:text-3xl font-serif italic mb-8 leading-relaxed">
-            "An absolutely stunning property! We hosted a family get-together here and everything was perfect. The pool is clean, the rooms are massive, and the staff is very helpful. Highly recommended for anyone looking for a private luxury stay in Noida."
-          </p>
-          
-          <div className="flex flex-col items-center">
-            <div className="w-16 h-16 rounded-full bg-luxury-gold/20 flex items-center justify-center mb-4">
-              <span className="text-xl font-bold text-luxury-gold">A</span>
+        <div className="relative mt-16">
+          <AnimatePresence mode="wait">
+            <motion.div 
+              key={currentReview.id}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="p-12 bg-white/5 backdrop-blur-sm rounded-3xl border border-white/10 relative"
+            >
+              <div className="flex justify-center gap-1 mb-6">
+                {[...Array(5)].map((_, i) => (
+                  <Star 
+                    key={i} 
+                    size={24} 
+                    className={i < currentReview.rating ? 'text-luxury-gold fill-luxury-gold' : 'text-white/10'} 
+                  />
+                ))}
+              </div>
+              
+              <p className="text-2xl md:text-3xl font-serif italic mb-8 leading-relaxed">
+                "{currentReview.comment}"
+              </p>
+              
+              <div className="flex flex-col items-center">
+                <div className="w-16 h-16 rounded-full bg-luxury-gold/20 flex items-center justify-center mb-4">
+                  <span className="text-xl font-bold text-luxury-gold">
+                    {currentReview.userName[0].toUpperCase()}
+                  </span>
+                </div>
+                <h4 className="text-lg font-medium">{currentReview.userName}</h4>
+                <span className="text-sm text-white/50">Verified Guest</span>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+
+          {displayReviews.length > 1 && (
+            <div className="flex justify-center gap-4 mt-8">
+              <button 
+                onClick={() => setCurrentIndex((prev) => (prev - 1 + displayReviews.length) % displayReviews.length)}
+                className="p-3 rounded-full bg-white/5 border border-white/10 hover:bg-luxury-gold hover:text-luxury-dark transition-all"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button 
+                onClick={() => setCurrentIndex((prev) => (prev + 1) % displayReviews.length)}
+                className="p-3 rounded-full bg-white/5 border border-white/10 hover:bg-luxury-gold hover:text-luxury-dark transition-all"
+              >
+                <ChevronRight size={20} />
+              </button>
             </div>
-            <h4 className="text-lg font-medium">Anuj Mittal</h4>
-            <span className="text-sm text-white/50">Verified Guest</span>
-          </div>
+          )}
 
           <div className="mt-12 pt-8 border-t border-white/10 flex flex-col md:flex-row justify-center items-center gap-8">
             <div className="flex items-center gap-3">
-              <span className="text-4xl font-serif font-bold text-luxury-gold">5.0</span>
+              <span className="text-4xl font-serif font-bold text-luxury-gold">{averageRating}</span>
               <div className="text-left">
                 <div className="flex gap-0.5">
-                  {[...Array(5)].map((_, i) => <Star key={i} size={12} className="text-luxury-gold fill-luxury-gold" />)}
+                  {[...Array(5)].map((_, i) => (
+                    <Star 
+                      key={i} 
+                      size={12} 
+                      className={i < Math.round(Number(averageRating)) ? 'text-luxury-gold fill-luxury-gold' : 'text-white/20'} 
+                    />
+                  ))}
                 </div>
                 <span className="text-xs uppercase tracking-widest text-white/40">Average Rating</span>
               </div>
             </div>
             <div className="h-8 w-[1px] bg-white/10 hidden md:block"></div>
             <div className="text-white/60 text-sm">
-              Based on 1 Verified Review
+              Based on {reviews.length || 1} Verified {reviews.length === 1 || reviews.length === 0 ? 'Review' : 'Reviews'}
             </div>
           </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
-  editBooking?: any
+  editBooking?: any,
+  userRole?: string | null,
+  onLogin?: () => void
 }) => {
-  const [name, setName] = useState(editBooking?.name || user?.displayName || '');
+  const [name, setName] = useState(editBooking?.name || (userRole === 'admin' && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
-  const [email, setEmail] = useState(editBooking?.email || user?.email || '');
+  const [email, setEmail] = useState(editBooking?.email || (userRole === 'admin' && !editBooking ? '' : user?.email || ''));
   const [guests, setGuests] = useState(editBooking?.guests || 1);
   const [occasion, setOccasion] = useState(editBooking?.occasion || '');
   const [checkIn, setCheckIn] = useState(editBooking?.checkIn || '');
   const [checkOut, setCheckOut] = useState(editBooking?.checkOut || '');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [isAdminBooking, setIsAdminBooking] = useState(userRole === 'admin' && !editBooking);
+  const [bookingAmount, setBookingAmount] = useState<number>(editBooking?.bookingAmount || (editBooking ? (editBooking.totalAmount - (editBooking.securityDeposit || 5000)) : 0));
+  const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || 5000);
+  const [amountPaid, setAmountPaid] = useState<number>(editBooking?.amountPaid || 0);
 
-  const handleBookNow = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    const calculateTotal = () => {
-      if (!checkIn || !checkOut) return 0;
+  useEffect(() => {
+    if (!editBooking && checkIn && checkOut) {
       const start = new Date(checkIn);
       const end = new Date(checkOut);
       let total = 0;
@@ -1494,8 +1810,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
       
       while (current < end) {
         const day = current.getDay(); 
-        // Weekdays: Mon-Thu (1-4)
-        // Weekends: Fri-Sun (5, 6, 0)
         if (day >= 1 && day <= 4) {
           total += 15000;
         } else {
@@ -1503,29 +1817,36 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
         }
         current.setDate(current.getDate() + 1);
       }
-      return total + 5000; // Adding Security Deposit
-    };
+      setBookingAmount(total);
+    }
+  }, [checkIn, checkOut, editBooking]);
 
-    const totalAmount = calculateTotal();
-    const securityDeposit = 5000;
+  const handleBookNow = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const totalAmount = bookingAmount + securityAmount;
+    const securityDeposit = securityAmount;
 
     try {
       if (user) {
         const bookingData = {
-          uid: editBooking ? editBooking.uid : user.uid,
+          uid: editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : user.uid),
           checkIn,
           checkOut,
           guests: guests,
-          status: editBooking ? editBooking.status : 'pending',
+          status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
+          bookingAmount,
           totalAmount,
-          amountPaid: editBooking ? (editBooking.amountPaid || 0) : 0,
+          amountPaid: amountPaid,
           securityDeposit,
-          paymentStatus: editBooking ? editBooking.paymentStatus : 'unpaid',
+          paymentStatus: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'part-paid' : 'unpaid'),
           createdAt: editBooking ? editBooking.createdAt : new Date().toISOString(),
           name,
           mobile,
           email,
-          occasion
+          occasion,
+          bookedBy: userRole === 'admin' ? 'admin' : 'client'
         };
 
         if (editBooking) {
@@ -1545,7 +1866,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
         `*Occasion:* ${occasion || 'Not specified'}%0A` +
         `*Check-In:* ${checkIn || 'Not specified'}%0A` +
         `*Check-Out:* ${checkOut || 'Not specified'}%0A` +
-        `*Total Amount:* ₹${totalAmount.toLocaleString()} (Includes ₹5,000 Security)`;
+        `*Booking Amount:* ₹${bookingAmount.toLocaleString()}%0A` +
+        `*Security Deposit:* ₹${securityAmount.toLocaleString()}%0A` +
+        `*Total Amount:* ₹${totalAmount.toLocaleString()}`;
       
       window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
       
@@ -1562,21 +1885,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
   };
 
   if (success) {
-    const calculateTotal = () => {
-      if (!checkIn || !checkOut) return 0;
-      const start = new Date(checkIn);
-      const end = new Date(checkOut);
-      let total = 0;
-      let current = new Date(start);
-      while (current < end) {
-        const day = current.getDay();
-        if (day >= 1 && day <= 4) total += 15000;
-        else total += 18000;
-        current.setDate(current.getDate() + 1);
-      }
-      return total + 5000;
-    };
-    const totalAmount = calculateTotal();
+    const totalAmount = bookingAmount + securityAmount;
 
     return (
       <div className="py-8 text-center">
@@ -1639,10 +1948,20 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
                   <p className="font-bold text-luxury-dark">{occasion || 'General Stay'}</p>
                 </div>
               </div>
-              <div className="pt-4 border-t border-luxury-dark/5">
-                <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Estimated Amount</p>
-                <p className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</p>
-                <p className="text-[10px] text-luxury-dark/40 italic mt-1">(Includes ₹5,000 Refundable Security)</p>
+              <div className="pt-4 border-t border-luxury-dark/5 space-y-2">
+                <div className="flex justify-between items-center">
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Amount</p>
+                  <p className="font-bold text-luxury-dark">₹{bookingAmount.toLocaleString()}</p>
+                </div>
+                <div className="flex justify-between items-center">
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Security Deposit</p>
+                  <p className="font-bold text-luxury-dark">₹{securityAmount.toLocaleString()}</p>
+                </div>
+                <div className="pt-2 border-t border-luxury-dark/5 flex justify-between items-center">
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest font-bold">Total Amount</p>
+                  <p className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</p>
+                </div>
+                <p className="text-[10px] text-luxury-dark/40 italic mt-1">(Security deposit is refundable after checkout)</p>
               </div>
             </div>
           </div>
@@ -1661,12 +1980,55 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
 
   return (
     <form className="space-y-5" onSubmit={handleBookNow}>
+      {userRole === 'admin' && !editBooking && (
+        <div className="p-4 bg-luxury-gold/10 border border-luxury-gold/20 rounded-xl mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-luxury-gold rounded-full flex items-center justify-center text-luxury-dark">
+              <User size={20} />
+            </div>
+            <div>
+              <p className="font-bold text-luxury-dark text-sm">Admin Booking Mode</p>
+              <p className="text-[10px] text-luxury-dark/60 uppercase tracking-widest">Booking on behalf of customer</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const newMode = !isAdminBooking;
+              setIsAdminBooking(newMode);
+              if (newMode) {
+                setName('');
+                setEmail('');
+              } else {
+                setName(user?.displayName || '');
+                setEmail(user?.email || '');
+              }
+            }}
+            className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+              isAdminBooking 
+                ? 'bg-luxury-dark text-white' 
+                : 'bg-white text-luxury-dark border border-luxury-dark/10'
+            }`}
+          >
+            {isAdminBooking ? 'Enabled' : 'Disabled'}
+          </button>
+        </div>
+      )}
       {!user && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl mb-6 flex items-start gap-3">
-          <AlertCircle size={18} className="text-amber-600 mt-0.5" />
-          <p className="text-xs text-amber-800 leading-relaxed">
-            <strong>Note:</strong> You are not signed in. Sign in to track your booking status and pay online.
-          </p>
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={18} className="text-amber-600 mt-0.5" />
+            <p className="text-xs text-amber-800 leading-relaxed">
+              <strong>Note:</strong> You are not signed in. Sign in to track your booking status and pay online.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogin}
+            className="px-4 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-luxury-dark hover:text-white transition-all whitespace-nowrap"
+          >
+            Sign In / Sign Up
+          </button>
         </div>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1773,6 +2135,71 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="space-y-1.5">
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Booking Amount (₹)</label>
+          <div className="relative">
+            <input 
+              type="number" 
+              required
+              value={bookingAmount}
+              onChange={(e) => setBookingAmount(parseInt(e.target.value) || 0)}
+              readOnly={userRole !== 'admin'}
+              className={`w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm font-bold ${userRole !== 'admin' ? 'opacity-70 cursor-not-allowed' : ''}`} 
+            />
+            <IndianRupee className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+          </div>
+          <div className="flex gap-4 px-1">
+            <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest flex items-center gap-1">
+              <span className="w-1 h-1 rounded-full bg-luxury-gold" />
+              Weekday: ₹15,000
+            </p>
+            <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest flex items-center gap-1">
+              <span className="w-1 h-1 rounded-full bg-luxury-gold" />
+              Weekend: ₹18,000
+            </p>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Security Deposit (₹)</label>
+          <div className="relative">
+            <input 
+              type="number" 
+              required
+              value={securityAmount}
+              onChange={(e) => setSecurityAmount(parseInt(e.target.value) || 0)}
+              readOnly={userRole !== 'admin'}
+              className={`w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm font-bold ${userRole !== 'admin' ? 'opacity-70 cursor-not-allowed' : ''}`} 
+            />
+            <Shield className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+          </div>
+        </div>
+      </div>
+
+      {userRole === 'admin' && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Amount Paid (₹)</label>
+          <div className="relative">
+            <input 
+              type="number" 
+              required
+              value={amountPaid}
+              onChange={(e) => setAmountPaid(parseInt(e.target.value) || 0)}
+              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm font-bold" 
+            />
+            <CreditCard className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+          </div>
+          <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest px-1">
+            Current Balance: ₹{(bookingAmount + securityAmount - amountPaid).toLocaleString()}
+          </p>
+        </div>
+      )}
+
+      <div className="p-4 bg-luxury-dark/5 rounded-xl flex items-center justify-between">
+        <span className="text-xs font-bold text-luxury-dark/60 uppercase tracking-widest">Total Amount</span>
+        <span className="text-xl font-serif font-bold text-luxury-dark">₹{(bookingAmount + securityAmount).toLocaleString()}</span>
+      </div>
+
       <button 
         type="submit"
         disabled={loading}
@@ -1795,7 +2222,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking }: {
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () => void, user: FirebaseUser | null }) => {
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin }: { isOpen: boolean, onClose: () => void, user: FirebaseUser | null, userRole: string | null, onLogin: () => void }) => {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -1826,7 +2253,7 @@ const BookingModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () 
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} />
             </div>
           </motion.div>
         </div>
@@ -2198,13 +2625,13 @@ export default function App() {
       </main>
       <Footer />
       
-      <BookingModal isOpen={isBookingModalOpen} onClose={closeBookingModal} user={user} />
+      <BookingModal isOpen={isBookingModalOpen} onClose={closeBookingModal} user={user} userRole={userRole} onLogin={() => setIsAuthModalOpen(true)} />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <GalleryModal image={selectedImage} onClose={() => setSelectedImage(null)} />
       
       <AnimatePresence>
         {isDashboardOpen && user && (
-          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} />
+          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} onLogin={() => setIsAuthModalOpen(true)} />
         )}
       </AnimatePresence>
 

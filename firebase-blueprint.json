@@ -92,9 +92,56 @@
         "occasion": {
           "type": "string",
           "description": "The occasion for the booking."
+        },
+        "bookingAmount": {
+          "type": "number",
+          "description": "The booking amount (excluding security deposit)."
+        },
+        "bookedBy": {
+          "type": "string",
+          "enum": ["client", "admin"],
+          "description": "Who made the booking (client or admin)."
         }
       },
-      "required": ["uid", "checkIn", "checkOut", "guests", "status", "totalAmount", "paymentStatus", "createdAt"]
+      "required": ["uid", "checkIn", "checkOut", "guests", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A guest review.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The UID of the user who left the review."
+        },
+        "bookingId": {
+          "type": "string",
+          "description": "The ID of the booking associated with the review."
+        },
+        "rating": {
+          "type": "integer",
+          "description": "The rating (1-5)."
+        },
+        "comment": {
+          "type": "string",
+          "description": "The review text."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"],
+          "description": "The approval status of the review."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the review was created."
+        },
+        "userName": {
+          "type": "string",
+          "description": "The name of the user who left the review."
+        }
+      },
+      "required": ["uid", "bookingId", "rating", "comment", "status", "createdAt", "userName"]
     }
   },
   "firestore": {
@@ -105,6 +152,10 @@
     "bookings/{bookingId}": {
       "schema": "Booking",
       "description": "Booking records."
+    },
+    "reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Guest reviews."
     }
   }
 }

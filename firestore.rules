@@ -46,8 +46,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "anujkumarmittal@gmail.com" && request.auth.token.email_verified == true));
+        ((request.auth.token.email == "anujkumarmittal@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isValidEmail(email) {
@@ -75,7 +76,7 @@ service cloud.firestore {
     }
 
     function isValidBooking(data) {
-      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit']) &&
+      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']) &&
              data.uid is string && data.uid.size() > 0 &&
              isValidDateString(data.checkIn) &&
              isValidDateString(data.checkOut) &&
@@ -84,13 +85,27 @@ service cloud.firestore {
              data.totalAmount is number && data.totalAmount >= 0 &&
              data.amountPaid is number && data.amountPaid >= 0 &&
              data.securityDeposit is number && data.securityDeposit >= 0 &&
+             data.bookingAmount is number && data.bookingAmount >= 0 &&
+             data.bookedBy in ['client', 'admin'] &&
              data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
              isValidDateTimeString(data.createdAt) &&
              (!('name' in data) || data.name is string) &&
              (!('mobile' in data) || data.mobile is string) &&
              (!('email' in data) || isValidEmail(data.email)) &&
              (!('occasion' in data) || data.occasion is string) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit']);
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']);
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.bookingId is string && data.bookingId.size() > 0 &&
+             data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() > 0 && data.comment.size() <= 1000 &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             isValidDateTimeString(data.createdAt) &&
+             data.userName is string && data.userName.size() > 0 &&
+             data.keys().hasOnly(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName']);
     }
 
     // ===============================================================
@@ -105,7 +120,12 @@ service cloud.firestore {
 
     match /bookings/{bookingId} {
       allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidBooking(request.resource.data) && request.resource.data.status == 'pending';
+      allow create: if isAuthenticated() && (
+        // Client can create a pending booking for themselves
+        (request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
+        // Admin can create any booking
+        (isAdmin() && isValidBooking(request.resource.data))
+      );
       allow update: if isAuthenticated() && (
         // Client can modify their own pending booking
         (resource.data.uid == request.auth.uid && resource.data.status == 'pending' && 
@@ -122,6 +142,16 @@ service cloud.firestore {
         // Admin can update anything
         isAdmin()
       );
+      allow delete: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if resource.data.status == 'approved' || isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated() && 
+                      request.resource.data.uid == request.auth.uid && 
+                      request.resource.data.status == 'pending' &&
+                      isValidReview(request.resource.data);
+      allow update: if isAdmin() && isValidReview(request.resource.data);
       allow delete: if isAdmin();
     }
 
