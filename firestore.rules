@@ -108,6 +108,17 @@ service cloud.firestore {
              data.keys().hasOnly(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName']);
     }
 
+    function isValidLog(data) {
+      return data.keys().hasAll(['adminId', 'adminEmail', 'action', 'targetId', 'createdAt']) &&
+             data.adminId is string && data.adminId == request.auth.uid &&
+             data.adminEmail is string && data.adminEmail == request.auth.token.email &&
+             data.action is string &&
+             data.targetId is string &&
+             isValidDateTimeString(data.createdAt) &&
+             (!('details' in data) || data.details is string) &&
+             data.keys().hasOnly(['adminId', 'adminEmail', 'action', 'targetId', 'details', 'createdAt']);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -153,6 +164,11 @@ service cloud.firestore {
                       isValidReview(request.resource.data);
       allow update: if isAdmin() && isValidReview(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    match /logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidLog(request.resource.data);
     }
 
     // Default deny

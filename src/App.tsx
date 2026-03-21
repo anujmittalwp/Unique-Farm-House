@@ -63,7 +63,8 @@ import {
   signOut,
   User as FirebaseUser,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
   collection, 
@@ -132,22 +133,46 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   // throw new Error(JSON.stringify(errInfo)); // Optional: throw to propagate
 }
 
+async function logAdminAction(action: string, targetId: string, details?: string) {
+  if (!auth.currentUser) return;
+  try {
+    await addDoc(collection(db, 'logs'), {
+      adminId: auth.currentUser.uid,
+      adminEmail: auth.currentUser.email,
+      action,
+      targetId,
+      details: details || '',
+      createdAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Failed to log admin action:', error);
+  }
+}
+
 const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
     setLoading(true);
 
     try {
-      if (isLogin) {
+      if (isForgotPassword) {
+        await sendPasswordResetEmail(auth, email);
+        setSuccessMessage('Password reset email sent! Please check your inbox.');
+        // Don't close modal yet, let them see the success message
+      } else if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
+        onClose();
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         // Create user document
@@ -157,11 +182,13 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
           displayName: name,
           role: 'client'
         });
+        onClose();
       }
-      onClose();
     } catch (err: any) {
       if (err.code === 'auth/operation-not-allowed') {
         setError('Email/Password sign-in is not enabled in the Firebase Console. Please enable it in Authentication > Sign-in method.');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('No user found with this email address.');
       } else {
         setError(err.message || 'An error occurred');
       }
@@ -218,10 +245,14 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
             <div className="p-8 md:p-12">
               <div className="text-center mb-8">
                 <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-2">
-                  {isLogin ? 'Welcome Back' : 'Create Account'}
+                  {isForgotPassword ? 'Reset Password' : isLogin ? 'Welcome Back' : 'Create Account'}
                 </h2>
                 <p className="text-luxury-dark/60 text-sm">
-                  {isLogin ? 'Enter your details to manage your bookings' : 'Join us for a luxury farmhouse experience'}
+                  {isForgotPassword 
+                    ? 'Enter your email to receive a reset link' 
+                    : isLogin 
+                      ? 'Enter your details to manage your bookings' 
+                      : 'Join us for a luxury farmhouse experience'}
                 </p>
               </div>
 
@@ -232,8 +263,15 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
                 </div>
               )}
 
+              {successMessage && (
+                <div className="mb-6 p-4 bg-emerald-50 text-emerald-600 rounded-xl text-sm flex items-center gap-3">
+                  <CheckCircle2 size={18} />
+                  {successMessage}
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-4">
-                {!isLogin && (
+                {!isLogin && !isForgotPassword && (
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/40 mb-2 ml-1">Full Name</label>
                     <div className="relative">
@@ -265,20 +303,37 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/40 mb-2 ml-1">Password</label>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
-                    <input 
-                      type="password" 
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-luxury-dark/5 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
-                      placeholder="••••••••"
-                    />
+                {!isForgotPassword && (
+                  <div>
+                    <div className="flex justify-between items-center mb-2 ml-1">
+                      <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/40">Password</label>
+                      {isLogin && (
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setIsForgotPassword(true);
+                            setError('');
+                            setSuccessMessage('');
+                          }}
+                          className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold hover:text-luxury-dark transition-colors"
+                        >
+                          Forgot Password?
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
+                      <input 
+                        type="password" 
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-luxury-dark/5 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                        placeholder="••••••••"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <button 
                   type="submit"
@@ -288,54 +343,75 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
                   {loading ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
-                    isLogin ? 'Sign In' : 'Create Account'
+                    isForgotPassword ? 'Send Reset Link' : isLogin ? 'Sign In' : 'Create Account'
                   )}
                 </button>
 
-                <div className="relative my-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-luxury-dark/10"></div>
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase tracking-widest">
-                    <span className="px-4 bg-white text-luxury-dark/40">Or continue with</span>
-                  </div>
-                </div>
+                {!isForgotPassword && (
+                  <>
+                    <div className="relative my-6">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-luxury-dark/10"></div>
+                      </div>
+                      <div className="relative flex justify-center text-xs uppercase tracking-widest">
+                        <span className="px-4 bg-white text-luxury-dark/40">Or continue with</span>
+                      </div>
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-3 bg-white border border-luxury-dark/10 text-luxury-dark py-4 rounded-2xl font-bold hover:bg-luxury-dark/5 transition-all disabled:opacity-50"
-                >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24">
-                    <path
-                      fill="currentColor"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="currentColor"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="currentColor"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
-                    />
-                    <path
-                      fill="currentColor"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                    />
-                  </svg>
-                  Google
-                </button>
+                    <button
+                      type="button"
+                      onClick={handleGoogleLogin}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-3 bg-white border border-luxury-dark/10 text-luxury-dark py-4 rounded-2xl font-bold hover:bg-luxury-dark/5 transition-all disabled:opacity-50"
+                    >
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path
+                          fill="currentColor"
+                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        />
+                        <path
+                          fill="currentColor"
+                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        />
+                        <path
+                          fill="currentColor"
+                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                        />
+                        <path
+                          fill="currentColor"
+                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                        />
+                      </svg>
+                      Google
+                    </button>
+                  </>
+                )}
               </form>
 
               <div className="mt-8 text-center">
-                <button 
-                  onClick={() => setIsLogin(!isLogin)}
-                  className="text-sm text-luxury-dark/60 hover:text-luxury-dark transition-colors"
-                >
-                  {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
-                </button>
+                {isForgotPassword ? (
+                  <button 
+                    onClick={() => {
+                      setIsForgotPassword(false);
+                      setError('');
+                      setSuccessMessage('');
+                    }}
+                    className="text-sm text-luxury-dark/60 hover:text-luxury-dark transition-colors"
+                  >
+                    Back to Sign In
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => {
+                      setIsLogin(!isLogin);
+                      setError('');
+                      setSuccessMessage('');
+                    }}
+                    className="text-sm text-luxury-dark/60 hover:text-luxury-dark transition-colors"
+                  >
+                    {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+                  </button>
+                )}
               </div>
             </div>
           </motion.div>
@@ -351,9 +427,10 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs'>('all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
+  const [adminLogs, setAdminLogs] = useState<any[]>([]);
 
   useEffect(() => {
     if (userRole === 'admin' && activeFilter === 'reviews') {
@@ -363,11 +440,19 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
       });
       return () => unsubscribe();
     }
+    if (userRole === 'admin' && activeFilter === 'logs') {
+      const q = query(collection(db, 'logs'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setAdminLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+      return () => unsubscribe();
+    }
   }, [userRole, activeFilter]);
 
   const handleReviewStatus = async (reviewId: string, status: 'approved' | 'rejected' | 'pending') => {
     try {
       await setDoc(doc(db, 'reviews', reviewId), { status }, { merge: true });
+      await logAdminAction('review_status_update', reviewId, `Set review status to ${status}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `reviews/${reviewId}`);
     }
@@ -376,6 +461,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
   const handleDeleteReview = async (reviewId: string) => {
     try {
       await deleteDoc(doc(db, 'reviews', reviewId));
+      await logAdminAction('delete_review', reviewId, 'Deleted guest review');
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `reviews/${reviewId}`);
     }
@@ -472,6 +558,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
         amountPaid: amount,
         paymentStatus: status
       }, { merge: true });
+      await logAdminAction('update_payment', bookingId, `Updated payment to ₹${amount} (${status})`);
       setPaymentInputs(prev => {
         const next = {...prev};
         delete next[bookingId];
@@ -579,7 +666,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
               { id: 'completed', label: 'Completed' },
               { id: 'pending', label: 'Pending' },
               { id: 'cancelled', label: 'Cancelled' },
-              { id: 'reviews', label: 'Manage Reviews' }
+              { id: 'reviews', label: 'Manage Reviews' },
+              { id: 'logs', label: 'Admin Logs' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -592,7 +680,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
               >
                 {tab.label}
                 <span className="ml-2 opacity-50">
-                  ({tab.id === 'reviews' ? reviews.length : bookings.filter(b => {
+                  ({tab.id === 'reviews' ? reviews.length : tab.id === 'logs' ? adminLogs.length : bookings.filter(b => {
                     if (tab.id === 'all') return true;
                     if (tab.id === 'pending') return b.status === 'pending';
                     if (tab.id === 'cancelled') return b.status === 'cancelled';
@@ -676,6 +764,56 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
                 </div>
               </div>
             ))}
+          </div>
+        ) : activeFilter === 'logs' && userRole === 'admin' ? (
+          <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-luxury-dark/5 border-b border-luxury-dark/5">
+                    <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date & Time</th>
+                    <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Admin</th>
+                    <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Action</th>
+                    <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Target ID</th>
+                    <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-luxury-dark/5">
+                  {adminLogs.map(log => (
+                    <tr key={log.id} className="hover:bg-luxury-cream/30 transition-colors">
+                      <td className="px-6 py-4 text-xs font-medium text-luxury-dark/60">
+                        {log.createdAt ? format(new Date(log.createdAt), 'MMM dd, HH:mm:ss') : 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-xs font-bold text-luxury-dark">
+                        {log.adminEmail}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest ${
+                          log.action.includes('delete') ? 'bg-red-50 text-red-600' :
+                          log.action.includes('create') ? 'bg-emerald-50 text-emerald-600' :
+                          'bg-blue-50 text-blue-600'
+                        }`}>
+                          {log.action.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-[10px] font-mono text-luxury-dark/40">
+                        {log.targetId.slice(0, 8)}...
+                      </td>
+                      <td className="px-6 py-4 text-xs text-luxury-dark/60">
+                        {log.details}
+                      </td>
+                    </tr>
+                  ))}
+                  {adminLogs.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center text-luxury-dark/30 italic">
+                        No administrative actions logged yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : filteredBookings.length === 0 ? (
           <div className="bg-luxury-dark/5 rounded-3xl p-12 md:p-24 text-center">
@@ -912,6 +1050,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
                               onClick={async () => {
                                 try {
                                   await setDoc(doc(db, 'bookings', booking.id), { status: 'confirmed' }, { merge: true });
+                                  await logAdminAction('confirm_booking', booking.id, `Confirmed booking for ${booking.name}`);
                                 } catch (error) {
                                   handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
                                 }
@@ -925,6 +1064,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
                               onClick={async () => {
                                 try {
                                   await setDoc(doc(db, 'bookings', booking.id), { status: 'cancelled' }, { merge: true });
+                                  await logAdminAction('cancel_booking', booking.id, `Cancelled booking for ${booking.name}`);
                                 } catch (error) {
                                   handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
                                 }
@@ -946,6 +1086,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
                                   onClick={async () => {
                                     try {
                                       await deleteDoc(doc(db, 'bookings', booking.id));
+                                      await logAdminAction('delete_booking', booking.id, `Deleted booking for ${booking.name}`);
                                       setDeletingId(null);
                                     } catch (error) {
                                       handleFirestoreError(error, OperationType.DELETE, `bookings/${booking.id}`);
@@ -1851,8 +1992,14 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
         if (editBooking) {
           await setDoc(doc(db, 'bookings', editBooking.id), bookingData);
+          if (userRole === 'admin') {
+            await logAdminAction('edit_booking', editBooking.id, `Updated booking for ${name}`);
+          }
         } else {
-          await addDoc(collection(db, 'bookings'), bookingData);
+          const docRef = await addDoc(collection(db, 'bookings'), bookingData);
+          if (userRole === 'admin') {
+            await logAdminAction('create_booking', docRef.id, `Created manual booking for ${name}`);
+          }
         }
       }
 

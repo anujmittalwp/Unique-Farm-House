@@ -142,6 +142,40 @@
         }
       },
       "required": ["uid", "bookingId", "rating", "comment", "status", "createdAt", "userName"]
+    },
+    "AdminLog": {
+      "title": "AdminLog",
+      "description": "A log of an administrative action.",
+      "type": "object",
+      "properties": {
+        "adminId": {
+          "type": "string",
+          "description": "The UID of the admin who performed the action."
+        },
+        "adminEmail": {
+          "type": "string",
+          "format": "email",
+          "description": "The email of the admin who performed the action."
+        },
+        "action": {
+          "type": "string",
+          "description": "The action performed (e.g., 'create_booking', 'delete_booking')."
+        },
+        "targetId": {
+          "type": "string",
+          "description": "The ID of the target resource (e.g., bookingId, reviewId)."
+        },
+        "details": {
+          "type": "string",
+          "description": "Additional details about the action."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the action was performed."
+        }
+      },
+      "required": ["adminId", "adminEmail", "action", "targetId", "createdAt"]
     }
   },
   "firestore": {
@@ -156,6 +190,10 @@
     "reviews/{reviewId}": {
       "schema": "Review",
       "description": "Guest reviews."
+    },
+    "logs/{logId}": {
+      "schema": "AdminLog",
+      "description": "Administrative action logs."
     }
   }
 }
