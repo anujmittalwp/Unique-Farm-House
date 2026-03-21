@@ -53,7 +53,8 @@ import {
   Edit3,
   IndianRupee,
   Copy,
-  MessageSquare
+  MessageSquare,
+  Trash2
 } from 'lucide-react';
 import { 
   onAuthStateChanged, 
@@ -74,7 +75,8 @@ import {
   orderBy,
   doc,
   setDoc,
-  getDoc
+  getDoc,
+  deleteDoc
 } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { auth, db } from './firebase';
@@ -347,6 +349,8 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled'>('all');
 
   useEffect(() => {
     let q;
@@ -377,6 +381,28 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
 
     return () => unsubscribe();
   }, [user.uid, userRole]);
+
+  const filteredBookings = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return bookings.filter(booking => {
+      if (activeFilter === 'all') return true;
+      if (activeFilter === 'pending') return booking.status === 'pending';
+      if (activeFilter === 'cancelled') return booking.status === 'cancelled';
+      
+      const checkInDate = new Date(booking.checkIn);
+      const checkOutDate = new Date(booking.checkOut);
+      
+      if (activeFilter === 'upcoming') {
+        return booking.status === 'confirmed' && checkInDate >= today;
+      }
+      if (activeFilter === 'completed') {
+        return booking.status === 'confirmed' && checkOutDate < today;
+      }
+      return true;
+    });
+  }, [bookings, activeFilter]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -479,22 +505,60 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
           </div>
         </div>
 
+        {userRole === 'admin' && (
+          <div className="flex flex-wrap gap-2 mb-8 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'upcoming', label: 'Upcoming' },
+              { id: 'completed', label: 'Completed' },
+              { id: 'pending', label: 'Pending' },
+              { id: 'cancelled', label: 'Cancelled' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveFilter(tab.id as any)}
+                className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                  activeFilter === tab.id 
+                    ? 'bg-luxury-dark text-white shadow-lg shadow-luxury-dark/20' 
+                    : 'text-luxury-dark/40 hover:text-luxury-dark hover:bg-white'
+                }`}
+              >
+                {tab.label}
+                <span className="ml-2 opacity-50">
+                  ({bookings.filter(b => {
+                    if (tab.id === 'all') return true;
+                    if (tab.id === 'pending') return b.status === 'pending';
+                    if (tab.id === 'cancelled') return b.status === 'cancelled';
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const checkInDate = new Date(b.checkIn);
+                    const checkOutDate = new Date(b.checkOut);
+                    if (tab.id === 'upcoming') return b.status === 'confirmed' && checkInDate >= today;
+                    if (tab.id === 'completed') return b.status === 'confirmed' && checkOutDate < today;
+                    return true;
+                  }).length})
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <div className="w-12 h-12 border-4 border-luxury-gold/20 border-t-luxury-gold rounded-full animate-spin" />
             <p className="text-luxury-dark/40 font-medium">Loading your bookings...</p>
           </div>
-        ) : bookings.length === 0 ? (
+        ) : filteredBookings.length === 0 ? (
           <div className="bg-luxury-dark/5 rounded-3xl p-12 md:p-24 text-center">
             <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
               <Calendar size={32} className="text-luxury-dark/20" />
             </div>
             <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">
-              {userRole === 'admin' ? 'No Bookings in System' : 'No Bookings Found'}
+              {userRole === 'admin' ? `No ${activeFilter !== 'all' ? activeFilter : ''} Bookings` : 'No Bookings Found'}
             </h3>
             <p className="text-luxury-dark/60 mb-8 max-w-md mx-auto">
               {userRole === 'admin' 
-                ? 'There are currently no bookings in the system. New bookings will appear here as they are made.' 
+                ? `There are currently no ${activeFilter !== 'all' ? activeFilter : ''} bookings in the system.` 
                 : "You haven't made any bookings yet. Start planning your perfect celebration today!"}
             </p>
             <button 
@@ -506,7 +570,7 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {bookings.map((booking) => (
+            {filteredBookings.map((booking) => (
               <motion.div 
                 key={booking.id}
                 layout
@@ -728,6 +792,42 @@ const MyBookings = ({ user, userRole, onClose }: { user: FirebaseUser; userRole:
                             >
                               Cancel
                             </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 md:col-span-2">
+                          <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold">Danger Zone</label>
+                          <div className="flex gap-2">
+                            {deletingId === booking.id ? (
+                              <>
+                                <button 
+                                  onClick={async () => {
+                                    try {
+                                      await deleteDoc(doc(db, 'bookings', booking.id));
+                                      setDeletingId(null);
+                                    } catch (error) {
+                                      handleFirestoreError(error, OperationType.DELETE, `bookings/${booking.id}`);
+                                    }
+                                  }}
+                                  className="flex-1 px-3 py-2 bg-red-600 text-white text-[10px] font-bold rounded-xl hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                                >
+                                  <Trash2 size={12} /> Confirm Delete
+                                </button>
+                                <button 
+                                  onClick={() => setDeletingId(null)}
+                                  className="px-4 py-2 bg-luxury-cream text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button 
+                                onClick={() => setDeletingId(booking.id)}
+                                className="w-full px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                              >
+                                <Trash2 size={12} /> Delete Booking
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
