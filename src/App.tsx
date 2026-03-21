@@ -430,6 +430,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
   const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs'>('all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [adminLogs, setAdminLogs] = useState<any[]>([]);
 
   useEffect(() => {
@@ -448,6 +449,11 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
       return () => unsubscribe();
     }
   }, [userRole, activeFilter]);
+
+  const filteredReviews = useMemo(() => {
+    if (reviewFilter === 'all') return reviews;
+    return reviews.filter(r => r.status === reviewFilter);
+  }, [reviews, reviewFilter]);
 
   const handleReviewStatus = async (reviewId: string, status: 'approved' | 'rejected' | 'pending') => {
     try {
@@ -704,9 +710,34 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
             <p className="text-luxury-dark/40 font-medium">Loading your bookings...</p>
           </div>
         ) : activeFilter === 'reviews' && userRole === 'admin' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {reviews.map(review => (
-              <div key={review.id} className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+          <div className="space-y-8">
+            <div className="flex flex-wrap gap-2 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
+              {[
+                { id: 'all', label: 'All Reviews' },
+                { id: 'pending', label: 'Pending' },
+                { id: 'approved', label: 'Approved' },
+                { id: 'rejected', label: 'Rejected' }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setReviewFilter(tab.id as any)}
+                  className={`px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                    reviewFilter === tab.id 
+                      ? 'bg-white text-luxury-dark shadow-sm' 
+                      : 'text-luxury-dark/40 hover:text-luxury-dark'
+                  }`}
+                >
+                  {tab.label}
+                  <span className="ml-2 opacity-50">
+                    ({tab.id === 'all' ? reviews.length : reviews.filter(r => r.status === tab.id).length})
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredReviews.map(review => (
+                <div key={review.id} className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-luxury-gold/20 flex items-center justify-center text-luxury-gold font-bold">
@@ -764,7 +795,13 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
                 </div>
               </div>
             ))}
+            {filteredReviews.length === 0 && (
+              <div className="col-span-full py-24 text-center bg-luxury-dark/5 rounded-3xl border border-dashed border-luxury-dark/10">
+                <p className="text-luxury-dark/40 font-medium italic">No {reviewFilter !== 'all' ? reviewFilter : ''} reviews found.</p>
+              </div>
+            )}
           </div>
+        </div>
         ) : activeFilter === 'logs' && userRole === 'admin' ? (
           <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
@@ -1941,6 +1978,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [bookingAmount, setBookingAmount] = useState<number>(editBooking?.bookingAmount || (editBooking ? (editBooking.totalAmount - (editBooking.securityDeposit || 5000)) : 0));
   const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || 5000);
   const [amountPaid, setAmountPaid] = useState<number>(editBooking?.amountPaid || 0);
+  const [errors, setErrors] = useState<{[key: string]: string}>({});
 
   useEffect(() => {
     if (!editBooking && checkIn && checkOut) {
@@ -1964,6 +2002,58 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
   const handleBookNow = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validation
+    const newErrors: {[key: string]: string} = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (!name.trim()) newErrors.name = "Full name is required";
+    if (!mobile.trim()) {
+      newErrors.mobile = "Mobile number is required";
+    } else if (!/^\d{10}$/.test(mobile.replace(/\D/g, ''))) {
+      newErrors.mobile = "Please enter a valid 10-digit mobile number";
+    }
+    
+    if (!email.trim()) {
+      newErrors.email = "Email address is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      newErrors.email = "Please enter a valid email address";
+    }
+    
+    if (!checkIn) {
+      newErrors.checkIn = "Check-in date is required";
+    } else {
+      const checkInDate = new Date(checkIn);
+      if (checkInDate < today && !editBooking) {
+        newErrors.checkIn = "Check-in date cannot be in the past";
+      }
+    }
+    
+    if (!checkOut) {
+      newErrors.checkOut = "Check-out date is required";
+    } else if (checkIn) {
+      const checkInDate = new Date(checkIn);
+      const checkOutDate = new Date(checkOut);
+      if (checkOutDate <= checkInDate) {
+        newErrors.checkOut = "Check-out must be after check-in";
+      }
+    }
+    
+    if (guests < 1) {
+      newErrors.guests = "At least 1 guest is required";
+    } else if (guests > 50) {
+      newErrors.guests = "Maximum 50 guests allowed";
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      const firstError = Object.values(newErrors)[0];
+      // Optional: scroll to first error or show a toast
+      return;
+    }
+    
+    setErrors({});
     setLoading(true);
 
     const totalAmount = bookingAmount + securityAmount;
@@ -2187,11 +2277,19 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               required
               placeholder="Your Name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+              onChange={(e) => {
+                setName(e.target.value);
+                if (errors.name) setErrors(prev => {
+                  const next = {...prev};
+                  delete next.name;
+                  return next;
+                });
+              }}
+              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.name ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
             />
             <User className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
           </div>
+          {errors.name && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.name}</p>}
         </div>
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Mobile No.</label>
@@ -2201,11 +2299,19 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               required
               placeholder="Phone Number"
               value={mobile}
-              onChange={(e) => setMobile(e.target.value)}
-              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+              onChange={(e) => {
+                setMobile(e.target.value);
+                if (errors.mobile) setErrors(prev => {
+                  const next = {...prev};
+                  delete next.mobile;
+                  return next;
+                });
+              }}
+              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.mobile ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
             />
             <Phone className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
           </div>
+          {errors.mobile && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.mobile}</p>}
         </div>
       </div>
 
@@ -2218,11 +2324,19 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               required
               placeholder="Email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors(prev => {
+                  const next = {...prev};
+                  delete next.email;
+                  return next;
+                });
+              }}
+              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.email ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
             />
             <Mail className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
           </div>
+          {errors.email && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.email}</p>}
         </div>
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">No. of Guests</label>
@@ -2232,12 +2346,20 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               min="1"
               max="50"
               value={guests}
-              onChange={(e) => setGuests(parseInt(e.target.value) || 1)}
-              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm"
+              onChange={(e) => {
+                setGuests(parseInt(e.target.value) || 1);
+                if (errors.guests) setErrors(prev => {
+                  const next = {...prev};
+                  delete next.guests;
+                  return next;
+                });
+              }}
+              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.guests ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
               placeholder="Number of guests"
             />
             <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
           </div>
+          {errors.guests && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.guests}</p>}
         </div>
       </div>
 
@@ -2263,10 +2385,18 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               type="date" 
               required
               value={checkIn}
-              onChange={(e) => setCheckIn(e.target.value)}
-              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+              onChange={(e) => {
+                setCheckIn(e.target.value);
+                if (errors.checkIn) setErrors(prev => {
+                  const next = {...prev};
+                  delete next.checkIn;
+                  return next;
+                });
+              }}
+              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
             />
           </div>
+          {errors.checkIn && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.checkIn}</p>}
         </div>
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out (At 11:00 AM)</label>
@@ -2275,10 +2405,18 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               type="date" 
               required
               value={checkOut}
-              onChange={(e) => setCheckOut(e.target.value)}
-              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm" 
+              onChange={(e) => {
+                setCheckOut(e.target.value);
+                if (errors.checkOut) setErrors(prev => {
+                  const next = {...prev};
+                  delete next.checkOut;
+                  return next;
+                });
+              }}
+              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
             />
           </div>
+          {errors.checkOut && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.checkOut}</p>}
         </div>
       </div>
 
