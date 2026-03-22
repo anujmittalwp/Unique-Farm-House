@@ -2037,16 +2037,22 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     }
   }, [checkIn, checkOut, allBookings, editBooking]);
 
-  const excludeDates = useMemo(() => {
+  const { excludeDateIntervals, excludeDates } = useMemo(() => {
     const intervals: { start: Date; end: Date }[] = [];
+    const dates: Date[] = [];
     allBookings.forEach(b => {
       if (editBooking && b.id === editBooking.id) return;
-      intervals.push({
-        start: new Date(b.checkIn),
-        end: new Date(b.checkOut)
-      });
+      const start = new Date(b.checkIn);
+      const end = new Date(b.checkOut);
+      intervals.push({ start, end });
+      
+      let current = new Date(start);
+      while (current <= end) {
+        dates.push(new Date(current));
+        current.setDate(current.getDate() + 1);
+      }
     });
-    return intervals;
+    return { excludeDateIntervals: intervals, excludeDates: dates };
   }, [allBookings, editBooking]);
 
   const handleBookNow = async (e: React.FormEvent) => {
@@ -2201,15 +2207,36 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
           <CheckCircle2 size={40} />
         </div>
-        <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Booking {editBooking ? 'Updated' : 'Request Sent'}!</h3>
+        <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Booking Confirmed!</h3>
         <p className="text-luxury-dark/60 mb-8">
-          {editBooking 
-            ? 'Your booking details have been successfully updated.' 
-            : "We've received your request. Our team will contact you shortly for confirmation."}
+          Your booking request has been received. Please complete the payment to secure your stay.
         </p>
         
+        <div className="bg-luxury-gold/10 border border-luxury-gold/20 rounded-3xl p-6 mb-8 text-left">
+          <p className="text-xs uppercase tracking-widest font-bold text-luxury-dark mb-4">Payment Instructions</p>
+          <ul className="text-sm text-luxury-dark/70 space-y-2 mb-6">
+            <li>• Please transfer <strong>₹{totalAmount.toLocaleString()}</strong> to the following account:</li>
+            <li className="font-bold">Bank: HDFC Bank | A/C: 1234567890 | IFSC: HDFC0001234</li>
+            <li className="font-bold">UPI: unique.farmhouse@upi</li>
+            <li>• After payment, please share a screenshot on WhatsApp:</li>
+          </ul>
+          <a 
+            href="https://wa.me/919313501001?text=Hi, I have completed the payment for my booking. Here is the screenshot."
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block bg-emerald-600 text-white px-6 py-3 rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors"
+          >
+            Share Screenshot on WhatsApp
+          </a>
+        </div>
+
         <div className="bg-luxury-cream/50 rounded-3xl p-8 text-left border border-luxury-dark/5 mb-8">
-          <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold mb-6 border-b border-luxury-dark/5 pb-2">Booking Summary</p>
+          <div className="flex justify-between items-center mb-6 border-b border-luxury-dark/5 pb-2">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold">Booking Summary</p>
+            <div className="px-3 py-1 rounded-full bg-amber-50 text-amber-600 text-[10px] font-bold uppercase tracking-widest">
+              Payment Pending
+            </div>
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
@@ -2381,9 +2408,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   return next;
                 });
               }}
-              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.name ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
+              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.name ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
             />
-            <User className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+            <User className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
           </div>
           {errors.name && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.name}</p>}
         </div>
@@ -2403,9 +2430,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   return next;
                 });
               }}
-              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.mobile ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
+              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.mobile ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
             />
-            <Phone className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+            <Phone className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
           </div>
           {errors.mobile && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.mobile}</p>}
         </div>
@@ -2428,9 +2455,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   return next;
                 });
               }}
-              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.email ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
+              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.email ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
             />
-            <Mail className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+            <Mail className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
           </div>
           {errors.email && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.email}</p>}
         </div>
@@ -2450,10 +2477,10 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   return next;
                 });
               }}
-              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.guests ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
+              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.guests ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
               placeholder="Number of guests"
             />
-            <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+            <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
           </div>
           {errors.guests && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.guests}</p>}
         </div>
@@ -2488,9 +2515,10 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={new Date()}
-              excludeDateIntervals={excludeDates}
+              excludeDates={excludeDates}
+              excludeDateIntervals={excludeDateIntervals}
               placeholderText="Select check-in date"
-              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
+              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
               dateFormat="dd/MM/yyyy"
             />
             <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
@@ -2511,9 +2539,10 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={checkIn ? addDays(checkIn, 1) : new Date()}
-              excludeDateIntervals={excludeDates}
+              excludeDates={excludeDates}
+              excludeDateIntervals={excludeDateIntervals}
               placeholderText="Select check-out date"
-              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
+              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
               dateFormat="dd/MM/yyyy"
             />
             <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
