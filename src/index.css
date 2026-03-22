@@ -126,3 +126,16 @@
 .react-datepicker__navigation-icon::before {
   border-color: #ffffff;
 }
+
+.booking-confirmed {
+  background-color: #d1fae5 !important; /* green-100 */
+  color: #065f46 !important; /* green-800 */
+}
+.booking-pending {
+  background-color: #fef3c7 !important; /* yellow-100 */
+  color: #92400e !important; /* yellow-800 */
+}
+.booking-cancelled {
+  background-color: #fee2e2 !important; /* red-100 */
+  color: #991b1b !important; /* red-800 */
+}

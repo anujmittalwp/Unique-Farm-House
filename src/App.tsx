@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Phone, 
@@ -2037,21 +2037,36 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     }
   }, [checkIn, checkOut, allBookings, editBooking]);
 
+  const getDayClassName = useCallback((date: Date) => {
+    const booking = allBookings.find(b => {
+      const start = new Date(b.checkIn + 'T00:00:00');
+      const end = new Date(b.checkOut + 'T00:00:00');
+      return date >= start && date < end;
+    });
+    if (!booking) return undefined;
+    return `booking-${booking.status}`;
+  }, [allBookings]);
+
   const { excludeDateIntervals, excludeDates } = useMemo(() => {
     const intervals: { start: Date; end: Date }[] = [];
     const dates: Date[] = [];
+    console.log('allBookings:', allBookings);
     allBookings.forEach(b => {
       if (editBooking && b.id === editBooking.id) return;
-      const start = new Date(b.checkIn);
-      const end = new Date(b.checkOut);
+      
+      console.log('Booking:', b.checkIn, b.checkOut);
+      const start = new Date(b.checkIn + 'T00:00:00');
+      const end = new Date(b.checkOut + 'T00:00:00');
+      
       intervals.push({ start, end });
       
       let current = new Date(start);
-      while (current <= end) {
+      while (current < end) {
         dates.push(new Date(current));
         current.setDate(current.getDate() + 1);
       }
     });
+    console.log('excludeDates:', dates);
     return { excludeDateIntervals: intervals, excludeDates: dates };
   }, [allBookings, editBooking]);
 
@@ -2515,8 +2530,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={new Date()}
-              excludeDates={excludeDates}
-              excludeDateIntervals={excludeDateIntervals}
+              filterDate={(date) => !excludeDates.some(d => d.toDateString() === date.toDateString())}
+              dayClassName={getDayClassName}
               placeholderText="Select check-in date"
               className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
               dateFormat="dd/MM/yyyy"
@@ -2539,8 +2554,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={checkIn ? addDays(checkIn, 1) : new Date()}
-              excludeDates={excludeDates}
-              excludeDateIntervals={excludeDateIntervals}
+              filterDate={(date) => !excludeDates.some(d => d.toDateString() === date.toDateString())}
+              dayClassName={getDayClassName}
               placeholderText="Select check-out date"
               className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
               dateFormat="dd/MM/yyyy"
