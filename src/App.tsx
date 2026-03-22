@@ -79,7 +79,9 @@ import {
   getDoc,
   deleteDoc
 } from 'firebase/firestore';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
+import DatePicker from 'react-datepicker';
+import "react-datepicker/dist/react-datepicker.css";
 import { auth, db } from './firebase';
 
 enum OperationType {
@@ -421,7 +423,7 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
   );
 };
 
-const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void }) => {
+const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[] }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
@@ -594,7 +596,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} />
+              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} />
             </div>
           </div>
         ) : reviewingBooking ? (
@@ -621,7 +623,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Create Manual Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} />
+              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} />
             </div>
           </div>
         ) : (
@@ -1087,6 +1089,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
                               onClick={async () => {
                                 try {
                                   await setDoc(doc(db, 'bookings', booking.id), { status: 'confirmed' }, { merge: true });
+                                  await setDoc(doc(db, 'availability', booking.id), { status: 'confirmed' }, { merge: true });
                                   await logAdminAction('confirm_booking', booking.id, `Confirmed booking for ${booking.name}`);
                                 } catch (error) {
                                   handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
@@ -1101,6 +1104,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
                               onClick={async () => {
                                 try {
                                   await setDoc(doc(db, 'bookings', booking.id), { status: 'cancelled' }, { merge: true });
+                                  await deleteDoc(doc(db, 'availability', booking.id));
                                   await logAdminAction('cancel_booking', booking.id, `Cancelled booking for ${booking.name}`);
                                 } catch (error) {
                                   handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
@@ -1123,6 +1127,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin }: { user: FirebaseUser; 
                                   onClick={async () => {
                                     try {
                                       await deleteDoc(doc(db, 'bookings', booking.id));
+                                      await deleteDoc(doc(db, 'availability', booking.id));
                                       await logAdminAction('delete_booking', booking.id, `Deleted booking for ${booking.name}`);
                                       setDeletingId(null);
                                     } catch (error) {
@@ -1342,7 +1347,7 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
 
 const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
   return (
-    <section className="relative h-screen w-full overflow-hidden flex items-center justify-center">
+    <section className="relative min-h-screen w-full overflow-hidden flex items-center justify-center">
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0">
         <img 
@@ -1574,7 +1579,7 @@ const Amenities = () => {
         <span className="section-subtitle">Curated For Comfort</span>
         <h2 className="section-title">World-Class Amenities</h2>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mt-16">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mt-16">
           {amenities.map((item, index) => (
             <motion.div 
               key={index}
@@ -1587,7 +1592,7 @@ const Amenities = () => {
               <div className="text-luxury-gold mb-4 group-hover:scale-110 transition-transform duration-500">
                 {item.icon}
               </div>
-              <h3 className="text-lg font-serif mb-4">{item.title}</h3>
+              <h3 className="text-base md:text-lg font-serif mb-4">{item.title}</h3>
               
               <div className="flex flex-col gap-2 w-full">
                 {item.features.map((feature, fIndex) => (
@@ -1964,21 +1969,22 @@ const Reviews = () => {
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [] }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
   editBooking?: any,
   userRole?: string | null,
-  onLogin?: () => void
+  onLogin?: () => void,
+  allBookings?: any[]
 }) => {
   const [name, setName] = useState(editBooking?.name || (userRole === 'admin' && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
   const [email, setEmail] = useState(editBooking?.email || (userRole === 'admin' && !editBooking ? '' : user?.email || ''));
   const [guests, setGuests] = useState(editBooking?.guests || 1);
   const [occasion, setOccasion] = useState(editBooking?.occasion || '');
-  const [checkIn, setCheckIn] = useState(editBooking?.checkIn || '');
-  const [checkOut, setCheckOut] = useState(editBooking?.checkOut || '');
+  const [checkIn, setCheckIn] = useState<Date | null>(editBooking?.checkIn ? new Date(editBooking.checkIn) : null);
+  const [checkOut, setCheckOut] = useState<Date | null>(editBooking?.checkOut ? new Date(editBooking.checkOut) : null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [isAdminBooking, setIsAdminBooking] = useState(userRole === 'admin' && !editBooking);
@@ -2006,6 +2012,42 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       setBookingAmount(total);
     }
   }, [checkIn, checkOut, editBooking]);
+
+  useEffect(() => {
+    if (checkIn && checkOut) {
+      const hasConflict = allBookings.some(b => {
+        if (editBooking && b.id === editBooking.id) return false;
+        const bStart = new Date(b.checkIn);
+        const bEnd = new Date(b.checkOut);
+        const reqStart = new Date(checkIn);
+        const reqEnd = new Date(checkOut);
+        
+        return (reqStart < bEnd && reqEnd > bStart);
+      });
+      
+      if (hasConflict) {
+        setErrors(prev => ({ ...prev, checkIn: "Selected dates are already booked" }));
+      } else {
+        setErrors(prev => {
+          const next = { ...prev };
+          delete next.checkIn;
+          return next;
+        });
+      }
+    }
+  }, [checkIn, checkOut, allBookings, editBooking]);
+
+  const excludeDates = useMemo(() => {
+    const intervals: { start: Date; end: Date }[] = [];
+    allBookings.forEach(b => {
+      if (editBooking && b.id === editBooking.id) return;
+      intervals.push({
+        start: new Date(b.checkIn),
+        end: new Date(b.checkOut)
+      });
+    });
+    return intervals;
+  }, [allBookings, editBooking]);
 
   const handleBookNow = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2035,6 +2077,21 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       if (checkInDate < today && !editBooking) {
         newErrors.checkIn = "Check-in date cannot be in the past";
       }
+      
+      // Check for conflicts
+      const hasConflict = allBookings.some(b => {
+        if (editBooking && b.id === editBooking.id) return false;
+        const bStart = new Date(b.checkIn);
+        const bEnd = new Date(b.checkOut);
+        const reqStart = new Date(checkIn);
+        const reqEnd = checkOut ? new Date(checkOut) : new Date(checkIn);
+        
+        return (reqStart < bEnd && reqEnd > bStart);
+      });
+      
+      if (hasConflict) {
+        newErrors.checkIn = "Selected dates are already booked";
+      }
     }
     
     if (!checkOut) {
@@ -2055,8 +2112,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      const firstError = Object.values(newErrors)[0];
-      // Optional: scroll to first error or show a toast
       return;
     }
     
@@ -2070,8 +2125,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       if (user) {
         const bookingData = {
           uid: editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : user.uid),
-          checkIn,
-          checkOut,
+          checkIn: checkIn ? checkIn.toISOString().split('T')[0] : '',
+          checkOut: checkOut ? checkOut.toISOString().split('T')[0] : '',
           guests: guests,
           status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
           bookingAmount,
@@ -2089,11 +2144,21 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
         if (editBooking) {
           await setDoc(doc(db, 'bookings', editBooking.id), bookingData);
+          await setDoc(doc(db, 'availability', editBooking.id), {
+            checkIn: bookingData.checkIn,
+            checkOut: bookingData.checkOut,
+            status: bookingData.status
+          });
           if (userRole === 'admin') {
             await logAdminAction('edit_booking', editBooking.id, `Updated booking for ${name}`);
           }
         } else {
           const docRef = await addDoc(collection(db, 'bookings'), bookingData);
+          await setDoc(doc(db, 'availability', docRef.id), {
+            checkIn: bookingData.checkIn,
+            checkOut: bookingData.checkOut,
+            status: bookingData.status
+          });
           if (userRole === 'admin') {
             await logAdminAction('create_booking', docRef.id, `Created manual booking for ${name}`);
           }
@@ -2275,6 +2340,30 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           </button>
         </div>
       )}
+
+      {allBookings.length > 0 && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl">
+          <div className="flex items-center gap-2 mb-2">
+            <Calendar size={14} className="text-red-600" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-red-600">Sold Out Dates</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {allBookings
+              .filter(b => new Date(b.checkOut) >= new Date())
+              .sort((a, b) => new Date(a.checkIn).getTime() - new Date(b.checkIn).getTime())
+              .slice(0, 5)
+              .map((b, i) => (
+                <span key={i} className="px-2 py-1 bg-white border border-red-100 rounded text-[10px] text-red-700 font-medium">
+                  {format(new Date(b.checkIn), 'MMM d')} - {format(new Date(b.checkOut), 'MMM d')}
+                </span>
+              ))}
+            {allBookings.filter(b => new Date(b.checkOut) >= new Date()).length > 5 && (
+              <span className="text-[10px] text-red-400 self-center">+ more</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Full Name</label>
@@ -2388,40 +2477,46 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In (At 2:00 PM)</label>
           <div className="relative">
-            <input 
-              type="date" 
-              required
-              value={checkIn}
-              onChange={(e) => {
-                setCheckIn(e.target.value);
+            <DatePicker
+              selected={checkIn}
+              onChange={(date) => {
+                setCheckIn(date);
                 if (errors.checkIn) setErrors(prev => {
                   const next = {...prev};
                   delete next.checkIn;
                   return next;
                 });
               }}
-              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
+              minDate={new Date()}
+              excludeDateIntervals={excludeDates}
+              placeholderText="Select check-in date"
+              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
+              dateFormat="dd/MM/yyyy"
             />
+            <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
           </div>
           {errors.checkIn && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.checkIn}</p>}
         </div>
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out (At 11:00 AM)</label>
           <div className="relative">
-            <input 
-              type="date" 
-              required
-              value={checkOut}
-              onChange={(e) => {
-                setCheckOut(e.target.value);
+            <DatePicker
+              selected={checkOut}
+              onChange={(date) => {
+                setCheckOut(date);
                 if (errors.checkOut) setErrors(prev => {
                   const next = {...prev};
                   delete next.checkOut;
                   return next;
                 });
               }}
-              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
+              minDate={checkIn ? addDays(checkIn, 1) : new Date()}
+              excludeDateIntervals={excludeDates}
+              placeholderText="Select check-out date"
+              className={`w-full px-4 py-3 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
+              dateFormat="dd/MM/yyyy"
             />
+            <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
           </div>
           {errors.checkOut && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.checkOut}</p>}
         </div>
@@ -2514,7 +2609,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin }: { isOpen: boolean, onClose: () => void, user: FirebaseUser | null, userRole: string | null, onLogin: () => void }) => {
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings }: { isOpen: boolean, onClose: () => void, user: FirebaseUser | null, userRole: string | null, onLogin: () => void, allBookings: any[] }) => {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -2545,7 +2640,7 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin }: { isOpen: bo
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} />
             </div>
           </motion.div>
         </div>
@@ -2842,7 +2937,20 @@ export default function App() {
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [allBookings, setAllBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'availability'), where('status', 'in', ['confirmed', 'pending']));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const bookingsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setAllBookings(bookingsData);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -2917,13 +3025,13 @@ export default function App() {
       </main>
       <Footer />
       
-      <BookingModal isOpen={isBookingModalOpen} onClose={closeBookingModal} user={user} userRole={userRole} onLogin={() => setIsAuthModalOpen(true)} />
+      <BookingModal isOpen={isBookingModalOpen} onClose={closeBookingModal} user={user} userRole={userRole} onLogin={() => setIsAuthModalOpen(true)} allBookings={allBookings} />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <GalleryModal image={selectedImage} onClose={() => setSelectedImage(null)} />
       
       <AnimatePresence>
         {isDashboardOpen && user && (
-          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} onLogin={() => setIsAuthModalOpen(true)} />
+          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} onLogin={() => setIsAuthModalOpen(true)} allBookings={allBookings} />
         )}
       </AnimatePresence>
 

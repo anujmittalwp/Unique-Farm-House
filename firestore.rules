@@ -171,6 +171,13 @@ service cloud.firestore {
       allow create: if isAdmin() && isValidLog(request.resource.data);
     }
 
+    match /availability/{bookingId} {
+      allow read: if true; // Publicly readable for "Sold Out" dates
+      allow write: if isAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/bookings/$(bookingId)) && get(/databases/$(database)/documents/bookings/$(bookingId)).data.uid == request.auth.uid);
+      // Also allow creation when a booking is created
+      allow create: if isAuthenticated(); 
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

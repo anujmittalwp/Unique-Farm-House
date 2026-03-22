@@ -176,6 +176,29 @@
         }
       },
       "required": ["adminId", "adminEmail", "action", "targetId", "createdAt"]
+    },
+    "Availability": {
+      "title": "Availability",
+      "description": "Public availability data for the farmhouse.",
+      "type": "object",
+      "properties": {
+        "checkIn": {
+          "type": "string",
+          "format": "date",
+          "description": "The check-in date."
+        },
+        "checkOut": {
+          "type": "string",
+          "format": "date",
+          "description": "The check-out date."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "confirmed"],
+          "description": "The status of the booking."
+        }
+      },
+      "required": ["checkIn", "checkOut", "status"]
     }
   },
   "firestore": {
@@ -186,6 +209,10 @@
     "bookings/{bookingId}": {
       "schema": "Booking",
       "description": "Booking records."
+    },
+    "availability/{bookingId}": {
+      "schema": "Availability",
+      "description": "Public availability records (no PII)."
     },
     "reviews/{reviewId}": {
       "schema": "Review",
