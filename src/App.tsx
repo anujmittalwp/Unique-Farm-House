@@ -2059,27 +2059,36 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     return `sold-out booking-${booking.status}`;
   }, [allBookings]);
 
-  const { excludeDateIntervals, excludeDates } = useMemo(() => {
-    const intervals: { start: Date; end: Date }[] = [];
-    const dates: Date[] = [];
-    console.log('allBookings:', allBookings);
+  const { excludeCheckInDates, excludeCheckOutDates } = useMemo(() => {
+    const checkInDates: Date[] = [];
+    const checkOutDates: Date[] = [];
+    
     allBookings.forEach(b => {
       if (editBooking && b.id === editBooking.id) return;
       
-      console.log('Booking:', b.checkIn, b.checkOut);
       const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
       const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
       
-      intervals.push({ start, end });
-      
-      let current = new Date(start);
-      while (current < end) {
-        dates.push(new Date(current));
-        current.setDate(current.getDate() + 1);
+      // For check-in: exclude from start to end-1
+      let currentIn = new Date(start);
+      while (currentIn < end) {
+        checkInDates.push(new Date(currentIn));
+        currentIn.setDate(currentIn.getDate() + 1);
+      }
+
+      // For check-out: exclude from start+1 to end
+      let currentOut = new Date(start);
+      currentOut.setDate(currentOut.getDate() + 1);
+      while (currentOut <= end) {
+        checkOutDates.push(new Date(currentOut));
+        currentOut.setDate(currentOut.getDate() + 1);
       }
     });
-    console.log('excludeDates:', dates);
-    return { excludeDateIntervals: intervals, excludeDates: dates };
+    
+    return { 
+      excludeCheckInDates: checkInDates, 
+      excludeCheckOutDates: checkOutDates 
+    };
   }, [allBookings, editBooking]);
 
   const handleBookNow = async (e: React.FormEvent) => {
@@ -2547,8 +2556,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={new Date()}
-              excludeDateIntervals={excludeDateIntervals}
-              filterDate={(date) => !excludeDates.some(d => d.toDateString() === date.toDateString())}
+              filterDate={(date) => !excludeCheckInDates.some(d => d.toDateString() === date.toDateString())}
               dayClassName={getDayClassName}
               placeholderText="Select check-in date"
               className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
@@ -2572,8 +2580,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={checkIn ? addDays(checkIn, 1) : new Date()}
-              excludeDateIntervals={excludeDateIntervals}
-              filterDate={(date) => !excludeDates.some(d => d.toDateString() === date.toDateString())}
+              filterDate={(date) => !excludeCheckOutDates.some(d => d.toDateString() === date.toDateString())}
               dayClassName={getDayClassName}
               placeholderText="Select check-out date"
               className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
