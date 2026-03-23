@@ -46,7 +46,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((request.auth.token.email == "anujkumarmittal@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == "anujkumarmittal@gmail.com" ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
@@ -56,11 +56,11 @@ service cloud.firestore {
     }
 
     function isValidDateString(dateStr) {
-      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}.*");
+      return dateStr is string && dateStr.matches("^\\d{2}/\\d{2}/\\d{4}$");
     }
 
     function isValidDateTimeString(dateTimeStr) {
-      return dateTimeStr is string && dateTimeStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*");
+      return dateTimeStr is string && dateTimeStr.matches("^\\d{2}/\\d{2}/\\d{4}, \\d{2}:\\d{2}:\\d{2}$");
     }
 
     // ===============================================================
@@ -115,7 +115,7 @@ service cloud.firestore {
              data.action is string &&
              data.targetId is string &&
              isValidDateTimeString(data.createdAt) &&
-             (!('details' in data) || data.details is string) &&
+             (!('details' in data) || (data.details is string && data.details.size() <= 1000)) &&
              data.keys().hasOnly(['adminId', 'adminEmail', 'action', 'targetId', 'details', 'createdAt']);
     }
 

@@ -79,7 +79,7 @@ import {
   getDoc,
   deleteDoc
 } from 'firebase/firestore';
-import { format, addDays } from 'date-fns';
+import { format, addDays, parse } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { auth, db } from './firebase';
@@ -138,14 +138,16 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 async function logAdminAction(action: string, targetId: string, details?: string) {
   if (!auth.currentUser) return;
   try {
-    await addDoc(collection(db, 'logs'), {
+    const logData = {
       adminId: auth.currentUser.uid,
-      adminEmail: auth.currentUser.email,
+      adminEmail: auth.currentUser.email || '',
       action,
       targetId,
       details: details || '',
-      createdAt: new Date().toISOString()
-    });
+      createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
+    };
+    console.log('Logging admin action:', logData, 'emailVerified:', auth.currentUser.emailVerified);
+    await addDoc(collection(db, 'logs'), logData);
   } catch (error) {
     console.error('Failed to log admin action:', error);
   }
@@ -514,11 +516,11 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
       if (activeFilter === 'pending') return booking.status === 'pending';
       if (activeFilter === 'cancelled') return booking.status === 'cancelled';
       
-      const checkInDate = new Date(booking.checkIn);
-      const checkOutDate = new Date(booking.checkOut);
+      const checkInDate = parse(booking.checkIn, 'dd/MM/yyyy', new Date());
+      const checkOutDate = parse(booking.checkOut, 'dd/MM/yyyy', new Date());
       
       if (activeFilter === 'upcoming') {
-        return booking.status === 'confirmed' && checkInDate >= today;
+        return booking.status === 'confirmed' && checkInDate >= new Date(today.getTime() - 86400000);
       }
       if (activeFilter === 'completed') {
         return booking.status === 'confirmed' && checkOutDate < today;
@@ -694,8 +696,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
                     if (tab.id === 'cancelled') return b.status === 'cancelled';
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    const checkInDate = new Date(b.checkIn);
-                    const checkOutDate = new Date(b.checkOut);
+                    const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+                    const checkOutDate = parse(b.checkOut, 'dd/MM/yyyy', new Date());
                     if (tab.id === 'upcoming') return b.status === 'confirmed' && checkInDate >= today;
                     if (tab.id === 'completed') return b.status === 'confirmed' && checkOutDate < today;
                     return true;
@@ -747,7 +749,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
                     </div>
                     <div>
                       <p className="font-bold text-luxury-dark">{review.userName}</p>
-                      <p className="text-[10px] text-luxury-dark/40">{format(new Date(review.createdAt), 'MMM dd, yyyy')}</p>
+                      <p className="text-[10px] text-luxury-dark/40">{review.createdAt.split(',')[0]}</p>
                     </div>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
@@ -821,7 +823,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
                   {adminLogs.map(log => (
                     <tr key={log.id} className="hover:bg-luxury-cream/30 transition-colors">
                       <td className="px-6 py-4 text-xs font-medium text-luxury-dark/60">
-                        {log.createdAt ? format(new Date(log.createdAt), 'MMM dd, HH:mm:ss') : 'N/A'}
+                        {log.createdAt ? log.createdAt : 'N/A'}
                       </td>
                       <td className="px-6 py-4 text-xs font-bold text-luxury-dark">
                         {log.adminEmail}
@@ -937,11 +939,11 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
                   <div className="grid grid-cols-2 gap-6 py-6 border-y border-luxury-dark/5">
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Check-In (2 PM)</p>
-                      <p className="font-bold text-luxury-dark">{format(new Date(booking.checkIn), 'MMM dd, yyyy')}</p>
+                      <p className="font-bold text-luxury-dark">{booking.checkIn}</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Check-Out (11 AM)</p>
-                      <p className="font-bold text-luxury-dark">{format(new Date(booking.checkOut), 'MMM dd, yyyy')}</p>
+                      <p className="font-bold text-luxury-dark">{booking.checkOut}</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests</p>
@@ -953,7 +955,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
-                      <p className="font-bold text-luxury-dark">{format(new Date(booking.createdAt), 'MMM dd, yyyy')}</p>
+                      <p className="font-bold text-luxury-dark">{booking.createdAt.split(',')[0]}</p>
                     </div>
                   </div>
 
@@ -1044,7 +1046,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
                         </div>
                       </div>
                       
-                      {new Date(booking.checkOut) <= new Date() && (
+                      {parse(booking.checkOut, 'dd/MM/yyyy', new Date()) <= new Date() && (
                         <button 
                           onClick={() => setReviewingBooking(booking)}
                           className="px-8 py-4 bg-luxury-dark text-white rounded-2xl font-bold hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 shadow-lg shadow-luxury-dark/10"
@@ -1983,8 +1985,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [email, setEmail] = useState(editBooking?.email || (userRole === 'admin' && !editBooking ? '' : user?.email || ''));
   const [guests, setGuests] = useState(editBooking?.guests || 1);
   const [occasion, setOccasion] = useState(editBooking?.occasion || '');
-  const [checkIn, setCheckIn] = useState<Date | null>(editBooking?.checkIn ? new Date(editBooking.checkIn) : null);
-  const [checkOut, setCheckOut] = useState<Date | null>(editBooking?.checkOut ? new Date(editBooking.checkOut) : null);
+  const [checkIn, setCheckIn] = useState<Date | null>(editBooking?.checkIn ? parse(editBooking.checkIn, 'dd/MM/yyyy', new Date()) : null);
+  const [checkOut, setCheckOut] = useState<Date | null>(editBooking?.checkOut ? parse(editBooking.checkOut, 'dd/MM/yyyy', new Date()) : null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [isAdminBooking, setIsAdminBooking] = useState(userRole === 'admin' && !editBooking);
@@ -2017,10 +2019,14 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     if (checkIn && checkOut) {
       const hasConflict = allBookings.some(b => {
         if (editBooking && b.id === editBooking.id) return false;
-        const bStart = new Date(b.checkIn);
-        const bEnd = new Date(b.checkOut);
+        const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+        bStart.setHours(0, 0, 0, 0);
+        const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+        bEnd.setHours(0, 0, 0, 0);
         const reqStart = new Date(checkIn);
+        reqStart.setHours(0, 0, 0, 0);
         const reqEnd = new Date(checkOut);
+        reqEnd.setHours(0, 0, 0, 0);
         
         return (reqStart < bEnd && reqEnd > bStart);
       });
@@ -2039,8 +2045,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
   const getDayClassName = useCallback((date: Date) => {
     const booking = allBookings.find(b => {
-      const start = new Date(b.checkIn + 'T00:00:00');
-      const end = new Date(b.checkOut + 'T00:00:00');
+      const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+      const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
       return date >= start && date < end;
     });
     if (!booking) return undefined;
@@ -2055,8 +2061,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       if (editBooking && b.id === editBooking.id) return;
       
       console.log('Booking:', b.checkIn, b.checkOut);
-      const start = new Date(b.checkIn + 'T00:00:00');
-      const end = new Date(b.checkOut + 'T00:00:00');
+      const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+      const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
       
       intervals.push({ start, end });
       
@@ -2102,10 +2108,15 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       // Check for conflicts
       const hasConflict = allBookings.some(b => {
         if (editBooking && b.id === editBooking.id) return false;
-        const bStart = new Date(b.checkIn);
-        const bEnd = new Date(b.checkOut);
+        const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+        bStart.setHours(0, 0, 0, 0);
+        const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+        bEnd.setHours(0, 0, 0, 0);
+        
         const reqStart = new Date(checkIn);
+        reqStart.setHours(0, 0, 0, 0);
         const reqEnd = checkOut ? new Date(checkOut) : new Date(checkIn);
+        reqEnd.setHours(0, 0, 0, 0);
         
         return (reqStart < bEnd && reqEnd > bStart);
       });
@@ -2146,8 +2157,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       if (user) {
         const bookingData = {
           uid: editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : user.uid),
-          checkIn: checkIn ? checkIn.toISOString().split('T')[0] : '',
-          checkOut: checkOut ? checkOut.toISOString().split('T')[0] : '',
+          checkIn: checkIn ? format(checkIn, 'dd/MM/yyyy') : '',
+          checkOut: checkOut ? format(checkOut, 'dd/MM/yyyy') : '',
           guests: guests,
           status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
           bookingAmount,
@@ -2155,7 +2166,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           amountPaid: amountPaid,
           securityDeposit,
           paymentStatus: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'part-paid' : 'unpaid'),
-          createdAt: editBooking ? editBooking.createdAt : new Date().toISOString(),
+          createdAt: editBooking ? editBooking.createdAt : format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
           name,
           mobile,
           email,
@@ -2194,8 +2205,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         `*Email:* ${email || 'Not specified'}%0A` +
         `*Guests:* ${guests}%0A` +
         `*Occasion:* ${occasion || 'Not specified'}%0A` +
-        `*Check-In:* ${checkIn || 'Not specified'}%0A` +
-        `*Check-Out:* ${checkOut || 'Not specified'}%0A` +
+        `*Check-In:* ${checkIn ? format(checkIn, 'dd/MM/yyyy') : 'Not specified'}%0A` +
+        `*Check-Out:* ${checkOut ? format(checkOut, 'dd/MM/yyyy') : 'Not specified'}%0A` +
         `*Booking Amount:* ₹${bookingAmount.toLocaleString()}%0A` +
         `*Security Deposit:* ₹${securityAmount.toLocaleString()}%0A` +
         `*Total Amount:* ₹${totalAmount.toLocaleString()}`;
@@ -2282,11 +2293,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Check-In</p>
-                  <p className="font-bold text-luxury-dark">{format(new Date(checkIn), 'MMM dd, yyyy')}</p>
+                  <p className="font-bold text-luxury-dark">{checkIn ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Check-Out</p>
-                  <p className="font-bold text-luxury-dark">{format(new Date(checkOut), 'MMM dd, yyyy')}</p>
+                  <p className="font-bold text-luxury-dark">{checkOut ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -2391,15 +2402,15 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           </div>
           <div className="flex flex-wrap gap-2">
             {allBookings
-              .filter(b => new Date(b.checkOut) >= new Date())
-              .sort((a, b) => new Date(a.checkIn).getTime() - new Date(b.checkIn).getTime())
+              .filter(b => parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date())
+              .sort((a, b) => parse(a.checkIn, 'dd/MM/yyyy', new Date()).getTime() - parse(b.checkIn, 'dd/MM/yyyy', new Date()).getTime())
               .slice(0, 5)
               .map((b, i) => (
                 <span key={i} className="px-2 py-1 bg-white border border-red-100 rounded text-[10px] text-red-700 font-medium">
-                  {format(new Date(b.checkIn), 'MMM d')} - {format(new Date(b.checkOut), 'MMM d')}
+                  {b.checkIn} - {b.checkOut}
                 </span>
               ))}
-            {allBookings.filter(b => new Date(b.checkOut) >= new Date()).length > 5 && (
+            {allBookings.filter(b => parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length > 5 && (
               <span className="text-[10px] text-red-400 self-center">+ more</span>
             )}
           </div>
@@ -2633,7 +2644,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
       <button 
         type="submit"
-        disabled={loading}
+        disabled={loading || !!errors.checkIn || !!errors.checkOut}
         className="w-full bg-luxury-dark text-white py-4 rounded-xl font-bold hover:bg-luxury-gold hover:text-luxury-dark transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
       >
         {loading ? (
