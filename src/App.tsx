@@ -1395,7 +1395,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           className="text-5xl md:text-7xl lg:text-8xl font-serif mb-8 leading-[1.1]"
         >
           Experience Luxury & Serenity at <br />
-          <span className="italic text-luxury-gold">Unique Farmhouse</span>
+          <span className="italic text-luxury-gold">Unique Farmhouse Noida</span>
         </motion.h1>
 
         <motion.p 
