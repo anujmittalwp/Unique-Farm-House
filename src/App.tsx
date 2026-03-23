@@ -35,6 +35,7 @@ import {
   Target,
   Menu,
   X,
+  Info,
   ArrowRight,
   MessageCircle,
   Navigation,
@@ -425,7 +426,7 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
   );
 };
 
-const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[] }) => {
+const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[]; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
@@ -442,14 +443,14 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
       const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setReviews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'reviews'));
       return () => unsubscribe();
     }
     if (userRole === 'admin' && activeFilter === 'logs') {
       const q = query(collection(db, 'logs'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setAdminLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'logs'));
       return () => unsubscribe();
     }
   }, [userRole, activeFilter]);
@@ -602,7 +603,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} />
+              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} />
             </div>
           </div>
         ) : reviewingBooking ? (
@@ -615,7 +616,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
               Back to Bookings
             </button>
             <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-xl overflow-hidden">
-              <ReviewForm booking={reviewingBooking} user={user} onClose={() => setReviewingBooking(null)} />
+              <ReviewForm booking={reviewingBooking} user={user} onClose={() => setReviewingBooking(null)} showToast={showToast} />
             </div>
           </div>
         ) : isAdminCreating ? (
@@ -629,7 +630,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Create Manual Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} />
+              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} />
             </div>
           </div>
         ) : (
@@ -1002,7 +1003,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
                               <button 
                                 onClick={() => {
                                   navigator.clipboard.writeText('9313501001@pthdfc');
-                                  alert('UPI ID copied to clipboard!');
+                                  showToast('UPI ID copied to clipboard!', 'success');
                                 }}
                                 className="py-2.5 px-4 bg-white border border-luxury-dark/10 rounded-xl text-[10px] font-bold text-luxury-dark hover:bg-luxury-cream transition-colors flex items-center justify-center gap-2"
                               >
@@ -1753,7 +1754,7 @@ const GalleryModal = ({ image, onClose }: { image: any, onClose: () => void }) =
 };
 
 
-const ReviewForm = ({ booking, user, onClose }: { booking: any; user: FirebaseUser; onClose: () => void }) => {
+const ReviewForm = ({ booking, user, onClose, showToast }: { booking: any; user: FirebaseUser; onClose: () => void; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1771,11 +1772,11 @@ const ReviewForm = ({ booking, user, onClose }: { booking: any; user: FirebaseUs
         rating,
         comment,
         status: 'pending',
-        createdAt: new Date().toISOString(),
+        createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
         userName: user.displayName || user.email?.split('@')[0] || 'Guest'
       });
       onClose();
-      alert('Thank you for your review! It will be visible once approved by the admin.');
+      showToast('Thank you for your review! It will be visible once approved by the admin.', 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'reviews');
       setError('Failed to submit review. Please try again.');
@@ -1977,14 +1978,15 @@ const Reviews = () => {
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [] }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
   editBooking?: any,
   userRole?: string | null,
   onLogin?: () => void,
-  allBookings?: any[]
+  allBookings?: any[],
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
 }) => {
   const [name, setName] = useState(editBooking?.name || (userRole === 'admin' && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
@@ -2234,7 +2236,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       }, 3000);
     } catch (err) {
       handleFirestoreError(err, editBooking ? OperationType.UPDATE : OperationType.CREATE, editBooking ? `bookings/${editBooking.id}` : 'bookings');
-      alert(`Failed to ${editBooking ? 'update' : 'save'} booking. Please try again.`);
+      showToast(`Failed to ${editBooking ? 'update' : 'save'} booking. Please try again.`, 'error');
     } finally {
       setLoading(false);
     }
@@ -2679,7 +2681,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings }: { isOpen: boolean, onClose: () => void, user: FirebaseUser | null, userRole: string | null, onLogin: () => void, allBookings: any[] }) => {
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast }: { isOpen: boolean, onClose: () => void, user: FirebaseUser | null, userRole: string | null, onLogin: () => void, allBookings: any[], showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -2710,7 +2712,7 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings }:
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} />
             </div>
           </motion.div>
         </div>
@@ -3009,6 +3011,37 @@ export default function App() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  const Toast = () => {
+    if (!toast) return null;
+    const colors = {
+      success: 'bg-emerald-600',
+      error: 'bg-red-600',
+      info: 'bg-luxury-dark'
+    };
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 50 }}
+        className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 rounded-2xl text-white text-sm font-bold shadow-2xl flex items-center gap-3 ${colors[toast.type]}`}
+      >
+        {toast.type === 'success' && <CheckCircle2 size={18} />}
+        {toast.type === 'error' && <AlertCircle size={18} />}
+        {toast.type === 'info' && <Info size={18} />}
+        {toast.message}
+        <button onClick={() => setToast(null)} className="ml-4 hover:opacity-70 transition-opacity">
+          <X size={16} />
+        </button>
+      </motion.div>
+    );
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'availability'), where('status', 'in', ['confirmed', 'pending']));
@@ -3018,33 +3051,38 @@ export default function App() {
         ...doc.data()
       }));
       setAllBookings(bookingsData);
-    });
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'availability'));
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        // Fetch user role
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        if (userDoc.exists()) {
-          setUserRole(userDoc.data().role);
+      try {
+        setUser(currentUser);
+        if (currentUser) {
+          // Fetch user role
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          if (userDoc.exists()) {
+            setUserRole(userDoc.data().role);
+          } else {
+            // Default for new users if not set during signup
+            const role = currentUser.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client';
+            setUserRole(role);
+            await setDoc(doc(db, 'users', currentUser.uid), {
+              uid: currentUser.uid,
+              email: currentUser.email,
+              displayName: currentUser.displayName,
+              role: role
+            }, { merge: true });
+          }
         } else {
-          // Default for new users if not set during signup
-          const role = currentUser.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client';
-          setUserRole(role);
-          await setDoc(doc(db, 'users', currentUser.uid), {
-            uid: currentUser.uid,
-            email: currentUser.email,
-            displayName: currentUser.displayName,
-            role: role
-          }, { merge: true });
+          setUserRole(null);
         }
-      } else {
-        setUserRole(null);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, 'users');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -3095,13 +3133,21 @@ export default function App() {
       </main>
       <Footer />
       
-      <BookingModal isOpen={isBookingModalOpen} onClose={closeBookingModal} user={user} userRole={userRole} onLogin={() => setIsAuthModalOpen(true)} allBookings={allBookings} />
+      <BookingModal 
+        isOpen={isBookingModalOpen} 
+        onClose={closeBookingModal} 
+        user={user} 
+        userRole={userRole} 
+        onLogin={() => setIsAuthModalOpen(true)} 
+        allBookings={allBookings}
+        showToast={showToast}
+      />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <GalleryModal image={selectedImage} onClose={() => setSelectedImage(null)} />
       
       <AnimatePresence>
         {isDashboardOpen && user && (
-          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} onLogin={() => setIsAuthModalOpen(true)} allBookings={allBookings} />
+          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} onLogin={() => setIsAuthModalOpen(true)} allBookings={allBookings} showToast={showToast} />
         )}
       </AnimatePresence>
 
@@ -3139,6 +3185,10 @@ export default function App() {
           Chat with us on WhatsApp
         </span>
       </motion.a>
+
+      <AnimatePresence>
+        {toast && <Toast />}
+      </AnimatePresence>
     </div>
   );
 }

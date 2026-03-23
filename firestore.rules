@@ -119,6 +119,14 @@ service cloud.firestore {
              data.keys().hasOnly(['adminId', 'adminEmail', 'action', 'targetId', 'details', 'createdAt']);
     }
 
+    function isValidAvailability(data) {
+      return data.keys().hasAll(['checkIn', 'checkOut', 'status']) &&
+             isValidDateString(data.checkIn) &&
+             isValidDateString(data.checkOut) &&
+             data.status in ['pending', 'confirmed', 'cancelled'] &&
+             data.keys().hasOnly(['checkIn', 'checkOut', 'status']);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -173,9 +181,9 @@ service cloud.firestore {
 
     match /availability/{bookingId} {
       allow read: if true; // Publicly readable for "Sold Out" dates
-      allow write: if isAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/bookings/$(bookingId)) && get(/databases/$(database)/documents/bookings/$(bookingId)).data.uid == request.auth.uid);
-      // Also allow creation when a booking is created
-      allow create: if isAuthenticated(); 
+      allow create: if isAuthenticated() && isValidAvailability(request.resource.data);
+      allow update: if (isAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/bookings/$(bookingId)) && get(/databases/$(database)/documents/bookings/$(bookingId)).data.uid == request.auth.uid)) && isValidAvailability(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     // Default deny
