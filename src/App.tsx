@@ -2309,9 +2309,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
       
       setSuccess(true);
-      setTimeout(() => {
-        if (onClose) onClose();
-      }, 3000);
     } catch (err) {
       handleFirestoreError(err, editBooking ? OperationType.UPDATE : OperationType.CREATE, editBooking ? `bookings/${editBooking.id}` : 'bookings');
       showToast(`Failed to ${editBooking ? 'update' : 'save'} booking. Please try again.`, 'error');
@@ -2334,19 +2331,28 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </p>
         
         <div className="bg-luxury-gold/10 border border-luxury-gold/20 rounded-3xl p-6 mb-8 text-left">
-          <p className="text-xs uppercase tracking-widest font-bold text-luxury-dark mb-4">Next Steps</p>
-          <ul className="text-sm text-luxury-dark/70 space-y-3">
-            <li className="flex gap-3">
-              <span className="w-5 h-5 rounded-full bg-luxury-gold text-luxury-dark text-[10px] flex items-center justify-center shrink-0 font-bold">1</span>
-              <span>Our team will review your request and verify availability.</span>
+          <p className="text-xs uppercase tracking-widest font-bold text-luxury-dark mb-4">Next Steps & Payment Instructions</p>
+          <ul className="text-sm text-luxury-dark/70 space-y-4">
+            <li className="flex gap-4">
+              <span className="w-6 h-6 rounded-full bg-luxury-gold text-luxury-dark text-xs flex items-center justify-center shrink-0 font-bold shadow-sm">1</span>
+              <div>
+                <p className="font-bold text-luxury-dark">Availability Review</p>
+                <p className="text-xs opacity-80">Our team will review your request and verify availability for the selected dates.</p>
+              </div>
             </li>
-            <li className="flex gap-3">
-              <span className="w-5 h-5 rounded-full bg-luxury-gold text-luxury-dark text-[10px] flex items-center justify-center shrink-0 font-bold">2</span>
-              <span>We will contact you via mobile or email to discuss payment options.</span>
+            <li className="flex gap-4">
+              <span className="w-6 h-6 rounded-full bg-luxury-gold text-luxury-dark text-xs flex items-center justify-center shrink-0 font-bold shadow-sm">2</span>
+              <div>
+                <p className="font-bold text-luxury-dark">Payment to Confirm</p>
+                <p className="text-xs opacity-80">To secure your booking, a minimum 50% advance payment is required via UPI. You can find payment details in "My Bookings" once your request is reviewed, or contact us directly.</p>
+              </div>
             </li>
-            <li className="flex gap-3">
-              <span className="w-5 h-5 rounded-full bg-luxury-gold text-luxury-dark text-[10px] flex items-center justify-center shrink-0 font-bold">3</span>
-              <span>Once payment is verified, your booking status will be updated to "Confirmed".</span>
+            <li className="flex gap-4">
+              <span className="w-6 h-6 rounded-full bg-luxury-gold text-luxury-dark text-xs flex items-center justify-center shrink-0 font-bold shadow-sm">3</span>
+              <div>
+                <p className="font-bold text-luxury-dark">Instant Confirmation</p>
+                <p className="text-xs opacity-80">Once payment proof is verified on WhatsApp (+91 93135 01001), your status will change to "Confirmed".</p>
+              </div>
             </li>
           </ul>
         </div>
@@ -2428,12 +2434,23 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           </div>
         </div>
 
-        <button 
-          onClick={onClose}
-          className="luxury-button w-full"
-        >
-          Close & Return
-        </button>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <button 
+            onClick={onClose}
+            className="luxury-button flex-1"
+          >
+            Close & Return
+          </button>
+          <a 
+            href={`https://wa.me/919313501001?text=${encodeURIComponent(`*Booking Request Summary for Unique Farmhouse*\n\n*Name:* ${name}\n*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}\n*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}\n*Guests:* ${guestsDay} Day / ${guestsNight} Night\n*Total Amount:* ₹${totalAmount.toLocaleString()}`)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="luxury-button-outline flex-1 flex items-center justify-center gap-2"
+          >
+            <MessageSquare size={18} />
+            Share on WhatsApp
+          </a>
+        </div>
         <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mt-6">You can track this booking in "My Bookings" section</p>
       </div>
     );
