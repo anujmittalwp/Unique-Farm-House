@@ -69,22 +69,22 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'role']) &&
-             data.uid is string && data.uid.size() > 0 &&
-             data.email is string && (data.email == "" || isValidEmail(data.email)) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)) &&
              data.role in ['client', 'admin'] &&
              (!('isAnonymous' in data) || data.isAnonymous is bool) &&
              (!('createdAt' in data) || isValidDateTimeString(data.createdAt)) &&
-             (!('displayName' in data) || data.displayName is string) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128)) &&
              data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'isAnonymous', 'createdAt']);
     }
 
     function isValidBooking(data) {
       return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']) &&
-             data.uid is string && data.uid.size() > 0 &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
              isValidDateString(data.checkIn) &&
              isValidDateString(data.checkOut) &&
-             data.guestsDay is int && data.guestsDay > 0 && data.guestsDay <= 50 &&
-             data.guestsNight is int && data.guestsNight >= 0 && data.guestsNight <= 12 &&
+             data.guestsDay is number && data.guestsDay > 0 && data.guestsDay <= 50 &&
+             data.guestsNight is number && data.guestsNight >= 0 && data.guestsNight <= 12 &&
              data.status in ['pending', 'confirmed', 'cancelled'] &&
              data.totalAmount is number && data.totalAmount >= 0 &&
              data.amountPaid is number && data.amountPaid >= 0 &&
@@ -93,10 +93,10 @@ service cloud.firestore {
              data.bookedBy in ['client', 'admin'] &&
              data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
              isValidDateTimeString(data.createdAt) &&
-             (!('name' in data) || data.name is string) &&
-             (!('mobile' in data) || data.mobile is string) &&
-             (!('email' in data) || isValidEmail(data.email)) &&
-             (!('occasion' in data) || data.occasion is string) &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 128)) &&
+             (!('mobile' in data) || (data.mobile is string && data.mobile.size() <= 20)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)))) &&
+             (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 256)) &&
              data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']);
     }
 
