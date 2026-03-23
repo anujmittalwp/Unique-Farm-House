@@ -155,6 +155,74 @@ async function logAdminAction(action: string, targetId: string, details?: string
   }
 }
 
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Delete', cancelText = 'Cancel', type = 'danger' }: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  onConfirm: () => void; 
+  title: string; 
+  message: string; 
+  confirmText?: string; 
+  cancelText?: string;
+  type?: 'danger' | 'warning' | 'info';
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      />
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="relative w-full max-w-md bg-white rounded-[2rem] shadow-2xl overflow-hidden"
+      >
+        <div className="p-8">
+          <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-6 ${
+            type === 'danger' ? 'bg-red-50 text-red-600' : 
+            type === 'warning' ? 'bg-amber-50 text-amber-600' : 
+            'bg-blue-50 text-blue-600'
+          }`}>
+            {type === 'danger' ? <Trash2 size={32} /> : 
+             type === 'warning' ? <AlertCircle size={32} /> : 
+             <Info size={32} />}
+          </div>
+          
+          <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">{title}</h3>
+          <p className="text-luxury-dark/60 leading-relaxed mb-8">{message}</p>
+          
+          <div className="flex gap-4">
+            <button 
+              onClick={onClose}
+              className="flex-1 px-6 py-4 bg-luxury-cream text-luxury-dark font-bold rounded-2xl hover:bg-luxury-dark hover:text-white transition-all duration-300"
+            >
+              {cancelText}
+            </button>
+            <button 
+              onClick={() => {
+                onConfirm();
+                onClose();
+              }}
+              className={`flex-1 px-6 py-4 font-bold rounded-2xl transition-all duration-300 shadow-lg hover:shadow-xl ${
+                type === 'danger' ? 'bg-red-600 text-white hover:bg-red-700' : 
+                type === 'warning' ? 'bg-amber-600 text-white hover:bg-amber-700' : 
+                'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              {confirmText}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
@@ -432,12 +500,13 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
   const [loading, setLoading] = useState(true);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs'>('all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [adminLogs, setAdminLogs] = useState<any[]>([]);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [bookingToDelete, setBookingToDelete] = useState<any | null>(null);
 
   useEffect(() => {
     if (userRole === 'admin' && activeFilter === 'reviews') {
@@ -1140,38 +1209,15 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                         <div className="space-y-2 md:col-span-2">
                           <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold">Danger Zone</label>
                           <div className="flex gap-2">
-                            {deletingId === booking.id ? (
-                              <>
-                                <button 
-                                  onClick={async () => {
-                                    try {
-                                      await deleteDoc(doc(db, 'bookings', booking.id));
-                                      await deleteDoc(doc(db, 'availability', booking.id));
-                                      await logAdminAction('delete_booking', booking.id, `Deleted booking for ${booking.name}`);
-                                      setDeletingId(null);
-                                    } catch (error) {
-                                      handleFirestoreError(error, OperationType.DELETE, `bookings/${booking.id}`);
-                                    }
-                                  }}
-                                  className="flex-1 px-3 py-2 bg-red-600 text-white text-[10px] font-bold rounded-xl hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-                                >
-                                  <Trash2 size={12} /> Confirm Delete
-                                </button>
-                                <button 
-                                  onClick={() => setDeletingId(null)}
-                                  className="px-4 py-2 bg-luxury-cream text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <button 
-                                onClick={() => setDeletingId(booking.id)}
-                                className="w-full px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
-                              >
-                                <Trash2 size={12} /> Delete Booking
-                              </button>
-                            )}
+                            <button 
+                              onClick={() => {
+                                setBookingToDelete(booking);
+                                setIsConfirmModalOpen(true);
+                              }}
+                              className="w-full px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                            >
+                              <Trash2 size={12} /> Delete Booking
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1184,6 +1230,34 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
         )}
       </>
     )}
+    
+    <AnimatePresence>
+      {isConfirmModalOpen && (
+        <ConfirmationModal 
+          isOpen={isConfirmModalOpen}
+          onClose={() => {
+            setIsConfirmModalOpen(false);
+            setBookingToDelete(null);
+          }}
+          onConfirm={async () => {
+            if (!bookingToDelete) return;
+            try {
+              await deleteDoc(doc(db, 'bookings', bookingToDelete.id));
+              await deleteDoc(doc(db, 'availability', bookingToDelete.id));
+              await logAdminAction('delete_booking', bookingToDelete.id, `Deleted booking for ${bookingToDelete.name}`);
+              showToast('Booking deleted successfully', 'success');
+            } catch (error) {
+              handleFirestoreError(error, OperationType.DELETE, `bookings/${bookingToDelete.id}`);
+              showToast('Failed to delete booking', 'error');
+            }
+          }}
+          title="Delete Booking"
+          message={`Are you sure you want to delete the booking for ${bookingToDelete?.name}? This action cannot be undone.`}
+          confirmText="Delete"
+          type="danger"
+        />
+      )}
+    </AnimatePresence>
   </div>
 </motion.div>
 );
