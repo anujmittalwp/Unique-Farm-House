@@ -79,11 +79,12 @@ service cloud.firestore {
     }
 
     function isValidBooking(data) {
-      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']) &&
+      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']) &&
              data.uid is string && data.uid.size() > 0 &&
              isValidDateString(data.checkIn) &&
              isValidDateString(data.checkOut) &&
-             data.guests is int && data.guests > 0 &&
+             data.guestsDay is int && data.guestsDay > 0 && data.guestsDay <= 50 &&
+             data.guestsNight is int && data.guestsNight >= 0 && data.guestsNight <= 12 &&
              data.status in ['pending', 'confirmed', 'cancelled'] &&
              data.totalAmount is number && data.totalAmount >= 0 &&
              data.amountPaid is number && data.amountPaid >= 0 &&
@@ -96,7 +97,7 @@ service cloud.firestore {
              (!('mobile' in data) || data.mobile is string) &&
              (!('email' in data) || isValidEmail(data.email)) &&
              (!('occasion' in data) || data.occasion is string) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guests', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']);
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']);
     }
 
     function isValidReview(data) {

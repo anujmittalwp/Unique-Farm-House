@@ -54,9 +54,13 @@
           "format": "date",
           "description": "The check-out date."
         },
-        "guests": {
+        "guestsDay": {
           "type": "integer",
-          "description": "The number of guests."
+          "description": "The number of guests for day stay."
+        },
+        "guestsNight": {
+          "type": "integer",
+          "description": "The number of guests for night stay."
         },
         "status": {
           "type": "string",
@@ -112,7 +116,7 @@
           "description": "Who made the booking (client or admin)."
         }
       },
-      "required": ["uid", "checkIn", "checkOut", "guests", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy"]
+      "required": ["uid", "checkIn", "checkOut", "guestsDay", "guestsNight", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy"]
     },
     "Review": {
       "title": "Review",

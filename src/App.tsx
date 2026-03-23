@@ -48,6 +48,7 @@ import {
   History,
   LayoutDashboard,
   Eye,
+  Moon,
   CheckCircle2,
   Clock,
   AlertCircle,
@@ -954,8 +955,12 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                       <p className="font-bold text-luxury-dark">{booking.checkOut}</p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests</p>
-                      <p className="font-bold text-luxury-dark">{booking.guests} Guests</p>
+                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests (Day)</p>
+                      <p className="font-bold text-luxury-dark">{booking.guestsDay} Guests</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests (Night)</p>
+                      <p className="font-bold text-luxury-dark">{booking.guestsNight} Guests</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Occasion</p>
@@ -1979,6 +1984,57 @@ const Reviews = () => {
   );
 };
 
+const BookingCalendar = ({ 
+  selected, 
+  onChange, 
+  minDate, 
+  filterDate,
+  dayClassName, 
+  placeholderText,
+  startDate,
+  endDate,
+  selectsStart,
+  selectsEnd,
+  className
+}: any) => {
+  const renderDayContents = (day: number, date: Date) => {
+    const dayOfWeek = date.getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6;
+    const price = isWeekend ? 18000 : 15000;
+    
+    return (
+      <div className="group relative flex flex-col items-center justify-center w-full h-full">
+        <span className="relative z-10">{day}</span>
+        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-luxury-dark text-white text-[9px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none whitespace-nowrap z-[100] shadow-2xl border border-luxury-gold/30 scale-75 group-hover:scale-100 origin-bottom">
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="text-luxury-gold/60 font-bold uppercase tracking-tighter">Price</span>
+            <span className="font-bold">₹{price.toLocaleString()}</span>
+          </div>
+          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-luxury-dark rotate-45 border-r border-b border-luxury-gold/30" />
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <DatePicker
+      selected={selected}
+      onChange={onChange}
+      minDate={minDate}
+      filterDate={filterDate}
+      dayClassName={dayClassName}
+      placeholderText={placeholderText}
+      renderDayContents={renderDayContents}
+      startDate={startDate}
+      endDate={endDate}
+      selectsStart={selectsStart}
+      selectsEnd={selectsEnd}
+      dateFormat="dd/MM/yyyy"
+      className={className}
+    />
+  );
+};
+
 const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast }: { 
   isModal?: boolean, 
   onClose?: () => void,
@@ -1992,7 +2048,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [name, setName] = useState(editBooking?.name || (userRole === 'admin' && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
   const [email, setEmail] = useState(editBooking?.email || (userRole === 'admin' && !editBooking ? '' : user?.email || ''));
-  const [guests, setGuests] = useState(editBooking?.guests || 1);
+  const [guestsDay, setGuestsDay] = useState(editBooking?.guestsDay || 1);
+  const [guestsNight, setGuestsNight] = useState(editBooking?.guestsNight || 0);
   const [occasion, setOccasion] = useState(editBooking?.occasion || '');
   const [checkIn, setCheckIn] = useState<Date | null>(editBooking?.checkIn ? parse(editBooking.checkIn, 'dd/MM/yyyy', new Date()) : null);
   const [checkOut, setCheckOut] = useState<Date | null>(editBooking?.checkOut ? parse(editBooking.checkOut, 'dd/MM/yyyy', new Date()) : null);
@@ -2154,10 +2211,16 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       }
     }
     
-    if (guests < 1) {
-      newErrors.guests = "At least 1 guest is required";
-    } else if (guests > 50) {
-      newErrors.guests = "Maximum 50 guests allowed";
+    if (guestsDay < 1) {
+      newErrors.guestsDay = "At least 1 day guest is required";
+    } else if (guestsDay > 50) {
+      newErrors.guestsDay = "Maximum 50 day guests allowed";
+    }
+    
+    if (guestsNight < 0) {
+      newErrors.guestsNight = "Guests cannot be negative";
+    } else if (guestsNight > 12) {
+      newErrors.guestsNight = "Maximum 12 night guests allowed";
     }
     
     if (Object.keys(newErrors).length > 0) {
@@ -2194,7 +2257,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           uid: editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : currentUser?.uid),
           checkIn: checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : '',
           checkOut: checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : '',
-          guests: guests,
+          guestsDay,
+          guestsNight,
           status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
           bookingAmount,
           totalAmount,
@@ -2238,7 +2302,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         `*Name:* ${name || 'Not specified'}%0A` +
         `*Mobile:* ${mobile || 'Not specified'}%0A` +
         `*Email:* ${email || 'Not specified'}%0A` +
-        `*Guests:* ${guests}%0A` +
+        `*Guests (Day):* ${guestsDay}%0A` +
+        `*Guests (Night):* ${guestsNight}%0A` +
         `*Occasion:* ${occasion || 'Not specified'}%0A` +
         `*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'Not specified'}%0A` +
         `*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'Not specified'}%0A` +
@@ -2337,13 +2402,17 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guests</p>
-                  <p className="font-bold text-luxury-dark">{guests} Guests</p>
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guests (Day)</p>
+                  <p className="font-bold text-luxury-dark">{guestsDay} Guests</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Occasion</p>
-                  <p className="font-bold text-luxury-dark">{occasion || 'General Stay'}</p>
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guests (Night)</p>
+                  <p className="font-bold text-luxury-dark">{guestsNight} Guests</p>
                 </div>
+              </div>
+              <div className="pt-4">
+                <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Occasion</p>
+                <p className="font-bold text-luxury-dark">{occasion || 'General Stay'}</p>
               </div>
               <div className="pt-4 border-t border-luxury-dark/5 space-y-2">
                 <div className="flex justify-between items-center">
@@ -2499,51 +2568,75 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       </div>
 
+      <div className="space-y-1.5">
+        <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Email Address</label>
+        <div className="relative">
+          <input 
+            type="email" 
+            required
+            placeholder="Email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (errors.email) setErrors(prev => {
+                const next = {...prev};
+                delete next.email;
+                return next;
+              });
+            }}
+            className={`w-full px-4 py-4 bg-luxury-cream border ${errors.email ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
+          />
+          <Mail className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
+        </div>
+        {errors.email && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.email}</p>}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Email Address</label>
-          <div className="relative">
-            <input 
-              type="email" 
-              required
-              placeholder="Email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                if (errors.email) setErrors(prev => {
-                  const next = {...prev};
-                  delete next.email;
-                  return next;
-                });
-              }}
-              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.email ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`} 
-            />
-            <Mail className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
-          </div>
-          {errors.email && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.email}</p>}
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">No. of Guests</label>
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Guests (Day Stay - Max 50)</label>
           <div className="relative">
             <input 
               type="number" 
               min="1"
               max="50"
-              value={guests}
+              value={guestsDay}
               onChange={(e) => {
-                setGuests(parseInt(e.target.value) || 1);
-                if (errors.guests) setErrors(prev => {
+                setGuestsDay(parseInt(e.target.value) || 1);
+                if (errors.guestsDay) setErrors(prev => {
                   const next = {...prev};
-                  delete next.guests;
+                  delete next.guestsDay;
                   return next;
                 });
               }}
-              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.guests ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
-              placeholder="Number of guests"
+              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.guestsDay ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
+              placeholder="Number of day guests"
             />
             <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
           </div>
-          {errors.guests && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.guests}</p>}
+          {errors.guestsDay && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.guestsDay}</p>}
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Guests (Night Stay - Max 12)</label>
+          <div className="relative">
+            <input 
+              type="number" 
+              min="0"
+              max="12"
+              value={guestsNight}
+              onChange={(e) => {
+                setGuestsNight(parseInt(e.target.value) || 0);
+                if (errors.guestsNight) setErrors(prev => {
+                  const next = {...prev};
+                  delete next.guestsNight;
+                  return next;
+                });
+              }}
+              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.guestsNight ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
+              placeholder="Number of night guests"
+            />
+            <Moon className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
+          </div>
+          {errors.guestsNight && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.guestsNight}</p>}
         </div>
       </div>
 
@@ -2565,9 +2658,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In (At 2:00 PM)</label>
           <div className="relative">
-            <DatePicker
+            <BookingCalendar
               selected={checkIn}
-              onChange={(date) => {
+              onChange={(date: Date) => {
                 setCheckIn(date);
                 if (errors.checkIn) setErrors(prev => {
                   const next = {...prev};
@@ -2576,11 +2669,13 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={new Date()}
-              filterDate={(date) => !excludeCheckInDates.some(d => d.toDateString() === date.toDateString())}
+              filterDate={(date: Date) => !excludeCheckInDates.some(d => d.toDateString() === date.toDateString())}
               dayClassName={getDayClassName}
               placeholderText="Select check-in date"
+              startDate={checkIn}
+              endDate={checkOut}
+              selectsStart
               className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
-              dateFormat="dd/MM/yyyy"
             />
             <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
           </div>
@@ -2589,9 +2684,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out (At 11:00 AM)</label>
           <div className="relative">
-            <DatePicker
+            <BookingCalendar
               selected={checkOut}
-              onChange={(date) => {
+              onChange={(date: Date) => {
                 setCheckOut(date);
                 if (errors.checkOut) setErrors(prev => {
                   const next = {...prev};
@@ -2600,11 +2695,13 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={checkIn ? addDays(checkIn, 1) : new Date()}
-              filterDate={(date) => !excludeCheckOutDates.some(d => d.toDateString() === date.toDateString())}
+              filterDate={(date: Date) => !excludeCheckOutDates.some(d => d.toDateString() === date.toDateString())}
               dayClassName={getDayClassName}
               placeholderText="Select check-out date"
+              startDate={checkIn}
+              endDate={checkOut}
+              selectsEnd
               className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
-              dateFormat="dd/MM/yyyy"
             />
             <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
           </div>
