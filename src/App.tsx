@@ -65,6 +65,7 @@ import {
   User as FirebaseUser,
   GoogleAuthProvider,
   signInWithPopup,
+  signInAnonymously,
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
@@ -2171,9 +2172,26 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     const securityDeposit = securityAmount;
 
     try {
-      if (user) {
+      let currentUser = user;
+      if (!currentUser && !isAdminBooking) {
+        // Auto-create anonymous user
+        const userCredential = await signInAnonymously(auth);
+        currentUser = userCredential.user;
+        
+        // Create user document in Firestore
+        await setDoc(doc(db, 'users', currentUser.uid), {
+          uid: currentUser.uid,
+          email: email || '',
+          displayName: name || 'Guest',
+          role: 'client',
+          isAnonymous: true,
+          createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
+        });
+      }
+
+      if (currentUser || isAdminBooking) {
         const bookingData = {
-          uid: editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : user.uid),
+          uid: editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : currentUser?.uid),
           checkIn: checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : '',
           checkOut: checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : '',
           guests: guests,
@@ -2394,17 +2412,17 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       )}
       {!user && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <AlertCircle size={18} className="text-amber-600 mt-0.5" />
-            <p className="text-xs text-amber-800 leading-relaxed">
-              <strong>Note:</strong> You are not signed in. Sign in to track your booking status and pay online.
+            <Sparkles size={18} className="text-emerald-600 mt-0.5" />
+            <p className="text-xs text-emerald-800 leading-relaxed">
+              <strong>Quick Booking:</strong> No account? No problem! We'll auto-create one for you to manage your booking.
             </p>
           </div>
           <button
             type="button"
             onClick={onLogin}
-            className="px-4 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-luxury-dark hover:text-white transition-all whitespace-nowrap"
+            className="px-4 py-2 bg-luxury-dark text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-luxury-gold hover:text-luxury-dark transition-all whitespace-nowrap"
           >
             Sign In / Sign Up
           </button>
@@ -3070,9 +3088,11 @@ export default function App() {
             setUserRole(role);
             await setDoc(doc(db, 'users', currentUser.uid), {
               uid: currentUser.uid,
-              email: currentUser.email,
-              displayName: currentUser.displayName,
-              role: role
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || 'Guest',
+              role: role,
+              isAnonymous: currentUser.isAnonymous,
+              createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
             }, { merge: true });
           }
         } else {

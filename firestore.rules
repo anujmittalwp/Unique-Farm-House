@@ -70,9 +70,12 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'role']) &&
              data.uid is string && data.uid.size() > 0 &&
-             data.email is string && isValidEmail(data.email) &&
+             data.email is string && (data.email == "" || isValidEmail(data.email)) &&
              data.role in ['client', 'admin'] &&
-             data.keys().hasOnly(['uid', 'email', 'displayName', 'role']);
+             (!('isAnonymous' in data) || data.isAnonymous is bool) &&
+             (!('createdAt' in data) || isValidDateTimeString(data.createdAt)) &&
+             (!('displayName' in data) || data.displayName is string) &&
+             data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'isAnonymous', 'createdAt']);
     }
 
     function isValidBooking(data) {
