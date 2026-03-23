@@ -66,7 +66,6 @@ import {
   User as FirebaseUser,
   GoogleAuthProvider,
   signInWithPopup,
-  signInAnonymously,
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
@@ -135,7 +134,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  // throw new Error(JSON.stringify(errInfo)); // Optional: throw to propagate
+  throw new Error(JSON.stringify(errInfo));
 }
 
 async function logAdminAction(action: string, targetId: string, details?: string) {
@@ -956,11 +955,11 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests (Day)</p>
-                      <p className="font-bold text-luxury-dark">{booking.guestsDay} Guests</p>
+                      <p className="font-bold text-luxury-dark">{booking.guestsDay || booking.guests || 0} Guests</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests (Night)</p>
-                      <p className="font-bold text-luxury-dark">{booking.guestsNight} Guests</p>
+                      <p className="font-bold text-luxury-dark">{booking.guestsNight || 0} Guests</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Occasion</p>
@@ -972,7 +971,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                     </div>
                   </div>
 
-                  {booking.paymentStatus === 'unpaid' && booking.status === 'confirmed' && (
+                  {(booking.paymentStatus === 'unpaid' || booking.paymentStatus === 'part-paid') && booking.status === 'confirmed' && (
                     <div className="mt-8 p-6 bg-luxury-gold/5 rounded-2xl border border-luxury-gold/20">
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
@@ -999,7 +998,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                           <div className="flex-1 space-y-3 w-full">
                             <a 
                               href={`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${booking.totalAmount - (booking.amountPaid || 0)}&cu=INR&tn=Booking%20${booking.id.slice(0, 8)}`}
-                              className="w-full bg-luxury-dark text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10"
+                              className="w-full bg-luxury-dark text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10 text-sm"
                             >
                               <Zap size={18} />
                               Pay ₹{(booking.totalAmount - (booking.amountPaid || 0)).toLocaleString()} Now
@@ -1028,10 +1027,15 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                         </div>
                       </div>
                       
-                      <p className="text-[10px] text-center text-luxury-dark/30 mt-4 uppercase tracking-widest leading-relaxed">
-                        Scan QR code with any UPI App or click "Pay Now" on mobile. <br />
-                        After payment, send proof via WhatsApp for instant confirmation.
-                      </p>
+                      <div className="p-4 bg-luxury-cream/30 rounded-xl mt-4 border border-luxury-dark/5">
+                        <p className="text-[10px] text-luxury-dark/60 uppercase tracking-widest font-bold mb-2">Instructions:</p>
+                        <ul className="text-[10px] text-luxury-dark/50 space-y-1 list-disc pl-4">
+                          <li>Scan the QR code or click "Pay Now" on your mobile device.</li>
+                          <li>Ensure the amount matches the balance shown above.</li>
+                          <li>After successful payment, take a screenshot of the transaction.</li>
+                          <li>Click "Send Proof" to share the screenshot on WhatsApp for verification.</li>
+                        </ul>
+                      </div>
                     </div>
                   )}
 
@@ -2237,19 +2241,10 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     try {
       let currentUser = user;
       if (!currentUser && !isAdminBooking) {
-        // Auto-create anonymous user
-        const userCredential = await signInAnonymously(auth);
-        currentUser = userCredential.user;
-        
-        // Create user document in Firestore
-        await setDoc(doc(db, 'users', currentUser.uid), {
-          uid: currentUser.uid,
-          email: email || '',
-          displayName: name || 'Guest',
-          role: 'client',
-          isAnonymous: true,
-          createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
-        });
+        showToast("Please sign in with Google to complete your booking.", "info");
+        onLogin?.();
+        setLoading(false);
+        return;
       }
 
       if (currentUser || isAdminBooking) {
@@ -2446,6 +2441,41 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
   return (
     <form className="space-y-5" onSubmit={handleBookNow}>
+      {editBooking && editBooking.status === 'confirmed' && (editBooking.paymentStatus === 'unpaid' || editBooking.paymentStatus === 'part-paid') && (
+        <div className="p-6 bg-luxury-gold/5 border border-luxury-gold/20 rounded-2xl mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-luxury-gold rounded-full flex items-center justify-center text-luxury-dark">
+              <IndianRupee size={20} />
+            </div>
+            <div>
+              <p className="font-bold text-luxury-dark">Complete Payment</p>
+              <p className="text-xs text-luxury-dark/40">Pay via UPI to secure your booking</p>
+            </div>
+          </div>
+          
+          <div className="flex flex-col md:flex-row gap-6 items-center bg-white p-4 rounded-2xl border border-luxury-dark/5">
+            <div className="w-32 h-32 bg-luxury-cream rounded-xl flex items-center justify-center border border-luxury-dark/5 overflow-hidden shrink-0">
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${bookingAmount + securityAmount - amountPaid}&cu=INR&tn=Booking%20${editBooking.id.slice(0, 8)}`)}`}
+                alt="Payment QR Code"
+                className="w-full h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            <div className="flex-1 space-y-3 w-full">
+              <a 
+                href={`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${bookingAmount + securityAmount - amountPaid}&cu=INR&tn=Booking%20${editBooking.id.slice(0, 8)}`}
+                className="luxury-button w-full flex items-center justify-center gap-2 py-3"
+              >
+                <Zap size={16} /> Pay with UPI
+              </a>
+              <p className="text-[10px] text-luxury-dark/40 leading-relaxed">
+                <strong>Instructions:</strong> Scan the QR code or click the button above to pay via any UPI app (PhonePe, GPay, Paytm). After payment, please share the screenshot on <a href="https://wa.me/919313501001" target="_blank" rel="noopener noreferrer" className="text-luxury-gold font-bold underline">WhatsApp</a> for verification.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       {userRole === 'admin' && !editBooking && (
         <div className="p-4 bg-luxury-gold/10 border border-luxury-gold/20 rounded-xl mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -2485,7 +2515,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="flex items-start gap-3">
             <Sparkles size={18} className="text-emerald-600 mt-0.5" />
             <p className="text-xs text-emerald-800 leading-relaxed">
-              <strong>Quick Booking:</strong> No account? No problem! We'll auto-create one for you to manage your booking.
+              <strong>Quick Booking:</strong> Sign in with Google to manage your bookings and track payment status easily.
             </p>
           </div>
           <button
@@ -2493,7 +2523,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
             onClick={onLogin}
             className="px-4 py-2 bg-luxury-dark text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-luxury-gold hover:text-luxury-dark transition-all whitespace-nowrap"
           >
-            Sign In / Sign Up
+            Sign In with Google
           </button>
         </div>
       )}
