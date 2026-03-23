@@ -79,7 +79,7 @@ import {
   getDoc,
   deleteDoc
 } from 'firebase/firestore';
-import { format, addDays, parse } from 'date-fns';
+import { format, addDays, parse, isValid } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { auth, db } from './firebase';
@@ -516,8 +516,12 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
       if (activeFilter === 'pending') return booking.status === 'pending';
       if (activeFilter === 'cancelled') return booking.status === 'cancelled';
       
+      if (!booking.checkIn || !booking.checkOut) return false;
+      
       const checkInDate = parse(booking.checkIn, 'dd/MM/yyyy', new Date());
       const checkOutDate = parse(booking.checkOut, 'dd/MM/yyyy', new Date());
+      
+      if (!isValid(checkInDate) || !isValid(checkOutDate)) return false;
       
       if (activeFilter === 'upcoming') {
         return booking.status === 'confirmed' && checkInDate >= new Date(today.getTime() - 86400000);
@@ -694,10 +698,12 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings }: { user: F
                     if (tab.id === 'all') return true;
                     if (tab.id === 'pending') return b.status === 'pending';
                     if (tab.id === 'cancelled') return b.status === 'cancelled';
+                    if (!b.checkIn || !b.checkOut) return false;
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
                     const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
                     const checkOutDate = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+                    if (!isValid(checkInDate) || !isValid(checkOutDate)) return false;
                     if (tab.id === 'upcoming') return b.status === 'confirmed' && checkInDate >= today;
                     if (tab.id === 'completed') return b.status === 'confirmed' && checkOutDate < today;
                     return true;
@@ -2050,7 +2056,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       return date >= start && date < end;
     });
     if (!booking) return undefined;
-    return `booking-${booking.status}`;
+    return `sold-out booking-${booking.status}`;
   }, [allBookings]);
 
   const { excludeDateIntervals, excludeDates } = useMemo(() => {
@@ -2157,8 +2163,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       if (user) {
         const bookingData = {
           uid: editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : user.uid),
-          checkIn: checkIn ? format(checkIn, 'dd/MM/yyyy') : '',
-          checkOut: checkOut ? format(checkOut, 'dd/MM/yyyy') : '',
+          checkIn: checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : '',
+          checkOut: checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : '',
           guests: guests,
           status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
           bookingAmount,
@@ -2205,8 +2211,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         `*Email:* ${email || 'Not specified'}%0A` +
         `*Guests:* ${guests}%0A` +
         `*Occasion:* ${occasion || 'Not specified'}%0A` +
-        `*Check-In:* ${checkIn ? format(checkIn, 'dd/MM/yyyy') : 'Not specified'}%0A` +
-        `*Check-Out:* ${checkOut ? format(checkOut, 'dd/MM/yyyy') : 'Not specified'}%0A` +
+        `*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'Not specified'}%0A` +
+        `*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'Not specified'}%0A` +
         `*Booking Amount:* ₹${bookingAmount.toLocaleString()}%0A` +
         `*Security Deposit:* ₹${securityAmount.toLocaleString()}%0A` +
         `*Total Amount:* ₹${totalAmount.toLocaleString()}`;
@@ -2233,27 +2239,27 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
           <CheckCircle2 size={40} />
         </div>
-        <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Booking Confirmed!</h3>
+        <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Booking Request Received!</h3>
         <p className="text-luxury-dark/60 mb-8">
-          Your booking request has been received. Please complete the payment to secure your stay.
+          Your booking request for <strong>{checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : ''}</strong> to <strong>{checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : ''}</strong> has been successfully submitted. We will contact you shortly for payment and confirmation.
         </p>
         
         <div className="bg-luxury-gold/10 border border-luxury-gold/20 rounded-3xl p-6 mb-8 text-left">
-          <p className="text-xs uppercase tracking-widest font-bold text-luxury-dark mb-4">Payment Instructions</p>
-          <ul className="text-sm text-luxury-dark/70 space-y-2 mb-6">
-            <li>• Please transfer <strong>₹{totalAmount.toLocaleString()}</strong> to the following account:</li>
-            <li className="font-bold">Bank: HDFC Bank | A/C: 1234567890 | IFSC: HDFC0001234</li>
-            <li className="font-bold">UPI: unique.farmhouse@upi</li>
-            <li>• After payment, please share a screenshot on WhatsApp:</li>
+          <p className="text-xs uppercase tracking-widest font-bold text-luxury-dark mb-4">Next Steps</p>
+          <ul className="text-sm text-luxury-dark/70 space-y-3">
+            <li className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-luxury-gold text-luxury-dark text-[10px] flex items-center justify-center shrink-0 font-bold">1</span>
+              <span>Our team will review your request and verify availability.</span>
+            </li>
+            <li className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-luxury-gold text-luxury-dark text-[10px] flex items-center justify-center shrink-0 font-bold">2</span>
+              <span>We will contact you via mobile or email to discuss payment options.</span>
+            </li>
+            <li className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-luxury-gold text-luxury-dark text-[10px] flex items-center justify-center shrink-0 font-bold">3</span>
+              <span>Once payment is verified, your booking status will be updated to "Confirmed".</span>
+            </li>
           </ul>
-          <a 
-            href="https://wa.me/919313501001?text=Hi, I have completed the payment for my booking. Here is the screenshot."
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block bg-emerald-600 text-white px-6 py-3 rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors"
-          >
-            Share Screenshot on WhatsApp
-          </a>
         </div>
 
         <div className="bg-luxury-cream/50 rounded-3xl p-8 text-left border border-luxury-dark/5 mb-8">
@@ -2293,11 +2299,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Check-In</p>
-                  <p className="font-bold text-luxury-dark">{checkIn ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}</p>
+                  <p className="font-bold text-luxury-dark">{checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Check-Out</p>
-                  <p className="font-bold text-luxury-dark">{checkOut ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}</p>
+                  <p className="font-bold text-luxury-dark">{checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -2541,6 +2547,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={new Date()}
+              excludeDateIntervals={excludeDateIntervals}
               filterDate={(date) => !excludeDates.some(d => d.toDateString() === date.toDateString())}
               dayClassName={getDayClassName}
               placeholderText="Select check-in date"
@@ -2565,6 +2572,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 });
               }}
               minDate={checkIn ? addDays(checkIn, 1) : new Date()}
+              excludeDateIntervals={excludeDateIntervals}
               filterDate={(date) => !excludeDates.some(d => d.toDateString() === date.toDateString())}
               dayClassName={getDayClassName}
               placeholderText="Select check-out date"

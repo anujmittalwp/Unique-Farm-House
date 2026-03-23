@@ -139,3 +139,13 @@
   background-color: #fee2e2 !important; /* red-100 */
   color: #991b1b !important; /* red-800 */
 }
+
+.react-datepicker__day.sold-out {
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.react-datepicker__day.sold-out:not(.react-datepicker__day--selected) {
+  background-color: #f3f4f6 !important;
+  color: #9ca3af !important;
+}
