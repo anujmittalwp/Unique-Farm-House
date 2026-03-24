@@ -79,7 +79,9 @@ import {
   doc,
   setDoc,
   getDoc,
-  deleteDoc
+  getDocs,
+  deleteDoc,
+  or
 } from 'firebase/firestore';
 import { format, addDays, parse, isValid } from 'date-fns';
 import DatePicker from 'react-datepicker';
@@ -148,10 +150,60 @@ async function logAdminAction(action: string, targetId: string, details?: string
       details: details || '',
       createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
     };
-    console.log('Logging admin action:', logData, 'emailVerified:', auth.currentUser.emailVerified);
+    console.log('Logging admin action:', logData);
     await addDoc(collection(db, 'logs'), logData);
   } catch (error) {
     console.error('Failed to log admin action:', error);
+  }
+}
+
+// Error Boundary Component
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Something went wrong.";
+      try {
+        if (this.state.error?.message) {
+          const parsed = JSON.parse(this.state.error.message);
+          if (parsed.error) errorMessage = parsed.error;
+        }
+      } catch (e) {
+        errorMessage = this.state.error?.message || errorMessage;
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-luxury-cream p-6">
+          <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-2xl text-center">
+            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <AlertCircle size={32} />
+            </div>
+            <h2 className="text-2xl font-serif font-bold text-luxury-dark mb-4">Application Error</h2>
+            <p className="text-luxury-dark/60 mb-8">{errorMessage}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="luxury-button w-full"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
   }
 }
 
@@ -498,6 +550,7 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
 const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[]; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs'>('all');
@@ -549,34 +602,54 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
   };
 
   useEffect(() => {
-    let q;
-    if (userRole === 'admin') {
-      q = query(
-        collection(db, 'bookings'),
-        orderBy('createdAt', 'desc')
-      );
-    } else {
-      q = query(
-        collection(db, 'bookings'),
-        where('uid', '==', user.uid),
-        orderBy('createdAt', 'desc')
-      );
+    let unsubscribe: () => void = () => {};
+    
+    try {
+      let q;
+      if (userRole === 'admin') {
+        q = query(
+          collection(db, 'bookings'),
+          orderBy('createdAt', 'desc')
+        );
+      } else {
+        // Ensure email is at least an empty string if null to avoid query issues
+        const userEmail = user.email || '';
+        q = query(
+          collection(db, 'bookings'),
+          or(where('uid', '==', user.uid), where('email', '==', userEmail)),
+          orderBy('createdAt', 'desc')
+        );
+      }
+
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        const bookingsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setBookings(bookingsData);
+        setLoading(false);
+        setError(null);
+      }, (error) => {
+        setLoading(false);
+        setError(error.message);
+        // Check for missing index error specifically to provide better feedback
+        if (error.message.includes('index')) {
+          console.error("Firestore Index Required: ", error.message);
+          showToast("Database is optimizing. Please try again in a moment.", "info");
+        }
+        try {
+          handleFirestoreError(error, OperationType.GET, 'bookings');
+        } catch (e) {
+          // Ignore throw in listener to keep component alive but show error UI
+        }
+      });
+    } catch (error) {
+      setLoading(false);
+      console.error("Error setting up bookings listener:", error);
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const bookingsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setBookings(bookingsData);
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'bookings');
-      setLoading(false);
-    });
-
     return () => unsubscribe();
-  }, [user.uid, userRole]);
+  }, [user.uid, user.email, userRole]);
 
   const filteredBookings = useMemo(() => {
     const today = new Date();
@@ -789,6 +862,24 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <div className="w-12 h-12 border-4 border-luxury-gold/20 border-t-luxury-gold rounded-full animate-spin" />
             <p className="text-luxury-dark/40 font-medium">Loading your bookings...</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mb-2">
+              <AlertCircle size={32} />
+            </div>
+            <p className="text-luxury-dark font-bold">Unable to load bookings</p>
+            <p className="text-luxury-dark/40 text-sm max-w-xs mx-auto">
+              {error.includes('index') 
+                ? "The database is currently being optimized. This usually takes a few minutes. Please check back shortly."
+                : "There was a problem connecting to the database. Please check your connection and try again."}
+            </p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="mt-4 text-luxury-gold font-bold uppercase tracking-widest text-[10px] hover:text-luxury-dark transition-colors"
+            >
+              Retry Now
+            </button>
           </div>
         ) : activeFilter === 'reviews' && userRole === 'admin' ? (
           <div className="space-y-8">
@@ -2073,43 +2164,74 @@ const BookingCalendar = ({
   endDate,
   selectsStart,
   selectsEnd,
-  className
+  className,
+  allBookings = []
 }: any) => {
   const renderDayContents = (day: number, date: Date) => {
     const dayOfWeek = date.getDay();
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6;
-    const price = isWeekend ? 18000 : 15000;
+    const price = isWeekend ? 19000 : 16000;
+    
+    const isSoldOut = allBookings.some((b: any) => {
+      const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+      const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      return d >= start && d < end && b.status !== 'cancelled';
+    });
     
     return (
       <div className="group relative flex flex-col items-center justify-center w-full h-full">
-        <span className="relative z-10">{day}</span>
-        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-luxury-dark text-white text-[9px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none whitespace-nowrap z-[100] shadow-2xl border border-luxury-gold/30 scale-75 group-hover:scale-100 origin-bottom">
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="text-luxury-gold/60 font-bold uppercase tracking-tighter">Price</span>
-            <span className="font-bold">₹{price.toLocaleString()}</span>
+        <span className={`relative z-10 ${isSoldOut ? 'opacity-30' : ''}`}>{day}</span>
+        {isSoldOut && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden rounded-lg">
+            <div className="w-[150%] h-[1px] bg-red-500/30 rotate-45 absolute" />
+            <div className="w-[150%] h-[1px] bg-red-500/30 -rotate-45 absolute" />
           </div>
-          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-luxury-dark rotate-45 border-r border-b border-luxury-gold/30" />
-        </div>
+        )}
       </div>
     );
   };
 
   return (
-    <DatePicker
-      selected={selected}
-      onChange={onChange}
-      minDate={minDate}
-      filterDate={filterDate}
-      dayClassName={dayClassName}
-      placeholderText={placeholderText}
-      renderDayContents={renderDayContents}
-      startDate={startDate}
-      endDate={endDate}
-      selectsStart={selectsStart}
-      selectsEnd={selectsEnd}
-      dateFormat="dd/MM/yyyy"
-      className={className}
-    />
+    <div className="calendar-container">
+      <DatePicker
+        selected={selected}
+        onChange={onChange}
+        minDate={minDate}
+        filterDate={filterDate}
+        dayClassName={dayClassName}
+        placeholderText={placeholderText}
+        renderDayContents={renderDayContents}
+        startDate={startDate}
+        endDate={endDate}
+        selectsStart={selectsStart}
+        selectsEnd={selectsEnd}
+        dateFormat="dd/MM/yyyy"
+        className={className}
+      >
+        <div className="p-4 bg-luxury-dark border-t border-white/5 flex flex-wrap gap-4 justify-center">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-white/10 border border-white/20" />
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-luxury-gold" />
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Selected</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/30" />
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Sold Out</span>
+          </div>
+          <div className="flex items-center gap-2 ml-2 border-l border-white/10 pl-4">
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekday: ₹16k</span>
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekend: ₹19k</span>
+          </div>
+        </div>
+      </DatePicker>
+    </div>
   );
 };
 
@@ -2126,8 +2248,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [name, setName] = useState(editBooking?.name || (userRole === 'admin' && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
   const [email, setEmail] = useState(editBooking?.email || (userRole === 'admin' && !editBooking ? '' : user?.email || ''));
-  const [guestsDay, setGuestsDay] = useState(editBooking?.guestsDay || 1);
-  const [guestsNight, setGuestsNight] = useState(editBooking?.guestsNight || 0);
+  const [guestsDay, setGuestsDay] = useState(editBooking?.guestsDay || 5);
+  const [guestsNight, setGuestsNight] = useState(editBooking?.guestsNight || 5);
   const [occasion, setOccasion] = useState(editBooking?.occasion || '');
   const [checkIn, setCheckIn] = useState<Date | null>(editBooking?.checkIn ? parse(editBooking.checkIn, 'dd/MM/yyyy', new Date()) : null);
   const [checkOut, setCheckOut] = useState<Date | null>(editBooking?.checkOut ? parse(editBooking.checkOut, 'dd/MM/yyyy', new Date()) : null);
@@ -2138,7 +2260,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || 5000);
   const [amountPaid, setAmountPaid] = useState<number>(editBooking?.amountPaid || 0);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
-  const [step, setStep] = useState<1 | 2>(1);
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
 
   useEffect(() => {
@@ -2151,9 +2272,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       while (current < end) {
         const day = current.getDay(); 
         if (day >= 1 && day <= 4) {
-          total += 15000;
+          total += 16000;
         } else {
-          total += 18000;
+          total += 19000;
         }
         current.setDate(current.getDate() + 1);
       }
@@ -2165,6 +2286,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     if (checkIn && checkOut) {
       const hasConflict = allBookings.some(b => {
         if (editBooking && b.id === editBooking.id) return false;
+        if (b.status === 'cancelled') return false;
         const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
         bStart.setHours(0, 0, 0, 0);
         const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
@@ -2191,6 +2313,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
   const getDayClassName = useCallback((date: Date) => {
     const booking = allBookings.find(b => {
+      if (b.status === 'cancelled') return false;
       const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
       const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
       return date >= start && date < end;
@@ -2205,6 +2328,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     
     allBookings.forEach(b => {
       if (editBooking && b.id === editBooking.id) return;
+      if (b.status === 'cancelled') return;
       
       const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
       const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
@@ -2263,6 +2387,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       // Check for conflicts
       const hasConflict = allBookings.some(b => {
         if (editBooking && b.id === editBooking.id) return false;
+        if (b.status === 'cancelled') return false;
         const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
         bStart.setHours(0, 0, 0, 0);
         const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
@@ -2309,7 +2434,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     }
     
     setErrors({});
-    setStep(2);
+    handleFinalConfirm();
   };
 
   const handleFinalConfirm = async () => {
@@ -2318,36 +2443,42 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     const securityDeposit = securityAmount;
 
     try {
-      let currentUser = user;
-      if (!currentUser && !isAdminBooking) {
-        showToast("Please sign in with Google to complete your booking.", "info");
-        onLogin?.();
-        setLoading(false);
-        return;
+      let finalUid = editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : (user?.uid || 'guest'));
+      
+      if (isAdminBooking && !editBooking && email) {
+        try {
+          const userQuery = query(collection(db, 'users'), where('email', '==', email));
+          const userSnapshot = await getDocs(userQuery);
+          if (!userSnapshot.empty) {
+            finalUid = userSnapshot.docs[0].id;
+          }
+        } catch (e) {
+          console.error('Error finding user by email:', e);
+        }
       }
 
-      if (currentUser || isAdminBooking) {
-        const bookingData = {
-          uid: editBooking ? editBooking.uid : (isAdminBooking ? 'admin_manual' : currentUser?.uid),
-          checkIn: checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : '',
-          checkOut: checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : '',
-          guestsDay,
-          guestsNight,
-          status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
-          bookingAmount,
-          totalAmount,
-          amountPaid: amountPaid,
-          securityDeposit,
-          paymentStatus: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'part-paid' : 'unpaid'),
-          createdAt: editBooking ? editBooking.createdAt : format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
-          name,
-          mobile,
-          email,
-          occasion,
-          bookedBy: userRole === 'admin' ? 'admin' : 'client',
-          paymentMethod: paymentMethod
-        };
+      const bookingData = {
+        uid: finalUid,
+        checkIn: checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : '',
+        checkOut: checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : '',
+        guestsDay,
+        guestsNight,
+        status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
+        bookingAmount,
+        totalAmount,
+        amountPaid: amountPaid,
+        securityDeposit,
+        paymentStatus: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'part-paid' : 'unpaid'),
+        createdAt: editBooking ? editBooking.createdAt : format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
+        name,
+        mobile,
+        email,
+        occasion,
+        bookedBy: userRole === 'admin' ? 'admin' : 'client',
+        paymentMethod: paymentMethod
+      };
 
+      if (user || isAdminBooking || !user) { // Allow guest bookings
         if (editBooking) {
           await setDoc(doc(db, 'bookings', editBooking.id), bookingData);
           await setDoc(doc(db, 'availability', editBooking.id), {
@@ -2537,115 +2668,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     );
   }
 
-  if (step === 2) {
-    const totalAmount = bookingAmount + securityAmount;
-    return (
-      <div className="space-y-8 py-4">
-        <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-[2rem] flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-emerald-200">
-            <CheckCircle2 size={24} />
-          </div>
-          <div>
-            <h3 className="text-lg font-serif font-bold text-luxury-dark">Dates are Available!</h3>
-            <p className="text-sm text-luxury-dark/60">We've verified your selected dates. Please complete the payment to confirm your booking.</p>
-          </div>
-        </div>
-
-        <div className="bg-luxury-cream/30 border border-luxury-dark/5 p-8 rounded-[2rem]">
-          <h4 className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold mb-6">Booking Confirmation Summary</h4>
-          <div className="grid grid-cols-2 gap-y-6 gap-x-8">
-            <div>
-              <p className="text-[10px] text-luxury-dark/40 uppercase tracking-widest mb-1">Check-In</p>
-              <p className="font-bold text-luxury-dark">{checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-luxury-dark/40 uppercase tracking-widest mb-1">Check-Out</p>
-              <p className="font-bold text-luxury-dark">{checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-luxury-dark/40 uppercase tracking-widest mb-1">Guests</p>
-              <p className="font-bold text-luxury-dark">{guestsDay} Day / {guestsNight} Night</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-luxury-dark/40 uppercase tracking-widest mb-1">Total Amount</p>
-              <p className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <h4 className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/60">Select Payment Option</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[
-              { id: 'upi', label: 'UPI / QR', icon: <Zap size={18} /> },
-              { id: 'card', label: 'Credit Card', icon: <CreditCard size={18} /> },
-              { id: 'netbanking', label: 'Net Banking', icon: <IndianRupee size={18} /> }
-            ].map(method => (
-              <button
-                key={method.id}
-                type="button"
-                onClick={() => setPaymentMethod(method.id as any)}
-                className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all gap-2 ${
-                  paymentMethod === method.id 
-                    ? 'border-luxury-gold bg-luxury-gold/5 text-luxury-dark' 
-                    : 'border-luxury-dark/5 bg-white text-luxury-dark/40 hover:border-luxury-dark/10'
-                }`}
-              >
-                {method.icon}
-                <span className="text-[10px] font-bold uppercase tracking-widest">{method.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {paymentMethod === 'upi' && (
-          <div className="bg-white border border-luxury-dark/5 p-6 rounded-[2rem] flex flex-col items-center text-center space-y-4">
-            <div className="w-40 h-40 bg-luxury-cream p-2 rounded-2xl border border-luxury-dark/5">
-              <img 
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${totalAmount}&cu=INR&tn=Booking%20Confirmation`)}`}
-                alt="Payment QR"
-                className="w-full h-full object-contain"
-                referrerPolicy="no-referrer"
-              />
-            </div>
-            <p className="text-xs text-luxury-dark/60 max-w-[250px]">Scan this QR code with any UPI app to pay <strong>₹{totalAmount.toLocaleString()}</strong></p>
-          </div>
-        )}
-
-        {(paymentMethod === 'card' || paymentMethod === 'netbanking') && (
-          <div className="bg-luxury-dark/5 p-6 rounded-[2rem] text-center">
-            <p className="text-sm text-luxury-dark/60 italic">Online payment gateway integration is currently being processed. Please use UPI for instant confirmation or contact us for alternatives.</p>
-          </div>
-        )}
-
-        <div className="flex gap-4 pt-4">
-          <button
-            type="button"
-            onClick={() => setStep(1)}
-            className="flex-1 px-6 py-4 bg-luxury-cream text-luxury-dark font-bold rounded-2xl hover:bg-luxury-dark hover:text-white transition-all duration-300"
-          >
-            Back to Details
-          </button>
-          <button
-            type="button"
-            onClick={handleFinalConfirm}
-            disabled={loading}
-            className="flex-[2] px-6 py-4 bg-luxury-gold text-luxury-dark font-bold rounded-2xl hover:bg-luxury-dark hover:text-white transition-all duration-300 shadow-lg shadow-luxury-gold/20 flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-luxury-dark/30 border-t-luxury-dark rounded-full animate-spin" />
-            ) : (
-              <>
-                <IndianRupee size={18} />
-                Confirm & Pay ₹{totalAmount.toLocaleString()}
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <form className="space-y-5" onSubmit={handleBookNow}>
       {editBooking && editBooking.status === 'confirmed' && (editBooking.paymentStatus === 'unpaid' || editBooking.paymentStatus === 'part-paid') && (
@@ -2717,42 +2739,40 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           </button>
         </div>
       )}
-      {!user && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <Sparkles size={18} className="text-emerald-600 mt-0.5" />
-            <p className="text-xs text-emerald-800 leading-relaxed">
-              <strong>Quick Booking:</strong> Sign in with Google to manage your bookings and track payment status easily.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onLogin}
-            className="px-4 py-2 bg-luxury-dark text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-luxury-gold hover:text-luxury-dark transition-all whitespace-nowrap"
-          >
-            Sign In with Google
-          </button>
-        </div>
-      )}
 
-      {allBookings.length > 0 && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl">
-          <div className="flex items-center gap-2 mb-2">
-            <Calendar size={14} className="text-red-600" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-red-600">Sold Out Dates</span>
+      {allBookings.filter(b => b.status !== 'cancelled' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length > 0 && (
+        <div className="mb-8 p-6 bg-red-50/50 border border-red-100/50 rounded-2xl backdrop-blur-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                <Calendar size={16} className="text-red-600" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-600 block">Reservation Alert</span>
+                <span className="text-xs font-bold text-red-900/60">Sold Out Dates</span>
+              </div>
+            </div>
+            <div className="px-3 py-1 bg-red-100 rounded-full text-[9px] font-bold text-red-600 uppercase tracking-widest">
+              {allBookings.filter(b => b.status !== 'cancelled' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length} Booked
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {allBookings
-              .filter(b => parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date())
+              .filter(b => b.status !== 'cancelled' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date())
               .sort((a, b) => parse(a.checkIn, 'dd/MM/yyyy', new Date()).getTime() - parse(b.checkIn, 'dd/MM/yyyy', new Date()).getTime())
-              .slice(0, 5)
+              .slice(0, 6)
               .map((b, i) => (
-                <span key={i} className="px-2 py-1 bg-white border border-red-100 rounded text-[10px] text-red-700 font-medium">
-                  {b.checkIn} - {b.checkOut}
-                </span>
+                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white border border-red-100 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 group">
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-400 group-hover:scale-125 transition-transform" />
+                  <span className="text-[10px] text-red-900 font-bold tracking-tight">
+                    {b.checkIn} <span className="text-red-300 mx-1">→</span> {b.checkOut}
+                  </span>
+                </div>
               ))}
-            {allBookings.filter(b => parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length > 5 && (
-              <span className="text-[10px] text-red-400 self-center">+ more</span>
+            {allBookings.filter(b => b.status !== 'cancelled' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length > 6 && (
+              <div className="flex items-center px-3 py-2 bg-red-100/50 border border-red-200 rounded-xl text-[10px] text-red-600 font-bold uppercase tracking-widest">
+                + {allBookings.filter(b => b.status !== 'cancelled' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length - 6} more
+              </div>
             )}
           </div>
         </div>
@@ -2893,12 +2913,32 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In (At 2:00 PM)</label>
+          <div className="flex justify-between items-center">
+            <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In (At 2:00 PM)</label>
+            <div className="flex gap-3">
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-red-400/50" />
+                <span className="text-[8px] uppercase font-bold text-luxury-dark/30">Sold Out</span>
+              </div>
+              {(checkIn || checkOut) && (
+                <button 
+                  type="button" 
+                  onClick={() => { setCheckIn(null); setCheckOut(null); }}
+                  className="text-[9px] uppercase tracking-widest font-bold text-luxury-gold hover:text-luxury-dark transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
           <div className="relative">
             <BookingCalendar
               selected={checkIn}
               onChange={(date: Date) => {
                 setCheckIn(date);
+                if (date && (!checkOut || date >= checkOut)) {
+                  setCheckOut(addDays(date, 1));
+                }
                 if (errors.checkIn) setErrors(prev => {
                   const next = {...prev};
                   delete next.checkIn;
@@ -2912,6 +2952,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               startDate={checkIn}
               endDate={checkOut}
               selectsStart
+              allBookings={allBookings}
               className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
             />
             <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
@@ -2938,6 +2979,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               startDate={checkIn}
               endDate={checkOut}
               selectsEnd
+              allBookings={allBookings}
               className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
             />
             <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
@@ -2963,11 +3005,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="flex gap-4 px-1">
             <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest flex items-center gap-1">
               <span className="w-1 h-1 rounded-full bg-luxury-gold" />
-              Weekday: ₹15,000
+              Weekday: ₹16,000
             </p>
             <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest flex items-center gap-1">
               <span className="w-1 h-1 rounded-full bg-luxury-gold" />
-              Weekend: ₹18,000
+              Weekend: ₹19,000
             </p>
           </div>
         </div>
@@ -3006,9 +3048,19 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       )}
 
-      <div className="p-4 bg-luxury-dark/5 rounded-xl flex items-center justify-between">
-        <span className="text-xs font-bold text-luxury-dark/60 uppercase tracking-widest">Total Amount</span>
-        <span className="text-xl font-serif font-bold text-luxury-dark">₹{(bookingAmount + securityAmount).toLocaleString()}</span>
+      <div className="space-y-2 px-1">
+        <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">
+          <span>Booking Amount</span>
+          <span>₹{bookingAmount.toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">
+          <span>Security Deposit</span>
+          <span>₹{securityAmount.toLocaleString()}</span>
+        </div>
+        <div className="p-4 bg-luxury-dark/5 rounded-xl flex items-center justify-between mt-2">
+          <span className="text-xs font-bold text-luxury-dark/60 uppercase tracking-widest">Total Amount</span>
+          <span className="text-xl font-serif font-bold text-luxury-dark">₹{(bookingAmount + securityAmount).toLocaleString()}</span>
+        </div>
       </div>
 
       <button 
@@ -3468,7 +3520,8 @@ export default function App() {
   }
 
   return (
-    <div className="relative">
+    <ErrorBoundary>
+      <div className="relative">
       <Navbar 
         onBookNow={openBookingModal} 
         onLogin={() => setIsAuthModalOpen(true)}
@@ -3544,5 +3597,6 @@ export default function App() {
         {toast && <Toast />}
       </AnimatePresence>
     </div>
+    </ErrorBoundary>
   );
 }
