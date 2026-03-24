@@ -114,9 +114,14 @@
           "type": "string",
           "enum": ["client", "admin"],
           "description": "Who made the booking (client or admin)."
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["upi", "card", "netbanking"],
+          "description": "The payment method selected for the booking."
         }
       },
-      "required": ["uid", "checkIn", "checkOut", "guestsDay", "guestsNight", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy"]
+      "required": ["uid", "checkIn", "checkOut", "guestsDay", "guestsNight", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy", "paymentMethod"]
     },
     "Review": {
       "title": "Review",

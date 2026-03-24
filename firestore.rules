@@ -79,7 +79,7 @@ service cloud.firestore {
     }
 
     function isValidBooking(data) {
-      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']) &&
+      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']) &&
              data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
              isValidDateString(data.checkIn) &&
              isValidDateString(data.checkOut) &&
@@ -91,13 +91,14 @@ service cloud.firestore {
              data.securityDeposit is number && data.securityDeposit >= 0 &&
              data.bookingAmount is number && data.bookingAmount >= 0 &&
              data.bookedBy in ['client', 'admin'] &&
+             data.paymentMethod in ['upi', 'card', 'netbanking'] &&
              data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
              isValidDateTimeString(data.createdAt) &&
              (!('name' in data) || (data.name is string && data.name.size() <= 128)) &&
              (!('mobile' in data) || (data.mobile is string && data.mobile.size() <= 20)) &&
              (!('email' in data) || (data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)))) &&
              (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 256)) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy']);
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']);
     }
 
     function isValidReview(data) {

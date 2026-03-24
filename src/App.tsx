@@ -2138,6 +2138,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || 5000);
   const [amountPaid, setAmountPaid] = useState<number>(editBooking?.amountPaid || 0);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [step, setStep] = useState<1 | 2>(1);
+  const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
 
   useEffect(() => {
     if (!editBooking && checkIn && checkOut) {
@@ -2307,8 +2309,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     }
     
     setErrors({});
-    setLoading(true);
+    setStep(2);
+  };
 
+  const handleFinalConfirm = async () => {
+    setLoading(true);
     const totalAmount = bookingAmount + securityAmount;
     const securityDeposit = securityAmount;
 
@@ -2339,7 +2344,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           mobile,
           email,
           occasion,
-          bookedBy: userRole === 'admin' ? 'admin' : 'client'
+          bookedBy: userRole === 'admin' ? 'admin' : 'client',
+          paymentMethod: paymentMethod
         };
 
         if (editBooking) {
@@ -2378,7 +2384,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         `*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'Not specified'}%0A` +
         `*Booking Amount:* ₹${bookingAmount.toLocaleString()}%0A` +
         `*Security Deposit:* ₹${securityAmount.toLocaleString()}%0A` +
-        `*Total Amount:* ₹${totalAmount.toLocaleString()}`;
+        `*Total Amount:* ₹${totalAmount.toLocaleString()}%0A` +
+        `*Payment Method:* ${paymentMethod.toUpperCase()}`;
       
       window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
       
@@ -2526,6 +2533,115 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           </a>
         </div>
         <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mt-6">You can track this booking in "My Bookings" section</p>
+      </div>
+    );
+  }
+
+  if (step === 2) {
+    const totalAmount = bookingAmount + securityAmount;
+    return (
+      <div className="space-y-8 py-4">
+        <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-[2rem] flex items-center gap-4">
+          <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-emerald-200">
+            <CheckCircle2 size={24} />
+          </div>
+          <div>
+            <h3 className="text-lg font-serif font-bold text-luxury-dark">Dates are Available!</h3>
+            <p className="text-sm text-luxury-dark/60">We've verified your selected dates. Please complete the payment to confirm your booking.</p>
+          </div>
+        </div>
+
+        <div className="bg-luxury-cream/30 border border-luxury-dark/5 p-8 rounded-[2rem]">
+          <h4 className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold mb-6">Booking Confirmation Summary</h4>
+          <div className="grid grid-cols-2 gap-y-6 gap-x-8">
+            <div>
+              <p className="text-[10px] text-luxury-dark/40 uppercase tracking-widest mb-1">Check-In</p>
+              <p className="font-bold text-luxury-dark">{checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-luxury-dark/40 uppercase tracking-widest mb-1">Check-Out</p>
+              <p className="font-bold text-luxury-dark">{checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-luxury-dark/40 uppercase tracking-widest mb-1">Guests</p>
+              <p className="font-bold text-luxury-dark">{guestsDay} Day / {guestsNight} Night</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-luxury-dark/40 uppercase tracking-widest mb-1">Total Amount</p>
+              <p className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h4 className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/60">Select Payment Option</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              { id: 'upi', label: 'UPI / QR', icon: <Zap size={18} /> },
+              { id: 'card', label: 'Credit Card', icon: <CreditCard size={18} /> },
+              { id: 'netbanking', label: 'Net Banking', icon: <IndianRupee size={18} /> }
+            ].map(method => (
+              <button
+                key={method.id}
+                type="button"
+                onClick={() => setPaymentMethod(method.id as any)}
+                className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all gap-2 ${
+                  paymentMethod === method.id 
+                    ? 'border-luxury-gold bg-luxury-gold/5 text-luxury-dark' 
+                    : 'border-luxury-dark/5 bg-white text-luxury-dark/40 hover:border-luxury-dark/10'
+                }`}
+              >
+                {method.icon}
+                <span className="text-[10px] font-bold uppercase tracking-widest">{method.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {paymentMethod === 'upi' && (
+          <div className="bg-white border border-luxury-dark/5 p-6 rounded-[2rem] flex flex-col items-center text-center space-y-4">
+            <div className="w-40 h-40 bg-luxury-cream p-2 rounded-2xl border border-luxury-dark/5">
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`upi://pay?pa=9313501001@pthdfc&pn=Unique%20Farmhouse&am=${totalAmount}&cu=INR&tn=Booking%20Confirmation`)}`}
+                alt="Payment QR"
+                className="w-full h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            <p className="text-xs text-luxury-dark/60 max-w-[250px]">Scan this QR code with any UPI app to pay <strong>₹{totalAmount.toLocaleString()}</strong></p>
+          </div>
+        )}
+
+        {(paymentMethod === 'card' || paymentMethod === 'netbanking') && (
+          <div className="bg-luxury-dark/5 p-6 rounded-[2rem] text-center">
+            <p className="text-sm text-luxury-dark/60 italic">Online payment gateway integration is currently being processed. Please use UPI for instant confirmation or contact us for alternatives.</p>
+          </div>
+        )}
+
+        <div className="flex gap-4 pt-4">
+          <button
+            type="button"
+            onClick={() => setStep(1)}
+            className="flex-1 px-6 py-4 bg-luxury-cream text-luxury-dark font-bold rounded-2xl hover:bg-luxury-dark hover:text-white transition-all duration-300"
+          >
+            Back to Details
+          </button>
+          <button
+            type="button"
+            onClick={handleFinalConfirm}
+            disabled={loading}
+            className="flex-[2] px-6 py-4 bg-luxury-gold text-luxury-dark font-bold rounded-2xl hover:bg-luxury-dark hover:text-white transition-all duration-300 shadow-lg shadow-luxury-gold/20 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <div className="w-5 h-5 border-2 border-luxury-dark/30 border-t-luxury-dark rounded-full animate-spin" />
+            ) : (
+              <>
+                <IndianRupee size={18} />
+                Confirm & Pay ₹{totalAmount.toLocaleString()}
+              </>
+            )}
+          </button>
+        </div>
       </div>
     );
   }
