@@ -132,6 +132,16 @@ service cloud.firestore {
              data.keys().hasOnly(['checkIn', 'checkOut', 'status']);
     }
 
+    function isValidNotification(data) {
+      return data.keys().hasAll(['type', 'bookingId', 'message', 'details', 'read', 'createdAt']) &&
+             data.type in ['create', 'update', 'new_booking'] &&
+             data.bookingId is string &&
+             data.message is string &&
+             data.read is bool &&
+             data.details is map &&
+             data.keys().hasOnly(['type', 'bookingId', 'message', 'details', 'read', 'createdAt']);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -200,6 +210,12 @@ service cloud.firestore {
     match /blocked_dates/{dateId} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAdmin();
+      allow update: if isAdmin() && isValidNotification(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     // Default deny

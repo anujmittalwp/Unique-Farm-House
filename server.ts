@@ -1,193 +1,101 @@
-import "./src/env.js";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import admin from "firebase-admin";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import ical, { ICalCalendarMethod } from "ical-generator";
 import nodeIcal from "node-ical";
 import { format, parse, isValid, addDays } from "date-fns";
+import { Resend } from "resend";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Initialize Firebase Admin
 const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8'));
-const projectId = firebaseConfig.projectId;
-
 if (!admin.apps.length) {
-  console.log(`[FIREBASE] Initializing Admin SDK with Project ID: ${projectId}`);
   admin.initializeApp({
-    projectId: projectId,
-    credential: admin.credential.applicationDefault()
+    credential: admin.credential.applicationDefault(),
+    projectId: firebaseConfig.projectId,
   });
 }
-
-const defaultApp = admin.app();
-const finalProjectId = defaultApp.options.projectId || projectId;
-console.log(`[FIREBASE] Using Project ID: ${finalProjectId}`);
-
-// Helper to get Firestore instance
-function getFirestoreInstance(dbId?: string) {
-  const targetDbId = dbId || firebaseConfig.firestoreDatabaseId || '(default)';
-  console.log(`[FIREBASE] Initializing Firestore: Project=${finalProjectId}, Database=${targetDbId}`);
-  return getFirestore(defaultApp, targetDbId);
-}
-
-let db: any;
-
-// Error handling types as per instructions
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: any, operationType: OperationType, path: string | null) {
-  const currentDb = (global as any).db || db;
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    code: error.code,
-    details: error.details,
-    projectId: finalProjectId,
-    databaseId: currentDb.databaseId || firebaseConfig.firestoreDatabaseId || '(default)',
-    stack: error.stack
-  };
-  console.error('Firestore Error Details:', JSON.stringify(errInfo, null, 2));
-  return new Error(JSON.stringify(errInfo));
-}
+const db = admin.firestore();
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Robust Firestore initialization with fallback
-  async function initializeDb() {
-    const namedDbId = firebaseConfig.firestoreDatabaseId;
-    
-    console.log(`[FIREBASE] Env Project IDs: GOOGLE_CLOUD_PROJECT=${process.env.GOOGLE_CLOUD_PROJECT}, GCLOUD_PROJECT=${process.env.GCLOUD_PROJECT}, PROJECT_ID=${process.env.PROJECT_ID}`);
-    console.log(`[FIREBASE] Starting DB discovery for project: ${finalProjectId}`);
-    
-    const databasesToTry = [];
-    if (namedDbId && namedDbId !== '(default)') {
-      databasesToTry.push(namedDbId);
-    }
-    databasesToTry.push('(default)');
-
-    for (const dbId of databasesToTry) {
-      try {
-        console.log(`Testing database: ${dbId} in project: ${finalProjectId}`);
-        const testDb = getFirestore(defaultApp, dbId);
-        testDb.settings({ ignoreUndefinedProperties: true });
-        // We use a simple query. If the database doesn't exist, this will throw NOT_FOUND (code 5).
-        // If the collection doesn't exist, it will return an empty snapshot (success).
-        await testDb.collection('health_check').limit(1).get();
-        console.log(`SUCCESS: Connected to database: ${dbId}`);
-        return testDb;
-      } catch (e: any) {
-        console.warn(`FAILED: Database ${dbId} - Code: ${e.code}, Message: ${e.message}`);
-        // If it's a permission error, we might still want to try the next one
-        // If it's NOT_FOUND, we definitely want to try the next one
-      }
-    }
-    
-    // If all tests failed, return the named one if it exists, otherwise (default)
-    const finalDbId = namedDbId || '(default)';
-    console.log(`All DB tests failed. Falling back to ${finalDbId} without verification.`);
-    return getFirestore(defaultApp, finalDbId);
-  }
-
-  // Update global db reference initially
-  (global as any).db = db;
-
-  // Blocking Firestore initialization with fallback
-  try {
-    const activeDb = await initializeDb();
-    (global as any).db = activeDb;
-    const activeDbId = activeDb.databaseId || firebaseConfig.firestoreDatabaseId || '(default)';
-    // Write status to file for verification
-    fs.writeFileSync(path.join(process.cwd(), 'firestore-status.json'), JSON.stringify({
-      status: 'success',
-      projectId: finalProjectId,
-      databaseId: activeDbId,
-      env: {
-        GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
-        GCLOUD_PROJECT: process.env.GCLOUD_PROJECT,
-        PROJECT_ID: process.env.PROJECT_ID,
-        FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID
-      },
-      timestamp: new Date().toISOString()
-    }));
-    
-    console.log(`[FIREBASE] Active database set to: ${activeDbId} in Project: ${finalProjectId}`);
-  } catch (e) {
-    // Write failure to file
-    fs.writeFileSync(path.join(process.cwd(), 'firestore-status.json'), JSON.stringify({
-      status: 'failed',
-      error: e instanceof Error ? e.message : String(e),
-      env: {
-        GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
-        GCLOUD_PROJECT: process.env.GCLOUD_PROJECT,
-        PROJECT_ID: process.env.PROJECT_ID,
-        FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID
-      },
-      timestamp: new Date().toISOString()
-    }));
-    console.error('[FIREBASE] Critical: Firestore initialization failed:', e);
-  }
-
   app.use(express.json());
 
-  // API routes
-  app.get("/api/health", async (req, res) => {
-    const path = 'bookings';
-    const currentDb = (global as any).db;
-    try {
-      // Test query to verify connection and permissions
-      const testDoc = await currentDb.collection(path).limit(1).get();
-      
-      // Test write/delete to verify write permissions
-      const testRef = currentDb.collection('health_check').doc('test');
-      await testRef.set({ timestamp: FieldValue.serverTimestamp() });
-      await testRef.delete();
+  // Admin Email Notification
+  app.post("/api/notify/booking", async (req, res) => {
+    const { booking, type } = req.body;
+    if (!booking) return res.status(400).json({ error: 'Booking details required' });
 
-      // Try to list collections
-      let collections: string[] = [];
-      try {
-        const collectionsSnapshot = await currentDb.listCollections();
-        collections = collectionsSnapshot.map(c => c.id);
-      } catch (e) {
-        console.warn('Could not list collections:', e);
+    try {
+      // 1. Store in Firestore Notifications
+      await db.collection('notifications').add({
+        type: type || 'new_booking',
+        bookingId: booking.id || 'new',
+        message: `${type === 'update' ? 'Updated' : 'New'} booking from ${booking.name}`,
+        details: booking,
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // 2. Send Email via Resend (if API key exists)
+      if (process.env.RESEND_API_KEY) {
+        await resend.emails.send({
+          from: 'Unique Farmhouse <onboarding@resend.dev>',
+          to: 'anujkumarmittal@gmail.com', // Admin email from context
+          subject: `${type === 'update' ? 'Updated' : 'New'} Booking: ${booking.name}`,
+          html: `
+            <div style="font-family: sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
+              <div style="background: #1a1a1a; color: #fff; padding: 20px; text-align: center;">
+                <h1 style="margin: 0; font-size: 24px;">${type === 'update' ? 'Updated' : 'New'} Booking Request</h1>
+              </div>
+              <div style="padding: 30px;">
+                <p>A ${type === 'update' ? 'updated' : 'new'} booking has been made at Unique Farmhouse.</p>
+                <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Name:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.name}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Mobile:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.mobile}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Email:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.email}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Check-In:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.checkIn}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Check-Out:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.checkOut}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Guests:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.guestsDay} Day / ${booking.guestsNight} Night</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Occasion:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.occasion || 'N/A'}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Total Amount:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">₹${booking.totalAmount.toLocaleString()}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Payment Status:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.paymentStatus.toUpperCase()}</td></tr>
+                </table>
+                <div style="text-align: center; margin-top: 30px;">
+                  <a href="${process.env.APP_URL || '#'}" style="background: #D4AF37; color: #1a1a1a; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">View in Dashboard</a>
+                </div>
+              </div>
+              <div style="background: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #999;">
+                This is an automated notification from Unique Farmhouse Booking System.
+              </div>
+            </div>
+          `
+        });
       }
 
-      res.json({ 
-        status: "ok", 
-        firestore: "connected", 
-        read: "ok",
-        write: "ok",
-        count: testDoc.size,
-        collections,
-        projectId: projectId,
-        databaseId: currentDb.databaseId || '(default)'
-      });
-    } catch (error: any) {
-      const wrappedError = handleFirestoreError(error, OperationType.GET, path);
-      res.status(500).json(JSON.parse(wrappedError.message));
+      res.json({ success: true, message: 'Notification sent' });
+    } catch (error) {
+      console.error('Notification error:', error);
+      res.status(500).json({ error: 'Failed to send notification' });
     }
+  });
+
+  // API routes
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok" });
   });
 
   // iCal Export
   app.get("/api/calendar/export", async (req, res) => {
-    const path = 'bookings';
-    const currentDb = (global as any).db;
     try {
-      const bookingsSnapshot = await currentDb.collection(path)
+      const bookingsSnapshot = await db.collection('bookings')
         .where('status', '==', 'confirmed')
         .get();
 
@@ -213,18 +121,16 @@ async function startServer() {
       res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="bookings.ics"');
       res.send(calendar.toString());
-    } catch (error: any) {
-      const wrappedError = handleFirestoreError(error, OperationType.GET, path);
-      res.status(500).send(`Error generating calendar: ${wrappedError.message}`);
+    } catch (error) {
+      console.error('Export error:', error);
+      res.status(500).send('Error generating calendar');
     }
   });
 
   // iCal Sync (Import)
   app.post("/api/calendar/sync", async (req, res) => {
-    const path = 'settings/calendar_sync';
-    const currentDb = (global as any).db;
     try {
-      const settingsDoc = await currentDb.doc(path).get();
+      const settingsDoc = await db.collection('settings').doc('calendar_sync').get();
       if (!settingsDoc.exists) {
         return res.status(404).json({ error: 'Sync settings not found' });
       }
@@ -256,27 +162,27 @@ async function startServer() {
       }
 
       // Clear old external blocked dates and save new ones
-      const batch = currentDb.batch();
-      const blockedSnapshot = await currentDb.collection('blocked_dates').where('type', '==', 'external').get();
+      const batch = db.batch();
+      const blockedSnapshot = await db.collection('blocked_dates').where('type', '==', 'external').get();
       blockedSnapshot.forEach(doc => batch.delete(doc.ref));
 
       allExternalEvents.forEach(event => {
-        const docRef = currentDb.collection('blocked_dates').doc();
+        const docRef = db.collection('blocked_dates').doc();
         batch.set(docRef, {
           ...event,
           type: 'external',
           status: 'confirmed',
           checkIn: format(event.start, 'dd/MM/yyyy'),
           checkOut: format(event.end, 'dd/MM/yyyy'),
-          updatedAt: FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       });
 
       await batch.commit();
       res.json({ message: 'Sync completed', count: allExternalEvents.length });
-    } catch (error: any) {
-      const wrappedError = handleFirestoreError(error, OperationType.WRITE, 'blocked_dates');
-      res.status(500).json(JSON.parse(wrappedError.message));
+    } catch (error) {
+      console.error('Sync error:', error);
+      res.status(500).json({ error: 'Sync failed' });
     }
   });
 
@@ -297,8 +203,6 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`[FIREBASE] Configured Project ID: ${firebaseConfig.projectId}`);
-    console.log(`[FIREBASE] Final Project ID: ${finalProjectId}`);
   });
 }
 

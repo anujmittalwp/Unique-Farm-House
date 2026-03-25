@@ -851,11 +851,12 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications'>('all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [adminLogs, setAdminLogs] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<any | null>(null);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -878,6 +879,13 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setAdminLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'logs'));
+      return () => unsubscribe();
+    }
+    if (userRole === 'admin' && activeFilter === 'notifications') {
+      const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'notifications'));
       return () => unsubscribe();
     }
   }, [userRole, activeFilter]);
@@ -1139,6 +1147,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
               { id: 'cancelled', label: 'Cancelled' },
               { id: 'reviews', label: 'Manage Reviews' },
               { id: 'logs', label: 'Admin Logs' },
+              { id: 'notifications', label: 'Notifications' },
               { id: 'sync', label: 'Calendar Sync' }
             ].map((tab) => (
               <button
@@ -1152,7 +1161,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
               >
                 {tab.label}
                 <span className="ml-2 opacity-50">
-                  ({tab.id === 'reviews' ? reviews.length : tab.id === 'logs' ? adminLogs.length : tab.id === 'sync' ? 'iCal' : bookings.filter(b => {
+                  ({tab.id === 'reviews' ? reviews.length : tab.id === 'logs' ? adminLogs.length : tab.id === 'notifications' ? notifications.length : tab.id === 'sync' ? 'iCal' : bookings.filter(b => {
                     if (tab.id === 'all') return true;
                     if (tab.id === 'pending') return b.status === 'pending';
                     if (tab.id === 'cancelled') return b.status === 'cancelled';
@@ -1337,6 +1346,59 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                 </tbody>
               </table>
             </div>
+          </div>
+        ) : activeFilter === 'notifications' && userRole === 'admin' ? (
+          <div className="space-y-4">
+            {notifications.map(notif => (
+              <div key={notif.id} className={`bg-white p-6 rounded-3xl border ${notif.read ? 'border-luxury-dark/5' : 'border-luxury-gold/30 shadow-lg shadow-luxury-gold/5'} transition-all`}>
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex gap-4">
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${notif.type === 'update' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                      {notif.type === 'update' ? <RefreshCw size={24} /> : <Calendar size={24} />}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-luxury-dark text-lg">{notif.message}</h3>
+                      <p className="text-xs text-luxury-dark/40 mt-1">
+                        {notif.createdAt?.toDate ? format(notif.createdAt.toDate(), 'dd/MM/yyyy, HH:mm:ss') : 'Just now'}
+                      </p>
+                      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-luxury-dark/5 p-4 rounded-2xl">
+                        <div>
+                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests</p>
+                          <p className="text-xs font-bold text-luxury-dark">{notif.details.guestsDay}D / {notif.details.guestsNight}N</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Dates</p>
+                          <p className="text-xs font-bold text-luxury-dark">{notif.details.checkIn} - {notif.details.checkOut}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Amount</p>
+                          <p className="text-xs font-bold text-luxury-dark">₹{notif.details.totalAmount.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Contact</p>
+                          <p className="text-xs font-bold text-luxury-dark">{notif.details.mobile}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {!notif.read && (
+                    <button 
+                      onClick={async () => {
+                        await setDoc(doc(db, 'notifications', notif.id), { ...notif, read: true });
+                      }}
+                      className="px-4 py-2 bg-luxury-gold/10 text-luxury-gold text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-luxury-gold hover:text-white transition-all"
+                    >
+                      Mark Read
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {notifications.length === 0 && (
+              <div className="py-24 text-center bg-luxury-dark/5 rounded-3xl border border-dashed border-luxury-dark/10">
+                <p className="text-luxury-dark/40 font-medium italic">No notifications found.</p>
+              </div>
+            )}
           </div>
         ) : activeFilter === 'sync' && userRole === 'admin' ? (
           <CalendarSync showToast={showToast} />
@@ -2814,6 +2876,12 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           if (userRole === 'admin') {
             await logAdminAction('edit_booking', editBooking.id, `Updated booking for ${name}`);
           }
+          // Send notification
+          fetch('/api/notify/booking', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ booking: { ...bookingData, id: editBooking.id }, type: 'update' })
+          }).catch(err => console.error('Notification error:', err));
         } else {
           const docRef = await addDoc(collection(db, 'bookings'), bookingData);
           await setDoc(doc(db, 'availability', docRef.id), {
@@ -2824,6 +2892,12 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           if (userRole === 'admin') {
             await logAdminAction('create_booking', docRef.id, `Created manual booking for ${name}`);
           }
+          // Send notification
+          fetch('/api/notify/booking', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ booking: { ...bookingData, id: docRef.id }, type: 'create' })
+          }).catch(err => console.error('Notification error:', err));
         }
       }
 
