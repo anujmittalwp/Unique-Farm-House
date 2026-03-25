@@ -585,8 +585,7 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
       setNewUrl({ name: '', url: '' });
       showToast('Calendar URL added successfully', 'success');
     } catch (error) {
-      console.error('Failed to add calendar URL:', error);
-      showToast('Failed to add calendar URL: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+      showToast('Failed to add calendar URL', 'error');
     }
   };
 
