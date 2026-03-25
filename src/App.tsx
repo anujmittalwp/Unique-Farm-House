@@ -1083,7 +1083,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
               <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
               Back to Bookings
             </button>
-            <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Create Manual Booking</h2>
+            <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{userRole === 'admin' ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
               <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} />
             </div>
@@ -1103,14 +1103,12 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
               <h1 className="text-4xl md:text-5xl font-serif font-bold text-luxury-dark">
                 {userRole === 'admin' ? 'All Bookings' : 'My Bookings'}
               </h1>
-              {userRole === 'admin' && (
-                <button 
-                  onClick={() => setIsAdminCreating(true)}
-                  className="px-6 py-2 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center gap-2"
-                >
-                  <Calendar size={16} /> Create Booking
-                </button>
-              )}
+              <button 
+                onClick={() => setIsAdminCreating(true)}
+                className="px-6 py-2 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center gap-2"
+              >
+                <Calendar size={16} /> {userRole === 'admin' ? 'Create Booking' : 'Book Now'}
+              </button>
             </div>
             <p className="text-luxury-dark/60 mt-2">
               {userRole === 'admin' ? 'Manage all luxury stays and celebration details' : 'Manage your luxury stays and celebration details'}
@@ -1415,12 +1413,20 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                 ? `There are currently no ${activeFilter !== 'all' ? activeFilter : ''} bookings in the system.` 
                 : "You haven't made any bookings yet. Start planning your perfect celebration today!"}
             </p>
-            <button 
-              onClick={onClose}
-              className="luxury-button"
-            >
-              Explore Farmhouse
-            </button>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <button 
+                onClick={() => setIsAdminCreating(true)}
+                className="luxury-button"
+              >
+                Book Now
+              </button>
+              <button 
+                onClick={onClose}
+                className="px-8 py-4 rounded-2xl text-sm font-bold uppercase tracking-widest border border-luxury-dark/10 text-luxury-dark/60 hover:bg-luxury-dark hover:text-white transition-all"
+              >
+                Explore Farmhouse
+              </button>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
