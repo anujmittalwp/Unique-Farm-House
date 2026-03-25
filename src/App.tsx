@@ -69,7 +69,8 @@ import {
   User as FirebaseUser,
   GoogleAuthProvider,
   signInWithPopup,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  updatePassword
 } from 'firebase/auth';
 import { 
   collection, 
@@ -585,8 +586,7 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
       setNewUrl({ name: '', url: '' });
       showToast('Calendar URL added successfully', 'success');
     } catch (error) {
-      console.error('Failed to add calendar URL:', error);
-      showToast('Failed to add calendar URL: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+      showToast('Failed to add calendar URL', 'error');
     }
   };
 
@@ -729,6 +729,122 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
   );
 };
 
+const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showPass, setShowPass] = useState(false);
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (auth.currentUser) {
+        await updatePassword(auth.currentUser, newPassword);
+        showToast('Password updated successfully!', 'success');
+        onClose();
+      } else {
+        setError('No user logged in');
+      }
+    } catch (err: any) {
+      if (err.code === 'auth/requires-recent-login') {
+        setError('For security reasons, please log out and log back in before updating your password.');
+      } else {
+        setError(err.message || 'Failed to update password');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-luxury-dark/60 backdrop-blur-sm"
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-luxury-dark/5"
+      >
+        <div className="p-8">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-serif font-bold text-luxury-dark">Update Password</h2>
+            <button onClick={onClose} className="p-2 hover:bg-luxury-dark/5 rounded-full transition-colors">
+              <X size={20} className="text-luxury-dark/40" />
+            </button>
+          </div>
+
+          <form onSubmit={handleUpdate} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold ml-1">New Password</label>
+              <div className="relative">
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm focus:outline-none focus:border-luxury-gold pr-12"
+                  placeholder="••••••••"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass(!showPass)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 hover:text-luxury-dark/40 transition-colors"
+                >
+                  {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold ml-1">Confirm New Password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm focus:outline-none focus:border-luxury-gold"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 text-xs">
+                <AlertCircle size={16} className="shrink-0" />
+                <p>{error}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-4 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10 disabled:opacity-50"
+            >
+              {loading ? 'Updating...' : 'Update Password'}
+            </button>
+          </form>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
 const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[]; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -742,6 +858,12 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
   const [adminLogs, setAdminLogs] = useState<any[]>([]);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<any | null>(null);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+
+  const handleChangePassword = async () => {
+    setIsUpdateModalOpen(true);
+  };
 
   useEffect(() => {
     if (userRole === 'admin' && activeFilter === 'reviews') {
@@ -987,15 +1109,24 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
             </p>
           </div>
           
-          <div className="flex items-center gap-4 p-4 bg-luxury-dark/5 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-luxury-gold flex items-center justify-center text-luxury-dark font-bold text-xl">
-              {user.displayName?.[0] || user.email?.[0].toUpperCase()}
+            <div className="flex items-center gap-4 p-4 bg-luxury-dark/5 rounded-2xl">
+              <div className="w-12 h-12 rounded-full bg-luxury-gold flex items-center justify-center text-luxury-dark font-bold text-xl">
+                {user.displayName?.[0] || user.email?.[0].toUpperCase()}
+              </div>
+              <div className="flex flex-col">
+                <p className="font-bold text-luxury-dark">{user.displayName || 'Guest'}</p>
+                <p className="text-xs text-luxury-dark/40">{user.email}</p>
+                {user.providerData.some(p => p.providerId === 'password') && (
+                  <button 
+                    onClick={handleChangePassword}
+                    disabled={isSendingReset}
+                    className="text-[10px] text-luxury-gold hover:text-luxury-dark font-bold uppercase tracking-widest mt-1 text-left transition-colors disabled:opacity-50"
+                  >
+                    {isSendingReset ? 'Sending...' : 'Change Password'}
+                  </button>
+                )}
+              </div>
             </div>
-            <div>
-              <p className="font-bold text-luxury-dark">{user.displayName || 'Guest'}</p>
-              <p className="text-xs text-luxury-dark/40">{user.email}</p>
-            </div>
-          </div>
         </div>
 
         {userRole === 'admin' && (
@@ -1531,6 +1662,15 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
           message={`Are you sure you want to delete the booking for ${bookingToDelete?.name}? This action cannot be undone.`}
           confirmText="Delete"
           type="danger"
+        />
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {isUpdateModalOpen && (
+        <PasswordUpdateModal 
+          onClose={() => setIsUpdateModalOpen(false)}
+          showToast={showToast}
         />
       )}
     </AnimatePresence>
