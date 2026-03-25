@@ -56,7 +56,10 @@ import {
   IndianRupee,
   Copy,
   MessageSquare,
-  Trash2
+  Trash2,
+  RefreshCw,
+  Download,
+  Share2
 } from 'lucide-react';
 import { 
   onAuthStateChanged, 
@@ -547,13 +550,192 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
   );
 };
 
+const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
+  const [urls, setUrls] = useState<{ name: string, url: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [newUrl, setNewUrl] = useState({ name: '', url: '' });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const docRef = doc(db, 'settings', 'calendar_sync');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setUrls(docSnap.data().urls || []);
+        }
+      } catch (error) {
+        console.error('Error fetching sync settings:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleAddUrl = async () => {
+    if (!newUrl.name || !newUrl.url) {
+      showToast('Please fill in both name and URL', 'error');
+      return;
+    }
+    const updatedUrls = [...urls, newUrl];
+    try {
+      await setDoc(doc(db, 'settings', 'calendar_sync'), { urls: updatedUrls }, { merge: true });
+      setUrls(updatedUrls);
+      setNewUrl({ name: '', url: '' });
+      showToast('Calendar URL added successfully', 'success');
+    } catch (error) {
+      console.error('Failed to add calendar URL:', error);
+      showToast('Failed to add calendar URL: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+    }
+  };
+
+  const handleRemoveUrl = async (index: number) => {
+    const updatedUrls = urls.filter((_, i) => i !== index);
+    try {
+      await setDoc(doc(db, 'settings', 'calendar_sync'), { urls: updatedUrls }, { merge: true });
+      setUrls(updatedUrls);
+      showToast('Calendar URL removed', 'success');
+    } catch (error) {
+      showToast('Failed to remove calendar URL', 'error');
+    }
+  };
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch('/api/calendar/sync', { method: 'POST' });
+      const data = await response.json();
+      if (response.ok) {
+        showToast(`Sync completed! ${data.count} external events imported.`, 'success');
+      } else {
+        showToast(data.error || 'Sync failed', 'error');
+      }
+    } catch (error) {
+      showToast('Network error during sync', 'error');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  if (loading) return <div className="py-24 text-center"><p className="text-luxury-dark/40 italic">Loading settings...</p></div>;
+
+  return (
+    <div className="space-y-8">
+      <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+        <h3 className="text-xl font-serif font-bold text-luxury-dark mb-6 flex items-center gap-2">
+          <Share2 size={20} className="text-luxury-gold" />
+          Export Your Calendar
+        </h3>
+        <p className="text-sm text-luxury-dark/60 mb-6">
+          Share this URL with Airbnb, Booking.com, or other platforms to sync your farmhouse availability.
+        </p>
+        <div className="flex gap-3">
+          <input 
+            readOnly
+            value={`${window.location.origin}/api/calendar/export`}
+            className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-xs font-mono text-luxury-dark/60"
+          />
+          <button 
+            onClick={() => {
+              navigator.clipboard.writeText(`${window.location.origin}/api/calendar/export`);
+              showToast('Export URL copied!', 'success');
+            }}
+            className="px-6 py-3 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all"
+          >
+            Copy URL
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+        <div className="flex justify-between items-center mb-8">
+          <h3 className="text-xl font-serif font-bold text-luxury-dark flex items-center gap-2">
+            <Download size={20} className="text-luxury-gold" />
+            Import External Calendars
+          </h3>
+          <button 
+            onClick={handleSyncNow}
+            disabled={syncing || urls.length === 0}
+            className="px-6 py-3 bg-emerald-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-2 disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Syncing...' : 'Sync Now'}
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold ml-1">Platform Name</label>
+              <input 
+                placeholder="e.g. Airbnb, Ellivas"
+                value={newUrl.name}
+                onChange={(e) => setNewUrl(prev => ({ ...prev, name: e.target.value }))}
+                className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm focus:outline-none focus:border-luxury-gold"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold ml-1">iCal URL</label>
+              <div className="flex gap-2">
+                <input 
+                  placeholder="https://..."
+                  value={newUrl.url}
+                  onChange={(e) => setNewUrl(prev => ({ ...prev, url: e.target.value }))}
+                  className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm focus:outline-none focus:border-luxury-gold"
+                />
+                <button 
+                  onClick={handleAddUrl}
+                  className="px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-8 border-t border-luxury-dark/5">
+            <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-4">Connected Calendars</p>
+            <div className="space-y-3">
+              {urls.map((item, index) => (
+                <div key={index} className="flex items-center justify-between p-4 bg-luxury-cream/30 rounded-2xl border border-luxury-dark/5">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-luxury-gold shadow-sm">
+                      <Calendar size={18} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-luxury-dark">{item.name}</p>
+                      <p className="text-[10px] text-luxury-dark/40 font-mono truncate max-w-[200px] md:max-w-md">{item.url}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => handleRemoveUrl(index)}
+                    className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              ))}
+              {urls.length === 0 && (
+                <div className="py-12 text-center bg-luxury-dark/5 rounded-3xl border border-dashed border-luxury-dark/10">
+                  <p className="text-luxury-dark/40 font-medium italic">No external calendars connected yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[]; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync'>('all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -825,7 +1007,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
               { id: 'pending', label: 'Pending' },
               { id: 'cancelled', label: 'Cancelled' },
               { id: 'reviews', label: 'Manage Reviews' },
-              { id: 'logs', label: 'Admin Logs' }
+              { id: 'logs', label: 'Admin Logs' },
+              { id: 'sync', label: 'Calendar Sync' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -838,7 +1021,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
               >
                 {tab.label}
                 <span className="ml-2 opacity-50">
-                  ({tab.id === 'reviews' ? reviews.length : tab.id === 'logs' ? adminLogs.length : bookings.filter(b => {
+                  ({tab.id === 'reviews' ? reviews.length : tab.id === 'logs' ? adminLogs.length : tab.id === 'sync' ? 'iCal' : bookings.filter(b => {
                     if (tab.id === 'all') return true;
                     if (tab.id === 'pending') return b.status === 'pending';
                     if (tab.id === 'cancelled') return b.status === 'cancelled';
@@ -1024,6 +1207,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
               </table>
             </div>
           </div>
+        ) : activeFilter === 'sync' && userRole === 'admin' ? (
+          <CalendarSync showToast={showToast} />
         ) : filteredBookings.length === 0 ? (
           <div className="bg-luxury-dark/5 rounded-3xl p-12 md:p-24 text-center">
             <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
@@ -3448,15 +3633,38 @@ export default function App() {
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'availability'), where('status', 'in', ['confirmed', 'pending']));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const bookingsData = snapshot.docs.map(doc => ({
+    const qAvailability = query(collection(db, 'availability'), where('status', 'in', ['confirmed', 'pending']));
+    const qBlocked = query(collection(db, 'blocked_dates'));
+
+    const unsubscribeAvailability = onSnapshot(qAvailability, (snapshot) => {
+      const availabilityData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      setAllBookings(bookingsData);
+      
+      // We'll merge these later with blocked dates
+      setAllBookings(prev => {
+        const blocked = prev.filter(b => b.type === 'external');
+        return [...availabilityData, ...blocked];
+      });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'availability'));
-    return () => unsubscribe();
+
+    const unsubscribeBlocked = onSnapshot(qBlocked, (snapshot) => {
+      const blockedData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      setAllBookings(prev => {
+        const availability = prev.filter(b => b.type !== 'external');
+        return [...availability, ...blockedData];
+      });
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'blocked_dates'));
+
+    return () => {
+      unsubscribeAvailability();
+      unsubscribeBlocked();
+    };
   }, []);
 
   useEffect(() => {
