@@ -46,7 +46,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (request.auth.token.email == "anujkumarmittal@gmail.com" ||
+        ((request.auth.token.email == "anujkumarmittal@gmail.com" && request.auth.token.email_verified == true) ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
@@ -144,9 +144,11 @@ service cloud.firestore {
 
     match /bookings/{bookingId} {
       allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || (('email' in resource.data) && resource.data.email == request.auth.token.email) || isAdmin());
-      allow create: if isAuthenticated() && (
+      allow create: if (
         // Client can create a pending booking for themselves
-        (request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
+        (isAuthenticated() && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
+        // Guest can create a pending booking
+        (!isAuthenticated() && request.resource.data.uid == 'guest' && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
         // Admin can create any booking
         (isAdmin() && isValidBooking(request.resource.data))
       );
@@ -186,7 +188,7 @@ service cloud.firestore {
 
     match /availability/{bookingId} {
       allow read: if true; // Publicly readable for "Sold Out" dates
-      allow create: if isAuthenticated() && isValidAvailability(request.resource.data);
+      allow create: if (isAuthenticated() || request.resource.data.status == 'pending') && isValidAvailability(request.resource.data);
       allow update: if (isAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/bookings/$(bookingId)) && get(/databases/$(database)/documents/bookings/$(bookingId)).data.uid == request.auth.uid)) && isValidAvailability(request.resource.data);
       allow delete: if isAdmin();
     }
