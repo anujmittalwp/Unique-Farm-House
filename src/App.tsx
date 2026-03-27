@@ -14,6 +14,8 @@ import {
   Coffee,
   Utensils,
   Gamepad2,
+  Home,
+  Award,
   User,
   Mail,
   PartyPopper,
@@ -59,7 +61,9 @@ import {
   Trash2,
   RefreshCw,
   Download,
-  Share2
+  Share2,
+  Plus,
+  Minus
 } from 'lucide-react';
 import { 
   onAuthStateChanged, 
@@ -2067,7 +2071,7 @@ const About = () => {
 const Amenities = () => {
   const amenities = [
     { 
-      icon: <Maximize size={32} />, 
+      icon: <Home size={32} />, 
       title: "Private Villa", 
       features: [
         { icon: <Bed size={14} />, label: "4BHK Villa" },
@@ -2083,7 +2087,7 @@ const Amenities = () => {
       ]
     },
     { 
-      icon: <Shield size={32} />, 
+      icon: <ShieldCheck size={32} />, 
       title: "Secure & Private", 
       features: [
         { icon: <Lock size={14} />, label: "24/7 Secure" },
@@ -2091,7 +2095,7 @@ const Amenities = () => {
       ]
     },
     { 
-      icon: <Users size={32} />, 
+      icon: <Maximize size={32} />, 
       title: "Spacious Interiors", 
       features: [
         { icon: <Users size={14} />, label: "Large Areas" },
@@ -2107,7 +2111,7 @@ const Amenities = () => {
       ]
     },
     { 
-      icon: <Coffee size={32} />, 
+      icon: <Award size={32} />, 
       title: "Premium Stay", 
       features: [
         { icon: <Star size={14} />, label: "High-end" },
@@ -2115,7 +2119,7 @@ const Amenities = () => {
       ]
     },
     { 
-      icon: <Utensils size={32} />, 
+      icon: <ChefHat size={32} />, 
       title: "Operated Kitchen", 
       features: [
         { icon: <ChefHat size={14} />, label: "Equipped" },
@@ -2641,8 +2645,10 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [name, setName] = useState(editBooking?.name || (userRole === 'admin' && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
   const [email, setEmail] = useState(editBooking?.email || (userRole === 'admin' && !editBooking ? '' : user?.email || ''));
-  const [guestsDay, setGuestsDay] = useState(editBooking?.guestsDay || 5);
-  const [guestsNight, setGuestsNight] = useState(editBooking?.guestsNight || 5);
+  const [dayGuestAdults, setDayGuestAdults] = useState(editBooking?.dayGuestAdults || 0);
+  const [dayGuestChildren, setDayGuestChildren] = useState<number[]>(editBooking?.dayGuestChildren || []);
+  const [nightGuestAdults, setNightGuestAdults] = useState(editBooking?.nightGuestAdults || 0);
+  const [nightGuestChildren, setNightGuestChildren] = useState<number[]>(editBooking?.nightGuestChildren || []);
   const [occasion, setOccasion] = useState(editBooking?.occasion || '');
   const [checkIn, setCheckIn] = useState<Date | null>(editBooking?.checkIn ? parse(editBooking.checkIn, 'dd/MM/yyyy', new Date()) : null);
   const [checkOut, setCheckOut] = useState<Date | null>(editBooking?.checkOut ? parse(editBooking.checkOut, 'dd/MM/yyyy', new Date()) : null);
@@ -2809,16 +2815,16 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       }
     }
     
-    if (guestsDay < 1) {
-      newErrors.guestsDay = "At least 1 day guest is required";
-    } else if (guestsDay > 50) {
-      newErrors.guestsDay = "Maximum 50 day guests allowed";
+    if (dayGuestAdults + dayGuestChildren.length < 1) {
+      newErrors.dayGuests = "At least 1 day guest is required";
+    } else if (dayGuestAdults + dayGuestChildren.length > 50) {
+      newErrors.dayGuests = "Maximum 50 day guests allowed";
     }
     
-    if (guestsNight < 0) {
-      newErrors.guestsNight = "Guests cannot be negative";
-    } else if (guestsNight > 12) {
-      newErrors.guestsNight = "Maximum 12 night guests allowed";
+    if (nightGuestAdults + nightGuestChildren.length < 0) {
+      newErrors.nightGuests = "Guests cannot be negative";
+    } else if (nightGuestAdults + nightGuestChildren.length > 12) {
+      newErrors.nightGuests = "Maximum 12 night guests allowed";
     }
     
     if (Object.keys(newErrors).length > 0) {
@@ -2854,8 +2860,12 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         uid: finalUid,
         checkIn: checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : '',
         checkOut: checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : '',
-        guestsDay,
-        guestsNight,
+        guestsDay: dayGuestAdults + dayGuestChildren.length,
+        dayGuestAdults,
+        dayGuestChildren,
+        guestsNight: nightGuestAdults + nightGuestChildren.length,
+        nightGuestAdults,
+        nightGuestChildren,
         status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
         bookingAmount,
         totalAmount,
@@ -2913,8 +2923,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         `*Name:* ${name || 'Not specified'}%0A` +
         `*Mobile:* ${mobile || 'Not specified'}%0A` +
         `*Email:* ${email || 'Not specified'}%0A` +
-        `*Guests (Day):* ${guestsDay}%0A` +
-        `*Guests (Night):* ${guestsNight}%0A` +
+        `*Guests (Day):* ${dayGuestAdults} Adults, ${dayGuestChildren.length} Children (Ages: ${dayGuestChildren.join(', ')})%0A` +
+        `*Guests (Night):* ${nightGuestAdults} Adults, ${nightGuestChildren.length} Children (Ages: ${nightGuestChildren.join(', ')})%0A` +
         `*Occasion:* ${occasion || 'Not specified'}%0A` +
         `*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'Not specified'}%0A` +
         `*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'Not specified'}%0A` +
@@ -3021,11 +3031,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guests (Day)</p>
-                  <p className="font-bold text-luxury-dark">{guestsDay} Guests</p>
+                  <p className="font-bold text-luxury-dark">{dayGuestAdults + dayGuestChildren.length} Guests ({dayGuestAdults}A, {dayGuestChildren.length}C)</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guests (Night)</p>
-                  <p className="font-bold text-luxury-dark">{guestsNight} Guests</p>
+                  <p className="font-bold text-luxury-dark">{nightGuestAdults + nightGuestChildren.length} Guests ({nightGuestAdults}A, {nightGuestChildren.length}C)</p>
                 </div>
               </div>
               <div className="pt-4">
@@ -3059,7 +3069,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
             Close & Return
           </button>
           <a 
-            href={`https://wa.me/919313501001?text=${encodeURIComponent(`*Booking Request Summary for Unique Farmhouse*\n\n*Name:* ${name}\n*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}\n*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}\n*Guests:* ${guestsDay} Day / ${guestsNight} Night\n*Total Amount:* ₹${totalAmount.toLocaleString()}`)}`}
+            href={`https://wa.me/919313501001?text=${encodeURIComponent(`*Booking Request Summary for Unique Farmhouse*\n\n*Name:* ${name}\n*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}\n*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}\n*Guests:* ${dayGuestAdults + dayGuestChildren.length} Day (${dayGuestAdults}A, ${dayGuestChildren.length}C) / ${nightGuestAdults + nightGuestChildren.length} Night (${nightGuestAdults}A, ${nightGuestChildren.length}C)\n*Total Amount:* ₹${totalAmount.toLocaleString()}`)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="luxury-button-outline flex-1 flex items-center justify-center gap-2"
@@ -3253,52 +3263,57 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         {errors.email && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.email}</p>}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Guests (Day Stay - Max 50)</label>
-          <div className="relative">
-            <input 
-              type="number" 
-              min="1"
-              max="50"
-              value={guestsDay}
-              onChange={(e) => {
-                setGuestsDay(parseInt(e.target.value) || 1);
-                if (errors.guestsDay) setErrors(prev => {
-                  const next = {...prev};
-                  delete next.guestsDay;
-                  return next;
-                });
-              }}
-              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.guestsDay ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
-              placeholder="Number of day guests"
-            />
-            <Users className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
+      <div className="space-y-5">
+        <div className="space-y-4">
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Day Guests</label>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[9px] uppercase tracking-widest font-bold text-luxury-dark/40">Adults</label>
+              <input type="number" min="0" value={dayGuestAdults} onChange={(e) => setDayGuestAdults(parseInt(e.target.value) || 0)} className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[9px] uppercase tracking-widest font-bold text-luxury-dark/40">Children</label>
+              <button type="button" onClick={() => setDayGuestChildren([...dayGuestChildren, 0])} className="w-full flex items-center justify-center gap-2 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest">
+                <Plus size={16} /> Add Child
+              </button>
+            </div>
           </div>
-          {errors.guestsDay && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.guestsDay}</p>}
+          {dayGuestChildren.map((age, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <input type="number" min="0" max="18" placeholder="Child Age" value={age} onChange={(e) => {
+                const newAges = [...dayGuestChildren];
+                newAges[index] = parseInt(e.target.value) || 0;
+                setDayGuestChildren(newAges);
+              }} className="w-full px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-sm" />
+              <button type="button" onClick={() => setDayGuestChildren(dayGuestChildren.filter((_, i) => i !== index))} className="p-2 bg-red-100 text-red-600 rounded-lg"><Minus size={16} /></button>
+            </div>
+          ))}
         </div>
-        <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Guests (Night Stay - Max 12)</label>
-          <div className="relative">
-            <input 
-              type="number" 
-              min="0"
-              max="12"
-              value={guestsNight}
-              onChange={(e) => {
-                setGuestsNight(parseInt(e.target.value) || 0);
-                if (errors.guestsNight) setErrors(prev => {
-                  const next = {...prev};
-                  delete next.guestsNight;
-                  return next;
-                });
-              }}
-              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.guestsNight ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
-              placeholder="Number of night guests"
-            />
-            <Moon className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={20} />
+
+        <div className="space-y-4">
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Night Guests</label>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[9px] uppercase tracking-widest font-bold text-luxury-dark/40">Adults</label>
+              <input type="number" min="0" value={nightGuestAdults} onChange={(e) => setNightGuestAdults(parseInt(e.target.value) || 0)} className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[9px] uppercase tracking-widest font-bold text-luxury-dark/40">Children</label>
+              <button type="button" onClick={() => setNightGuestChildren([...nightGuestChildren, 0])} className="w-full flex items-center justify-center gap-2 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest">
+                <Plus size={16} /> Add Child
+              </button>
+            </div>
           </div>
-          {errors.guestsNight && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.guestsNight}</p>}
+          {nightGuestChildren.map((age, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <input type="number" min="0" max="18" placeholder="Child Age" value={age} onChange={(e) => {
+                const newAges = [...nightGuestChildren];
+                newAges[index] = parseInt(e.target.value) || 0;
+                setNightGuestChildren(newAges);
+              }} className="w-full px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-sm" />
+              <button type="button" onClick={() => setNightGuestChildren(nightGuestChildren.filter((_, i) => i !== index))} className="p-2 bg-red-100 text-red-600 rounded-lg"><Minus size={16} /></button>
+            </div>
+          ))}
         </div>
       </div>
 
