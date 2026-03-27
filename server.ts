@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 import ical, { ICalCalendarMethod } from "ical-generator";
 import nodeIcal from "node-ical";
 import { format, parse, isValid, addDays } from "date-fns";
@@ -14,13 +15,21 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Initialize Firebase Admin
 const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8'));
+console.log('Initializing Firebase Admin with project:', firebaseConfig.projectId, 'databaseId:', firebaseConfig.firestoreDatabaseId);
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.applicationDefault(),
     projectId: firebaseConfig.projectId,
   });
 }
+console.log('Firebase Admin apps:', admin.apps.length);
 const db = admin.firestore();
+console.log('Firestore initialized. Database name:', db.databaseId);
+// If a named database is provided, we might need to use it.
+// Let's try to use the databaseId if it's not the default.
+const dbWithNamedDatabase = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)' 
+  ? getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId) 
+  : db;
 
 async function startServer() {
   const app = express();
@@ -34,8 +43,9 @@ async function startServer() {
     if (!booking) return res.status(400).json({ error: 'Booking details required' });
 
     try {
+      console.log('Attempting to add notification to Firestore');
       // 1. Store in Firestore Notifications
-      await db.collection('notifications').add({
+      await dbWithNamedDatabase.collection('notifications').add({
         type: type || 'new_booking',
         bookingId: booking.id || 'new',
         message: `${type === 'update' ? 'Updated' : 'New'} booking from ${booking.name}`,
@@ -43,6 +53,7 @@ async function startServer() {
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       });
+      console.log('Notification added to Firestore successfully');
 
       // 2. Send Email via Resend (if API key exists)
       if (process.env.RESEND_API_KEY) {

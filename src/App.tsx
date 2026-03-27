@@ -849,7 +849,7 @@ const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; show
   );
 };
 
-const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[]; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
+const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, onLogout }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[]; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void; onLogout: () => void }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1093,53 +1093,74 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
             </div>
           </div>
         ) : (
-          <>
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
-          <div>
-            <button 
-              onClick={onClose}
-              className="flex items-center gap-2 text-luxury-dark/40 hover:text-luxury-dark transition-colors mb-4 group"
-            >
-              <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-              Back to Home
-            </button>
-            <div className="flex items-center gap-4">
-              <h1 className="text-4xl md:text-5xl font-serif font-bold text-luxury-dark">
-                {userRole === 'admin' ? 'All Bookings' : 'My Bookings'}
-              </h1>
+          <div className="space-y-12">
+            <div className="mb-12">
               <button 
-                onClick={() => setIsAdminCreating(true)}
-                className="px-6 py-2 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center gap-2"
+                onClick={onClose}
+                className="flex items-center gap-2 text-luxury-dark/40 hover:text-luxury-dark transition-colors group mb-12"
               >
-                <Calendar size={16} /> {userRole === 'admin' ? 'Create Booking' : 'Book Now'}
+                <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+                Back to Home
               </button>
-            </div>
-            <p className="text-luxury-dark/60 mt-2">
-              {userRole === 'admin' ? 'Manage all luxury stays and celebration details' : 'Manage your luxury stays and celebration details'}
-            </p>
-          </div>
-          
-            <div className="flex items-center gap-4 p-4 bg-luxury-dark/5 rounded-2xl">
-              <div className="w-12 h-12 rounded-full bg-luxury-gold flex items-center justify-center text-luxury-dark font-bold text-xl">
-                {user.displayName?.[0] || user.email?.[0].toUpperCase()}
-              </div>
-              <div className="flex flex-col">
-                <p className="font-bold text-luxury-dark">{user.displayName || 'Guest'}</p>
-                <p className="text-xs text-luxury-dark/40">{user.email}</p>
-                {user.providerData.some(p => p.providerId === 'password') && (
-                  <button 
-                    onClick={handleChangePassword}
-                    disabled={isSendingReset}
-                    className="text-[10px] text-luxury-gold hover:text-luxury-dark font-bold uppercase tracking-widest mt-1 text-left transition-colors disabled:opacity-50"
-                  >
-                    {isSendingReset ? 'Sending...' : 'Change Password'}
-                  </button>
-                )}
-              </div>
-            </div>
-        </div>
+              
+              <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
+                {/* Left Side: Title, Create Button, and Subtitle */}
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-6">
+                    <h1 className="text-5xl md:text-7xl font-serif font-bold text-luxury-dark">
+                      {userRole === 'admin' ? 'All Bookings' : 'My Bookings'}
+                    </h1>
+                    <button 
+                      onClick={() => setIsAdminCreating(true)}
+                      className="px-6 py-3 bg-[#141414] text-white rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center gap-2 shadow-xl shadow-black/10 shrink-0"
+                    >
+                      <Calendar size={16} />
+                      CREATE BOOKING
+                    </button>
+                  </div>
+                  <p className="text-luxury-dark/40 text-lg font-medium">
+                    Manage all luxury stays and celebration details
+                  </p>
+                </div>
 
-        {userRole === 'admin' && (
+                {/* Right Side: Compact User Profile Card */}
+                <div className="bg-[#F5F5F5] p-6 rounded-[2rem] flex items-center gap-5 min-w-[340px]">
+                  {/* Avatar - Rounded Square style from screenshot */}
+                  <div className="w-16 h-16 rounded-3xl bg-[#C8A45D] flex items-center justify-center text-luxury-dark font-bold text-2xl shrink-0 shadow-lg shadow-[#C8A45D]/20">
+                    {user.displayName?.[0] || user.email?.[0].toUpperCase()}
+                  </div>
+                  
+                  {/* User Info */}
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xl font-bold text-luxury-dark">
+                        {user.displayName || 'Guest'}
+                      </h3>
+                      <button 
+                        onClick={onLogout}
+                        title="Logout"
+                        className="text-luxury-dark/30 hover:text-red-500 transition-colors"
+                      >
+                        <LogOut size={16} />
+                      </button>
+                    </div>
+                    <p className="text-luxury-dark/30 text-sm font-medium">
+                      {user.email}
+                    </p>
+                    {user.providerData.some(p => p.providerId === 'password') && (
+                      <button 
+                        onClick={handleChangePassword}
+                        disabled={isSendingReset}
+                        className="text-[10px] text-[#C8A45D] hover:text-luxury-dark font-bold uppercase tracking-widest transition-colors disabled:opacity-50 block pt-1"
+                      >
+                        {isSendingReset ? 'Sending...' : 'CHANGE PASSWORD'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+             {userRole === 'admin' && (
           <div className="flex flex-wrap gap-2 mb-8 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
             {[
               { id: 'all', label: 'All' },
@@ -1182,8 +1203,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
             ))}
           </div>
         )}
-
-        {loading ? (
+      {loading ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <div className="w-12 h-12 border-4 border-luxury-gold/20 border-t-luxury-gold rounded-full animate-spin" />
             <p className="text-luxury-dark/40 font-medium">Loading your bookings...</p>
@@ -1366,7 +1386,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-luxury-dark/5 p-4 rounded-2xl">
                         <div>
                           <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests</p>
-                          <p className="text-xs font-bold text-luxury-dark">{notif.details.guestsDay}D / {notif.details.guestsNight}N</p>
+                          <p className="text-xs font-bold text-luxury-dark">{notif.details.dayGuestAdults || 0}A, {notif.details.dayGuestChildren?.length || 0}C (Day) / {notif.details.nightGuestAdults || 0}A, {notif.details.nightGuestChildren?.length || 0}C (Night)</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Dates</p>
@@ -1466,7 +1486,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                       </div>
                       <div className="flex items-center gap-3 mt-4">
                         <p className="text-[10px] text-luxury-dark/30 uppercase tracking-[0.2em]">Booking ID: {booking.id.slice(0, 8)}</p>
-                        {(userRole === 'admin' || booking.status === 'pending') && (
+                        {(userRole === 'admin' || booking.status === 'pending' || (booking.status === 'confirmed' && parse(booking.checkIn, 'dd/MM/yyyy', new Date()) > new Date())) && (
                           <button 
                             onClick={() => setEditingBooking(booking)}
                             className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold hover:text-luxury-dark transition-colors flex items-center gap-1"
@@ -1503,11 +1523,11 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests (Day)</p>
-                      <p className="font-bold text-luxury-dark">{booking.guestsDay || booking.guests || 0} Guests</p>
+                      <p className="font-bold text-luxury-dark">{booking.dayGuestAdults || 0} Adults, {booking.dayGuestChildren?.length || 0} Children</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests (Night)</p>
-                      <p className="font-bold text-luxury-dark">{booking.guestsNight || 0} Guests</p>
+                      <p className="font-bold text-luxury-dark">{booking.nightGuestAdults || 0} Adults, {booking.nightGuestChildren?.length || 0} Children</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Occasion</p>
@@ -1707,7 +1727,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast }
             ))}
           </div>
         )}
-      </>
+      </div>
     )}
     
     <AnimatePresence>
@@ -2860,10 +2880,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         uid: finalUid,
         checkIn: checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : '',
         checkOut: checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : '',
-        guestsDay: dayGuestAdults + dayGuestChildren.length,
         dayGuestAdults,
         dayGuestChildren,
-        guestsNight: nightGuestAdults + nightGuestChildren.length,
         nightGuestAdults,
         nightGuestChildren,
         status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
@@ -3031,11 +3049,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guests (Day)</p>
-                  <p className="font-bold text-luxury-dark">{dayGuestAdults + dayGuestChildren.length} Guests ({dayGuestAdults}A, {dayGuestChildren.length}C)</p>
+                  <p className="font-bold text-luxury-dark">{dayGuestAdults} Adults, {dayGuestChildren.length} Children</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Guests (Night)</p>
-                  <p className="font-bold text-luxury-dark">{nightGuestAdults + nightGuestChildren.length} Guests ({nightGuestAdults}A, {nightGuestChildren.length}C)</p>
+                  <p className="font-bold text-luxury-dark">{nightGuestAdults} Adults, {nightGuestChildren.length} Children</p>
                 </div>
               </div>
               <div className="pt-4">
@@ -3938,6 +3956,9 @@ export default function App() {
 
   const openBookingModal = () => setIsBookingModalOpen(true);
   const closeBookingModal = () => setIsBookingModalOpen(false);
+  const handleSignOut = () => {
+    signOut(auth);
+  };
 
   if (loading) {
     return (
@@ -3997,7 +4018,7 @@ export default function App() {
       
       <AnimatePresence>
         {isDashboardOpen && user && (
-          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} onLogin={() => setIsAuthModalOpen(true)} allBookings={allBookings} showToast={showToast} />
+          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} onLogin={() => setIsAuthModalOpen(true)} allBookings={allBookings} showToast={showToast} onLogout={handleSignOut} />
         )}
       </AnimatePresence>
 

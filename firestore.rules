@@ -79,12 +79,14 @@ service cloud.firestore {
     }
 
     function isValidBooking(data) {
-      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']) &&
+      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']) &&
              data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
              isValidDateString(data.checkIn) &&
              isValidDateString(data.checkOut) &&
-             data.guestsDay is number && data.guestsDay > 0 && data.guestsDay <= 50 &&
-             data.guestsNight is number && data.guestsNight >= 0 && data.guestsNight <= 12 &&
+             data.dayGuestAdults is number && data.dayGuestAdults >= 0 &&
+             data.dayGuestChildren is list && data.dayGuestChildren.size() <= 50 &&
+             data.nightGuestAdults is number && data.nightGuestAdults >= 0 &&
+             data.nightGuestChildren is list && data.nightGuestChildren.size() <= 12 &&
              data.status in ['pending', 'confirmed', 'cancelled'] &&
              data.totalAmount is number && data.totalAmount >= 0 &&
              data.amountPaid is number && data.amountPaid >= 0 &&
@@ -98,7 +100,7 @@ service cloud.firestore {
              (!('mobile' in data) || (data.mobile is string && data.mobile.size() <= 20)) &&
              (!('email' in data) || (data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)))) &&
              (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 256)) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'guestsDay', 'guestsNight', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']);
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']);
     }
 
     function isValidReview(data) {
