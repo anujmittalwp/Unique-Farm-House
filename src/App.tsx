@@ -1105,53 +1105,53 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
               
               <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
                 {/* Left Side: Title, Create Button, and Subtitle */}
-                <div className="space-y-2 flex-1">
-                  <div className="flex items-center gap-6">
-                    <h1 className="text-5xl md:text-7xl font-serif font-bold text-luxury-dark">
+                <div className="space-y-6 flex-1 w-full">
+                  <div className="space-y-2">
+                    <h1 className="text-4xl sm:text-5xl md:text-7xl font-serif font-bold text-luxury-dark leading-tight">
                       {userRole === 'admin' ? 'All Bookings' : 'My Bookings'}
                     </h1>
-                    <button 
-                      onClick={() => setIsAdminCreating(true)}
-                      className="px-6 py-3 bg-[#141414] text-white rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center gap-2 shadow-xl shadow-black/10 shrink-0"
-                    >
-                      <Calendar size={16} />
-                      CREATE BOOKING
-                    </button>
+                    <p className="text-luxury-dark/40 text-base sm:text-lg font-medium">
+                      Manage all luxury stays and celebration details
+                    </p>
                   </div>
-                  <p className="text-luxury-dark/40 text-lg font-medium">
-                    Manage all luxury stays and celebration details
-                  </p>
+                  <button 
+                    onClick={() => setIsAdminCreating(true)}
+                    className="px-8 py-4 bg-[#141414] text-white rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 shadow-xl shadow-black/10 shrink-0 w-full sm:w-auto"
+                  >
+                    <Calendar size={16} />
+                    CREATE BOOKING
+                  </button>
                 </div>
 
                 {/* Right Side: Compact User Profile Card */}
-                <div className="bg-[#F5F5F5] p-6 rounded-[2rem] flex items-center gap-5 min-w-[340px]">
+                <div className="bg-[#F5F5F5] p-5 sm:p-6 rounded-[2rem] flex items-center gap-4 sm:gap-5 w-full sm:w-auto sm:min-w-[340px] shadow-sm">
                   {/* Avatar - Rounded Square style from screenshot */}
-                  <div className="w-16 h-16 rounded-3xl bg-[#C8A45D] flex items-center justify-center text-luxury-dark font-bold text-2xl shrink-0 shadow-lg shadow-[#C8A45D]/20">
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-3xl bg-[#C8A45D] flex items-center justify-center text-luxury-dark font-bold text-xl sm:text-2xl shrink-0 shadow-lg shadow-[#C8A45D]/20">
                     {user.displayName?.[0] || user.email?.[0].toUpperCase()}
                   </div>
                   
                   {/* User Info */}
-                  <div className="space-y-0.5">
+                  <div className="space-y-0.5 flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-xl font-bold text-luxury-dark">
+                      <h3 className="text-lg sm:text-xl font-bold text-luxury-dark truncate">
                         {user.displayName || 'Guest'}
                       </h3>
                       <button 
                         onClick={onLogout}
                         title="Logout"
-                        className="text-luxury-dark/30 hover:text-red-500 transition-colors"
+                        className="text-luxury-dark/30 hover:text-red-500 transition-colors shrink-0"
                       >
                         <LogOut size={16} />
                       </button>
                     </div>
-                    <p className="text-luxury-dark/30 text-sm font-medium">
+                    <p className="text-luxury-dark/30 text-xs sm:text-sm font-medium truncate">
                       {user.email}
                     </p>
                     {user.providerData.some(p => p.providerId === 'password') && (
                       <button 
                         onClick={handleChangePassword}
                         disabled={isSendingReset}
-                        className="text-[10px] text-[#C8A45D] hover:text-luxury-dark font-bold uppercase tracking-widest transition-colors disabled:opacity-50 block pt-1"
+                        className="text-[9px] sm:text-[10px] text-[#C8A45D] hover:text-luxury-dark font-bold uppercase tracking-widest transition-colors disabled:opacity-50 block pt-1"
                       >
                         {isSendingReset ? 'Sending...' : 'CHANGE PASSWORD'}
                       </button>
@@ -1801,16 +1801,16 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${isScrolled ? 'glass-nav py-4' : 'bg-transparent py-6'}`}>
       <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-        <a href="#" className="flex items-center gap-3">
+        <a href="#" className="flex items-center gap-2 sm:gap-3">
           <img 
             src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
             alt="Unique Farmhouse Logo" 
-            className="h-12 w-auto object-contain"
+            className="h-10 sm:h-12 w-auto object-contain"
             referrerPolicy="no-referrer"
           />
           <div className="flex flex-col">
-            <span className={`text-2xl font-serif font-bold tracking-tighter ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}>UNIQUE</span>
-            <span className={`text-[10px] tracking-[0.4em] uppercase -mt-1 ${isScrolled ? 'text-luxury-gold' : 'text-white/80'}`}>Farmhouse</span>
+            <span className={`text-xl sm:text-2xl font-serif font-bold tracking-tighter leading-none ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}>UNIQUE</span>
+            <span className={`text-[8px] sm:text-[10px] tracking-[0.4em] uppercase -mt-0.5 ${isScrolled ? 'text-luxury-gold' : 'text-white/80'}`}>Farmhouse</span>
           </div>
         </a>
 
@@ -1965,7 +1965,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="inline-block text-sm md:text-base uppercase tracking-[0.4em] mb-6 font-medium text-luxury-gold"
+          className="inline-block text-xs sm:text-sm md:text-base uppercase tracking-[0.4em] mb-4 sm:mb-6 font-medium text-luxury-gold"
         >
           Welcome to Noida's Finest Retreat
         </motion.span>
@@ -1974,7 +1974,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="text-5xl md:text-7xl lg:text-8xl font-serif mb-8 leading-[1.1]"
+          className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-serif mb-6 sm:mb-8 leading-[1.1] tracking-tight"
         >
           Experience Luxury & Serenity at <br />
           <span className="italic text-luxury-gold">Unique Farmhouse Noida</span>
@@ -1984,7 +1984,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
-          className="text-lg md:text-xl font-light mb-12 max-w-2xl mx-auto text-white/90"
+          className="text-base sm:text-lg md:text-xl font-light mb-8 sm:mb-12 max-w-2xl mx-auto text-white/90 leading-relaxed"
         >
           Premium Private Villa / Farmhouse Stay in Noida. A sanctuary for celebrations, staycations, and unforgettable moments.
         </motion.p>
@@ -1999,15 +1999,15 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
             href="https://wa.me/919313501001" 
             target="_blank" 
             rel="noopener noreferrer"
-            className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] border-none text-white"
+            className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] border-none text-white !py-4 !px-8"
           >
-            <MessageCircle size={18} /> Send WhatsApp
+            <MessageCircle size={20} /> Send WhatsApp
           </a>
-          <a href="tel:+919313501001" className="luxury-button-outline !border-white !text-white hover:!bg-white hover:!text-luxury-dark w-full sm:w-auto flex items-center justify-center gap-2">
-            <Phone size={18} /> Call Now
+          <a href="tel:+919313501001" className="luxury-button-outline !border-white !text-white hover:!bg-white hover:!text-luxury-dark w-full sm:w-auto flex items-center justify-center gap-2 !py-4 !px-8">
+            <Phone size={20} /> Call Now
           </a>
-          <button onClick={onBookNow} className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2">
-            <Calendar size={18} /> Book Now
+          <button onClick={onBookNow} className="luxury-button w-full sm:w-auto flex items-center justify-center gap-2 !py-4 !px-8">
+            <Calendar size={20} /> Book Now
           </button>
         </motion.div>
       </div>
@@ -2029,9 +2029,9 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
 
 const About = () => {
   return (
-    <section id="about" className="py-24 px-6 bg-white overflow-hidden">
+    <section id="about" className="py-16 sm:py-24 px-6 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <motion.div 
             initial={{ opacity: 0, x: -50 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -2046,7 +2046,7 @@ const About = () => {
                 referrerPolicy="no-referrer"
               />
             </div>
-            <div className="absolute -bottom-10 -right-10 w-2/3 aspect-square overflow-hidden rounded-2xl shadow-2xl border-8 border-white hidden md:block">
+            <div className="absolute -bottom-10 -right-10 w-2/3 aspect-square overflow-hidden rounded-2xl shadow-2xl border-8 border-white hidden lg:block">
               <img 
                 src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg" 
                 alt="Private Pool" 
@@ -2060,10 +2060,11 @@ const About = () => {
             initial={{ opacity: 0, x: 50 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
+            className="space-y-6"
           >
             <span className="section-subtitle text-left">The Experience</span>
-            <h2 className="section-title text-left">A Private Farm House / Villa Stay in the Heart of Noida</h2>
-            <div className="space-y-6 text-luxury-dark/70 text-lg leading-relaxed">
+            <h2 className="section-title text-left text-3xl sm:text-4xl md:text-5xl leading-tight">A Private Farm House / Villa Stay in the Heart of Noida</h2>
+            <div className="space-y-6 text-luxury-dark/70 text-base sm:text-lg leading-relaxed">
               <p>
                 Unique Farmhouse offers a refined escape from the urban hustle. Our premium 4BHK private villa is designed for those who seek exclusivity, comfort, and a touch of nature without leaving the city.
               </p>
@@ -2074,11 +2075,11 @@ const About = () => {
                 <Heart className="text-luxury-gold fill-luxury-gold" size={20} />
                 Proudly LGBTQ+ Friendly & Inclusive
               </p>
-              <div className="pt-6 flex flex-wrap gap-4">
-                <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-sm font-medium">Staycations</div>
-                <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-sm font-medium">Parties</div>
-                <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-sm font-medium">Weddings</div>
-                <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-sm font-medium">Family Gatherings</div>
+              <div className="pt-6 flex flex-wrap gap-3 sm:gap-4">
+                <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-xs sm:text-sm font-medium">Staycations</div>
+                <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-xs sm:text-sm font-medium">Parties</div>
+                <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-xs sm:text-sm font-medium">Weddings</div>
+                <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-xs sm:text-sm font-medium">Family Gatherings</div>
               </div>
             </div>
           </motion.div>
@@ -2175,12 +2176,12 @@ const Amenities = () => {
   ];
 
   return (
-    <section id="amenities" className="py-24 px-6 bg-luxury-cream">
+    <section id="amenities" className="py-16 sm:py-24 px-6 bg-luxury-cream">
       <div className="max-w-7xl mx-auto">
         <span className="section-subtitle">Curated For Comfort</span>
-        <h2 className="section-title">World-Class Amenities</h2>
+        <h2 className="section-title text-3xl sm:text-4xl md:text-5xl">World-Class Amenities</h2>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mt-16">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6 mt-12 sm:mt-16">
           {amenities.map((item, index) => (
             <motion.div 
               key={index}
@@ -2188,18 +2189,18 @@ const Amenities = () => {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: index * 0.1 }}
-              className="bg-white p-6 rounded-2xl shadow-sm border border-black/5 hover:shadow-xl transition-all duration-500 group flex flex-col items-center text-center"
+              className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-black/5 hover:shadow-xl transition-all duration-500 group flex flex-col items-center text-center"
             >
-              <div className="text-luxury-gold mb-4 group-hover:scale-110 transition-transform duration-500">
+              <div className="text-luxury-gold mb-3 sm:mb-4 group-hover:scale-110 transition-transform duration-500">
                 {item.icon}
               </div>
-              <h3 className="text-base md:text-lg font-serif mb-4">{item.title}</h3>
+              <h3 className="text-base md:text-lg font-serif mb-3 sm:mb-4">{item.title}</h3>
               
               <div className="flex flex-col gap-2 w-full">
                 {item.features.map((feature, fIndex) => (
                   <div key={fIndex} className="flex items-center justify-center gap-2 px-3 py-1.5 bg-luxury-cream/50 rounded-lg border border-black/5">
-                    <span className="text-luxury-gold">{feature.icon}</span>
-                    <span className="text-[10px] uppercase tracking-wider font-bold text-luxury-dark/60">{feature.label}</span>
+                    <span className="text-luxury-gold shrink-0">{feature.icon}</span>
+                    <span className="text-[9px] sm:text-[10px] uppercase tracking-wider font-bold text-luxury-dark/60 truncate">{feature.label}</span>
                   </div>
                 ))}
               </div>
@@ -2258,19 +2259,19 @@ const Gallery = ({ onImageClick }: { onImageClick: (img: any) => void }) => {
   ];
 
   return (
-    <section id="gallery" className="py-24 px-6 bg-white overflow-hidden">
+    <section id="gallery" className="py-16 sm:py-24 px-6 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-16 gap-6">
+        <div className="flex flex-col md:flex-row justify-between items-center mb-12 sm:mb-16 gap-6">
           <div className="text-center md:text-left">
             <span className="section-subtitle !text-left !mx-0">Visual Journey</span>
-            <h2 className="section-title !text-left !mb-0">Peek Inside Our Villa</h2>
+            <h2 className="section-title !text-left !mb-0 text-3xl sm:text-4xl md:text-5xl">Peek Inside Our Villa</h2>
           </div>
         </div>
         
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6"
+          className="columns-1 sm:columns-2 lg:columns-3 gap-4 sm:gap-6 space-y-4 sm:space-y-6"
         >
           {images.map((img, index) => (
             <motion.div 
@@ -2287,11 +2288,11 @@ const Gallery = ({ onImageClick }: { onImageClick: (img: any) => void }) => {
                 className="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-110"
                 referrerPolicy="no-referrer"
               />
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col items-center justify-center text-white p-6">
-                <span className="text-[10px] uppercase tracking-[0.3em] mb-2 text-luxury-gold font-bold">{img.category}</span>
-                <h3 className="text-xl font-serif text-center">{img.title}</h3>
-                <div className="mt-4 w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
-                  <Maximize size={18} />
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col items-center justify-center text-white p-4 sm:p-6">
+                <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.3em] mb-2 text-luxury-gold font-bold">{img.category}</span>
+                <h3 className="text-lg sm:text-xl font-serif text-center">{img.title}</h3>
+                <div className="mt-3 sm:mt-4 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
+                  <Maximize size={16} className="sm:size-[18px]" />
                 </div>
               </div>
             </motion.div>
@@ -2486,42 +2487,42 @@ const Reviews = () => {
   const currentReview = displayReviews[currentIndex % displayReviews.length];
 
   return (
-    <section id="reviews" className="py-24 px-6 bg-luxury-dark text-white overflow-hidden">
+    <section id="reviews" className="py-16 sm:py-24 px-6 bg-luxury-dark text-white overflow-hidden">
       <div className="max-w-4xl mx-auto text-center">
         <span className="section-subtitle !text-luxury-gold">Guest Testimonials</span>
-        <h2 className="section-title !text-white">What Our Guests Say</h2>
+        <h2 className="section-title !text-white text-3xl sm:text-4xl md:text-5xl">What Our Guests Say</h2>
         
-        <div className="relative mt-16">
+        <div className="relative mt-12 sm:mt-16">
           <AnimatePresence mode="wait">
             <motion.div 
               key={currentReview.id}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="p-12 bg-white/5 backdrop-blur-sm rounded-3xl border border-white/10 relative"
+              className="p-6 sm:p-12 bg-white/5 backdrop-blur-sm rounded-3xl border border-white/10 relative"
             >
-              <div className="flex justify-center gap-1 mb-6">
+              <div className="flex justify-center gap-1 mb-4 sm:mb-6">
                 {[...Array(5)].map((_, i) => (
                   <Star 
                     key={i} 
-                    size={24} 
-                    className={i < currentReview.rating ? 'text-luxury-gold fill-luxury-gold' : 'text-white/10'} 
+                    size={20} 
+                    className={`${i < currentReview.rating ? 'text-luxury-gold fill-luxury-gold' : 'text-white/10'} sm:size-6`} 
                   />
                 ))}
               </div>
               
-              <p className="text-2xl md:text-3xl font-serif italic mb-8 leading-relaxed">
+              <p className="text-lg sm:text-2xl md:text-3xl font-serif italic mb-6 sm:mb-8 leading-relaxed">
                 "{currentReview.comment}"
               </p>
               
               <div className="flex flex-col items-center">
-                <div className="w-16 h-16 rounded-full bg-luxury-gold/20 flex items-center justify-center mb-4">
-                  <span className="text-xl font-bold text-luxury-gold">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-luxury-gold/20 flex items-center justify-center mb-3 sm:mb-4">
+                  <span className="text-lg sm:text-xl font-bold text-luxury-gold">
                     {currentReview.userName[0].toUpperCase()}
                   </span>
                 </div>
-                <h4 className="text-lg font-medium">{currentReview.userName}</h4>
-                <span className="text-sm text-white/50">Verified Guest</span>
+                <h4 className="text-base sm:text-lg font-medium">{currentReview.userName}</h4>
+                <span className="text-xs sm:text-sm text-white/50">Verified Guest</span>
               </div>
             </motion.div>
           </AnimatePresence>
@@ -3541,11 +3542,11 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
             className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
           >
-            <div className="p-6 md:p-10">
-              <div className="flex justify-between items-start mb-8">
+            <div className="p-5 sm:p-8 md:p-10">
+              <div className="flex justify-between items-start mb-6 sm:mb-8">
                 <div>
-                  <span className="text-luxury-gold text-xs uppercase tracking-[0.3em] font-bold mb-2 block">Reserve Your Stay</span>
-                  <h2 className="text-3xl font-serif text-luxury-dark">Book Now</h2>
+                  <span className="text-luxury-gold text-[10px] sm:text-xs uppercase tracking-[0.3em] font-bold mb-2 block">Reserve Your Stay</span>
+                  <h2 className="text-2xl sm:text-3xl font-serif text-luxury-dark">Book Now</h2>
                 </div>
                 <button 
                   onClick={onClose}
@@ -3565,46 +3566,46 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
 
 const BookingSection = ({ onBookNow }: { onBookNow: () => void }) => {
   return (
-    <section id="booking" className="py-24 px-6 bg-luxury-cream">
+    <section id="booking" className="py-16 sm:py-24 px-6 bg-luxury-cream">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <motion.div 
             initial={{ opacity: 0, x: -50 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
           >
             <span className="section-subtitle text-left">Reserve Your Stay</span>
-            <h2 className="section-title text-left">Book Your Experience</h2>
-            <p className="text-luxury-dark/60 mb-8 text-lg">
+            <h2 className="section-title text-left text-3xl sm:text-4xl md:text-5xl">Book Your Experience</h2>
+            <p className="text-luxury-dark/60 mb-8 text-base sm:text-lg">
               Ready for an unforgettable stay? Our premium 4BHK villa is waiting for you. Experience the pinnacle of luxury and privacy in Noida.
             </p>
             
             <div className="space-y-6">
               <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-luxury-gold shadow-sm shrink-0">
-                  <Calendar size={20} />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white flex items-center justify-center text-luxury-gold shadow-sm shrink-0">
+                  <Calendar size={18} className="sm:size-5" />
                 </div>
                 <div>
-                  <h4 className="font-medium">Instant Response</h4>
-                  <p className="text-sm text-luxury-dark/50">Our team responds to WhatsApp inquiries within minutes.</p>
+                  <h4 className="font-medium text-sm sm:text-base">Instant Response</h4>
+                  <p className="text-xs sm:text-sm text-luxury-dark/50">Our team responds to WhatsApp inquiries within minutes.</p>
                 </div>
               </div>
               <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-luxury-gold shadow-sm shrink-0">
-                  <Shield size={20} />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white flex items-center justify-center text-luxury-gold shadow-sm shrink-0">
+                  <Shield size={18} className="sm:size-5" />
                 </div>
                 <div>
-                  <h4 className="font-medium">Verified Booking</h4>
-                  <p className="text-sm text-luxury-dark/50">Secure your dates with our official WhatsApp channel.</p>
+                  <h4 className="font-medium text-sm sm:text-base">Verified Booking</h4>
+                  <p className="text-xs sm:text-sm text-luxury-dark/50">Secure your dates with our official WhatsApp channel.</p>
                 </div>
               </div>
               <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-luxury-gold shadow-sm shrink-0">
-                  <Phone size={20} />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white flex items-center justify-center text-luxury-gold shadow-sm shrink-0">
+                  <Phone size={18} className="sm:size-5" />
                 </div>
                 <div>
-                  <h4 className="font-medium">Direct Support</h4>
-                  <p className="text-sm text-luxury-dark/50">Call us directly at +91 9313501001 for any special requests.</p>
+                  <h4 className="font-medium text-sm sm:text-base">Direct Support</h4>
+                  <p className="text-xs sm:text-sm text-luxury-dark/50">Call us directly at +91 9313501001 for any special requests.</p>
                 </div>
               </div>
             </div>
@@ -3614,31 +3615,31 @@ const BookingSection = ({ onBookNow }: { onBookNow: () => void }) => {
             initial={{ opacity: 0, x: 50 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
-            className="bg-luxury-dark p-12 rounded-3xl shadow-2xl border border-white/10 text-center text-white relative overflow-hidden group"
+            className="bg-luxury-dark p-6 sm:p-12 rounded-3xl shadow-2xl border border-white/10 text-center text-white relative overflow-hidden group"
           >
             <div className="absolute inset-0 bg-luxury-gold/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
             <div className="relative z-10">
-              <div className="w-20 h-20 bg-luxury-gold/20 rounded-full flex items-center justify-center mx-auto mb-8">
-                <Calendar size={40} className="text-luxury-gold" />
+              <div className="w-16 h-16 sm:w-20 sm:h-20 bg-luxury-gold/20 rounded-full flex items-center justify-center mx-auto mb-6 sm:mb-8">
+                <Calendar size={32} className="text-luxury-gold sm:size-10" />
               </div>
-              <h3 className="text-3xl font-serif mb-6">Ready to Experience Luxury?</h3>
-              <p className="text-white/60 mb-10 max-w-md mx-auto">
+              <h3 className="text-2xl sm:text-3xl font-serif mb-4 sm:mb-6">Ready to Experience Luxury?</h3>
+              <p className="text-sm sm:text-base text-white/60 mb-8 sm:mb-10 max-w-md mx-auto">
                 Check availability and book your stay instantly through our secure booking portal.
               </p>
               <button 
                 onClick={onBookNow}
-                className="luxury-button w-full !py-5 text-lg flex items-center justify-center gap-3 group/btn"
+                className="luxury-button w-full !py-4 sm:!py-5 text-base sm:text-lg flex items-center justify-center gap-3 group/btn"
               >
                 Open Booking Portal <ArrowRight size={20} className="group-hover/btn:translate-x-2 transition-transform" />
               </button>
-              <div className="mt-8 flex items-center justify-center gap-6 text-white/40">
+              <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 text-white/40">
                 <div className="flex items-center gap-2">
                   <ShieldCheck size={16} className="text-luxury-gold" />
-                  <span className="text-[10px] uppercase tracking-widest">Secure Booking</span>
+                  <span className="text-[9px] sm:text-[10px] uppercase tracking-widest">Secure Booking</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Zap size={16} className="text-luxury-gold" />
-                  <span className="text-[10px] uppercase tracking-widest">Instant Confirmation</span>
+                  <span className="text-[9px] sm:text-[10px] uppercase tracking-widest">Instant Confirmation</span>
                 </div>
               </div>
             </div>
@@ -3652,27 +3653,27 @@ const BookingSection = ({ onBookNow }: { onBookNow: () => void }) => {
 
 const LocationSection = () => {
   return (
-    <section id="location" className="py-24 px-6 bg-white">
+    <section id="location" className="py-16 sm:py-24 px-6 bg-white">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
             <span className="section-subtitle text-left">Our Location</span>
-            <h2 className="section-title text-left">Find Us in Noida</h2>
+            <h2 className="section-title text-left text-3xl sm:text-4xl">Find Us in Noida</h2>
             
-            <div className="space-y-8 mt-8">
+            <div className="space-y-6 sm:space-y-8 mt-6 sm:mt-8">
               <div className="flex items-start gap-4">
                 <MapPin className="text-luxury-gold shrink-0 mt-1" size={24} />
                 <div>
-                  <h4 className="text-xl font-serif mb-2">Address</h4>
-                  <p className="text-luxury-dark/60 leading-relaxed">
+                  <h4 className="text-lg sm:text-xl font-serif mb-2">Address</h4>
+                  <p className="text-sm sm:text-base text-luxury-dark/60 leading-relaxed">
                     Plot No 22, Phase 17, Sector 135, <br />
                     Noida, Uttar Pradesh 201305
                   </p>
-                  <div className="mt-4 inline-block px-3 py-1 bg-luxury-cream border border-luxury-gold/20 rounded text-xs font-mono text-luxury-gold">
+                  <div className="mt-4 inline-block px-3 py-1 bg-luxury-cream border border-luxury-gold/20 rounded text-[10px] sm:text-xs font-mono text-luxury-gold">
                     Plus Code: F9PV+JW Noida, Uttar Pradesh
                   </div>
                 </div>
@@ -3683,13 +3684,13 @@ const LocationSection = () => {
                   href="https://www.google.com/maps/place/ELIVAAS+Unique+Farmhouse/data=!4m2!3m1!1s0x0:0x96585d25a6908e74?sa=X&ved=1t:2428&ictx=111" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="luxury-button flex items-center justify-center gap-2"
+                  className="luxury-button flex items-center justify-center gap-2 text-sm sm:text-base"
                 >
                   <Navigation size={18} /> Get Directions
                 </a>
                 <a 
                   href="tel:+919313501001" 
-                  className="luxury-button-outline flex items-center justify-center gap-2"
+                  className="luxury-button-outline flex items-center justify-center gap-2 text-sm sm:text-base"
                 >
                   <Phone size={18} /> Call Property
                 </a>
@@ -3701,7 +3702,7 @@ const LocationSection = () => {
             initial={{ opacity: 0, scale: 0.95 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}
-            className="h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-black/5"
+            className="h-[300px] sm:h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-black/5"
           >
             <iframe 
               src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3506.223456789!2d77.4012!3d28.5034!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x96585d25a6908e74!2sELIVAAS%20Unique%20Farmhouse!5e0!3m2!1sen!2sin!4v1710000000000!5m2!1sen!2sin" 
@@ -3721,20 +3722,20 @@ const LocationSection = () => {
 
 const Footer = () => {
   return (
-    <footer className="bg-luxury-dark text-white py-16 px-6 border-t border-white/5">
+    <footer className="bg-luxury-dark text-white py-12 sm:py-16 px-6 border-t border-white/5">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 sm:gap-12">
           <div className="space-y-6">
             <a href="#" className="flex items-center gap-3">
               <img 
                 src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
                 alt="Unique Farmhouse Logo" 
-                className="h-16 w-auto object-contain"
+                className="h-12 sm:h-16 w-auto object-contain"
                 referrerPolicy="no-referrer"
               />
               <div className="flex flex-col">
-                <span className="text-3xl font-serif font-bold tracking-tighter">UNIQUE</span>
-                <span className="text-xs tracking-[0.4em] uppercase -mt-1 text-luxury-gold">Farmhouse</span>
+                <span className="text-2xl sm:text-3xl font-serif font-bold tracking-tighter">UNIQUE</span>
+                <span className="text-[10px] sm:text-xs tracking-[0.4em] uppercase -mt-1 text-luxury-gold">Farmhouse</span>
               </div>
             </a>
             <p className="text-white/50 text-sm leading-relaxed">
