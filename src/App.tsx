@@ -3455,23 +3455,83 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="text-[9px] uppercase tracking-widest font-bold text-luxury-dark/40">Adults</label>
-              <input type="number" min="0" value={dayGuestAdults} onChange={(e) => setDayGuestAdults(parseInt(e.target.value) || 0)} className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm" />
+              <input 
+                type="number" 
+                min="0" 
+                value={dayGuestAdults} 
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 0;
+                  setDayGuestAdults(val);
+                  if (val + dayGuestChildren.length <= 25 && errors.dayGuests) {
+                    setErrors(prev => {
+                      const next = {...prev};
+                      delete next.dayGuests;
+                      return next;
+                    });
+                  }
+                }} 
+                onBlur={() => {
+                  if (dayGuestAdults + dayGuestChildren.length > 25) {
+                    setErrors(prev => ({...prev, dayGuests: "Maximum 25 day guests allowed"}));
+                  }
+                }}
+                className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm" 
+              />
             </div>
             <div className="space-y-1.5">
               <label className="text-[9px] uppercase tracking-widest font-bold text-luxury-dark/40">Children</label>
-              <button type="button" onClick={() => setDayGuestChildren([...dayGuestChildren, 0])} className="w-full flex items-center justify-center gap-2 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest">
+              <button 
+                type="button" 
+                onClick={() => {
+                  const newChildren = [...dayGuestChildren, 0];
+                  setDayGuestChildren(newChildren);
+                  if (dayGuestAdults + newChildren.length > 25) {
+                    setErrors(prev => ({...prev, dayGuests: "Maximum 25 day guests allowed"}));
+                  }
+                }} 
+                className="w-full flex items-center justify-center gap-2 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest"
+              >
                 <Plus size={16} /> Add Child
               </button>
             </div>
           </div>
           {dayGuestChildren.map((age, index) => (
             <div key={index} className="flex items-center gap-2">
-              <input type="number" min="0" max="18" placeholder="Child Age" value={age} onChange={(e) => {
-                const newAges = [...dayGuestChildren];
-                newAges[index] = parseInt(e.target.value) || 0;
-                setDayGuestChildren(newAges);
-              }} className="w-full px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-sm" />
-              <button type="button" onClick={() => setDayGuestChildren(dayGuestChildren.filter((_, i) => i !== index))} className="p-2 bg-red-100 text-red-600 rounded-lg"><Minus size={16} /></button>
+              <input 
+                type="number" 
+                min="0" 
+                max="18" 
+                placeholder="Child Age" 
+                value={age} 
+                onChange={(e) => {
+                  const newAges = [...dayGuestChildren];
+                  newAges[index] = parseInt(e.target.value) || 0;
+                  setDayGuestChildren(newAges);
+                }} 
+                onBlur={() => {
+                  if (dayGuestAdults + dayGuestChildren.length > 25) {
+                    setErrors(prev => ({...prev, dayGuests: "Maximum 25 day guests allowed"}));
+                  }
+                }}
+                className="w-full px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-sm" 
+              />
+              <button 
+                type="button" 
+                onClick={() => {
+                  const newChildren = dayGuestChildren.filter((_, i) => i !== index);
+                  setDayGuestChildren(newChildren);
+                  if (dayGuestAdults + newChildren.length <= 25 && errors.dayGuests) {
+                    setErrors(prev => {
+                      const next = {...prev};
+                      delete next.dayGuests;
+                      return next;
+                    });
+                  }
+                }} 
+                className="p-2 bg-red-100 text-red-600 rounded-lg"
+              >
+                <Minus size={16} />
+              </button>
             </div>
           ))}
           {errors.dayGuests && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.dayGuests}</p>}
@@ -3482,23 +3542,83 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="text-[9px] uppercase tracking-widest font-bold text-luxury-dark/40">Adults</label>
-              <input type="number" min="0" value={nightGuestAdults} onChange={(e) => setNightGuestAdults(parseInt(e.target.value) || 0)} className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm" />
+              <input 
+                type="number" 
+                min="0" 
+                value={nightGuestAdults} 
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 0;
+                  setNightGuestAdults(val);
+                  if (val + nightGuestChildren.length <= 12 && errors.nightGuests) {
+                    setErrors(prev => {
+                      const next = {...prev};
+                      delete next.nightGuests;
+                      return next;
+                    });
+                  }
+                }} 
+                onBlur={() => {
+                  if (nightGuestAdults + nightGuestChildren.length > 12) {
+                    setErrors(prev => ({...prev, nightGuests: "Maximum 12 night guests allowed"}));
+                  }
+                }}
+                className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm" 
+              />
             </div>
             <div className="space-y-1.5">
               <label className="text-[9px] uppercase tracking-widest font-bold text-luxury-dark/40">Children</label>
-              <button type="button" onClick={() => setNightGuestChildren([...nightGuestChildren, 0])} className="w-full flex items-center justify-center gap-2 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest">
+              <button 
+                type="button" 
+                onClick={() => {
+                  const newChildren = [...nightGuestChildren, 0];
+                  setNightGuestChildren(newChildren);
+                  if (nightGuestAdults + newChildren.length > 12) {
+                    setErrors(prev => ({...prev, nightGuests: "Maximum 12 night guests allowed"}));
+                  }
+                }} 
+                className="w-full flex items-center justify-center gap-2 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest"
+              >
                 <Plus size={16} /> Add Child
               </button>
             </div>
           </div>
           {nightGuestChildren.map((age, index) => (
             <div key={index} className="flex items-center gap-2">
-              <input type="number" min="0" max="18" placeholder="Child Age" value={age} onChange={(e) => {
-                const newAges = [...nightGuestChildren];
-                newAges[index] = parseInt(e.target.value) || 0;
-                setNightGuestChildren(newAges);
-              }} className="w-full px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-sm" />
-              <button type="button" onClick={() => setNightGuestChildren(nightGuestChildren.filter((_, i) => i !== index))} className="p-2 bg-red-100 text-red-600 rounded-lg"><Minus size={16} /></button>
+              <input 
+                type="number" 
+                min="0" 
+                max="18" 
+                placeholder="Child Age" 
+                value={age} 
+                onChange={(e) => {
+                  const newAges = [...nightGuestChildren];
+                  newAges[index] = parseInt(e.target.value) || 0;
+                  setNightGuestChildren(newAges);
+                }} 
+                onBlur={() => {
+                  if (nightGuestAdults + nightGuestChildren.length > 12) {
+                    setErrors(prev => ({...prev, nightGuests: "Maximum 12 night guests allowed"}));
+                  }
+                }}
+                className="w-full px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-sm" 
+              />
+              <button 
+                type="button" 
+                onClick={() => {
+                  const newChildren = nightGuestChildren.filter((_, i) => i !== index);
+                  setNightGuestChildren(newChildren);
+                  if (nightGuestAdults + newChildren.length <= 12 && errors.nightGuests) {
+                    setErrors(prev => {
+                      const next = {...prev};
+                      delete next.nightGuests;
+                      return next;
+                    });
+                  }
+                }} 
+                className="p-2 bg-red-100 text-red-600 rounded-lg"
+              >
+                <Minus size={16} />
+              </button>
             </div>
           ))}
           {errors.nightGuests && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.nightGuests}</p>}
