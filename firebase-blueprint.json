@@ -33,7 +33,7 @@
           "description": "The time the user was created."
         }
       },
-      "required": ["uid", "email", "role"]
+      "required": ["uid", "email", "role", "displayName"]
     },
     "Booking": {
       "title": "Booking",
@@ -56,7 +56,7 @@
         },
         "guestsDay": {
           "type": "integer",
-          "description": "The number of guests for day stay."
+          "description": "The number of guests for day stay (max 25)."
         },
         "guestsNight": {
           "type": "integer",

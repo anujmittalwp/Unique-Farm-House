@@ -68,13 +68,13 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'email', 'role']) &&
+      return data.keys().hasAll(['uid', 'email', 'role', 'displayName']) &&
              data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
              data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)) &&
              data.role in ['client', 'admin'] &&
              (!('isAnonymous' in data) || data.isAnonymous is bool) &&
              (!('createdAt' in data) || isValidDateTimeString(data.createdAt)) &&
-             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128)) &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 128 &&
              data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'isAnonymous', 'createdAt']);
     }
 
@@ -84,9 +84,9 @@ service cloud.firestore {
              isValidDateString(data.checkIn) &&
              isValidDateString(data.checkOut) &&
              data.dayGuestAdults is number && data.dayGuestAdults >= 0 &&
-             data.dayGuestChildren is list && data.dayGuestChildren.size() <= 50 &&
+             data.dayGuestChildren is list && (data.dayGuestAdults + data.dayGuestChildren.size()) <= 25 &&
              data.nightGuestAdults is number && data.nightGuestAdults >= 0 &&
-             data.nightGuestChildren is list && data.nightGuestChildren.size() <= 12 &&
+             data.nightGuestChildren is list && (data.nightGuestAdults + data.nightGuestChildren.size()) <= 12 &&
              data.status in ['pending', 'confirmed', 'cancelled'] &&
              data.totalAmount is number && data.totalAmount >= 0 &&
              data.amountPaid is number && data.amountPaid >= 0 &&
@@ -216,6 +216,7 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if isAdmin();
+      allow create: if true; // Allow creation (usually from server, but client can also trigger)
       allow update: if isAdmin() && isValidNotification(request.resource.data);
       allow delete: if isAdmin();
     }

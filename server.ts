@@ -11,25 +11,28 @@ import { format, parse, isValid, addDays } from "date-fns";
 import { Resend } from "resend";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_4zWip7uS_HvzE8i5v91eudf2KKS5Hmyp1');
+if (!process.env.RESEND_API_KEY) {
+  console.warn('RESEND_API_KEY not found in environment, using provided key from context.');
+}
 
 // Initialize Firebase Admin
 const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8'));
 console.log('Initializing Firebase Admin with project:', firebaseConfig.projectId, 'databaseId:', firebaseConfig.firestoreDatabaseId);
+
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.applicationDefault(),
-    projectId: firebaseConfig.projectId,
+    projectId: firebaseConfig.projectId
   });
 }
-console.log('Firebase Admin apps:', admin.apps.length);
-const db = admin.firestore();
-console.log('Firestore initialized. Database name:', db.databaseId);
-// If a named database is provided, we might need to use it.
-// Let's try to use the databaseId if it's not the default.
-const dbWithNamedDatabase = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)' 
+
+// Use the named database if provided, otherwise use the default
+const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)' 
   ? getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId) 
-  : db;
+  : getFirestore(admin.app());
+
+console.log('Firestore initialized. Database ID:', firebaseConfig.firestoreDatabaseId || '(default)');
 
 async function startServer() {
   const app = express();
@@ -45,7 +48,7 @@ async function startServer() {
     try {
       console.log('Attempting to add notification to Firestore');
       // 1. Store in Firestore Notifications
-      await dbWithNamedDatabase.collection('notifications').add({
+      await db.collection('notifications').add({
         type: type || 'new_booking',
         bookingId: booking.id || 'new',
         message: `${type === 'update' ? 'Updated' : 'New'} booking from ${booking.name}`,
@@ -57,6 +60,7 @@ async function startServer() {
 
       // 2. Send Email via Resend (if API key exists)
       if (process.env.RESEND_API_KEY) {
+        // Send to Admin
         await resend.emails.send({
           from: 'Unique Farmhouse <onboarding@resend.dev>',
           to: 'anujkumarmittal@gmail.com', // Admin email from context
@@ -74,8 +78,6 @@ async function startServer() {
                   <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Email:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.email}</td></tr>
                   <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Check-In:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.checkIn}</td></tr>
                   <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Check-Out:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.checkOut}</td></tr>
-                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Guests:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.guestsDay} Day / ${booking.guestsNight} Night</td></tr>
-                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Occasion:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.occasion || 'N/A'}</td></tr>
                   <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Total Amount:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">₹${booking.totalAmount.toLocaleString()}</td></tr>
                   <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Payment Status:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.paymentStatus.toUpperCase()}</td></tr>
                 </table>
@@ -83,18 +85,89 @@ async function startServer() {
                   <a href="${process.env.APP_URL || '#'}" style="background: #D4AF37; color: #1a1a1a; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">View in Dashboard</a>
                 </div>
               </div>
-              <div style="background: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #999;">
-                This is an automated notification from Unique Farmhouse Booking System.
-              </div>
             </div>
           `
         });
+
+        // Send to Customer
+        if (booking.email) {
+          await resend.emails.send({
+            from: 'Unique Farmhouse <onboarding@resend.dev>',
+            to: booking.email,
+            subject: `Booking Confirmation: Unique Farmhouse`,
+            html: `
+              <div style="font-family: sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
+                <div style="background: #1a1a1a; color: #fff; padding: 20px; text-align: center;">
+                  <h1 style="margin: 0; font-size: 24px;">Booking Confirmation</h1>
+                </div>
+                <div style="padding: 30px;">
+                  <p>Dear ${booking.name},</p>
+                  <p>Thank you for choosing Unique Farmhouse. Your booking request has been received.</p>
+                  <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                    <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Check-In:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.checkIn}</td></tr>
+                    <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Check-Out:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.checkOut}</td></tr>
+                    <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Total Amount:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">₹${booking.totalAmount.toLocaleString()}</td></tr>
+                    <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Payment Status:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">${booking.paymentStatus.toUpperCase()}</td></tr>
+                  </table>
+                  <p>We will contact you shortly to finalize the details.</p>
+                </div>
+                <div style="background: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #999;">
+                  Unique Farmhouse, Noida.
+                </div>
+              </div>
+            `
+          });
+        }
       }
 
       res.json({ success: true, message: 'Notification sent' });
     } catch (error) {
       console.error('Notification error:', error);
       res.status(500).json({ error: 'Failed to send notification' });
+    }
+  });
+
+  // Payment Reminder Notification
+  app.post("/api/notify/reminder", async (req, res) => {
+    const { booking } = req.body;
+    if (!booking || !booking.email) return res.status(400).json({ error: 'Booking and email required' });
+
+    try {
+      if (process.env.RESEND_API_KEY) {
+        await resend.emails.send({
+          from: 'Unique Farmhouse <onboarding@resend.dev>',
+          to: booking.email,
+          subject: `Payment Reminder: Unique Farmhouse`,
+          html: `
+            <div style="font-family: sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
+              <div style="background: #1a1a1a; color: #fff; padding: 20px; text-align: center;">
+                <h1 style="margin: 0; font-size: 24px;">Payment Reminder</h1>
+              </div>
+              <div style="padding: 30px;">
+                <p>Dear ${booking.name},</p>
+                <p>This is a friendly reminder regarding your upcoming stay at Unique Farmhouse on <strong>${booking.checkIn}</strong>.</p>
+                <p>Our records show that the payment for your booking is still pending or partially paid.</p>
+                <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Total Amount:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">₹${booking.totalAmount.toLocaleString()}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Amount Paid:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">₹${(booking.amountPaid || 0).toLocaleString()}</td></tr>
+                  <tr><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">Balance Due:</td><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #b91c1c;">₹${(booking.totalAmount - (booking.amountPaid || 0)).toLocaleString()}</td></tr>
+                </table>
+                <p>Please complete the payment to ensure your booking is confirmed.</p>
+                <div style="text-align: center; margin-top: 30px;">
+                  <a href="${process.env.APP_URL || '#'}" style="background: #D4AF37; color: #1a1a1a; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Complete Payment</a>
+                </div>
+              </div>
+              <div style="background: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #999;">
+                Unique Farmhouse, Noida.
+              </div>
+            </div>
+          `
+        });
+      }
+      res.json({ success: true, message: 'Reminder sent' });
+    } catch (error) {
+      console.error('Reminder error:', error);
+      res.status(500).json({ error: 'Failed to send reminder' });
     }
   });
 
