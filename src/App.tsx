@@ -578,7 +578,6 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [newUrl, setNewUrl] = useState({ name: '', url: '' });
-  const [lastSync, setLastSync] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -586,12 +585,7 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
         const docRef = doc(db, 'settings', 'calendar_sync');
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          const data = docSnap.data();
-          setUrls(data.urls || []);
-          if (data.lastSync) {
-            const date = data.lastSync.toDate ? data.lastSync.toDate() : new Date(data.lastSync);
-            setLastSync(format(date, 'dd/MM/yyyy, HH:mm:ss'));
-          }
+          setUrls(docSnap.data().urls || []);
         }
       } catch (error) {
         console.error('Error fetching sync settings:', error);
@@ -636,7 +630,6 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
       const data = await response.json();
       if (response.ok) {
         showToast(`Sync completed! ${data.count} external events imported.`, 'success');
-        setLastSync(format(new Date(), 'dd/MM/yyyy, HH:mm:ss'));
       } else {
         showToast(data.error || 'Sync failed', 'error');
       }
@@ -692,13 +685,6 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
             {syncing ? 'Syncing...' : 'Sync Now'}
           </button>
         </div>
-
-        {lastSync && (
-          <div className="mb-6 flex items-center gap-2 text-[10px] text-luxury-dark/40 font-bold uppercase tracking-widest">
-            <Clock size={12} />
-            Last Synced: {lastSync}
-          </div>
-        )}
 
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -887,7 +873,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications'>('upcoming');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications'>('all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -1111,44 +1097,99 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
     let unsubscribe: () => void = () => {};
     
     try {
-      let q;
-      if (userRole === 'admin') {
-        q = query(
-          collection(db, 'bookings'),
-          orderBy('createdAt', 'desc')
-        );
-      } else {
-        // Ensure email is at least an empty string if null to avoid query issues
-        const userEmail = user.email || '';
-        q = query(
-          collection(db, 'bookings'),
-          or(where('uid', '==', user.uid), where('email', '==', userEmail)),
-          orderBy('createdAt', 'desc')
-        );
-      }
+      let unsubscribeUid: () => void = () => {};
+      let unsubscribeEmail: () => void = () => {};
 
-      unsubscribe = onSnapshot(q, (snapshot) => {
-        const bookingsData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setBookings(bookingsData);
-        setLoading(false);
-        setError(null);
-      }, (error) => {
-        setLoading(false);
-        setError(error.message);
-        // Check for missing index error specifically to provide better feedback
-        if (error.message.includes('index')) {
-          console.error("Firestore Index Required: ", error.message);
-          showToast("Database is optimizing. Please try again in a moment.", "info");
+      if (userRole === 'admin') {
+        const q = query(collection(db, 'bookings'));
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const bookingsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          
+          bookingsData.sort((a: any, b: any) => {
+            const parseDate = (dateStr: string) => {
+              if (!dateStr) return 0;
+              try {
+                const [datePart, timePart] = dateStr.split(', ');
+                const [day, month, year] = datePart.split('/');
+                const [hour, minute, second] = timePart ? timePart.split(':') : ['00', '00', '00'];
+                return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)).getTime();
+              } catch (e) {
+                return 0;
+              }
+            };
+            return parseDate(b.createdAt) - parseDate(a.createdAt);
+          });
+          
+          setBookings(bookingsData);
+          setLoading(false);
+          setError(null);
+        }, (error) => {
+          setLoading(false);
+          setError(error.message);
+          try {
+            handleFirestoreError(error, OperationType.GET, 'bookings');
+          } catch (e) {}
+        });
+      } else {
+        // For clients, we fetch by UID and Email separately to avoid complex OR query rule evaluation issues
+        const uidQuery = query(collection(db, 'bookings'), where('uid', '==', user.uid));
+        
+        let uidBookings: any[] = [];
+        let emailBookings: any[] = [];
+        
+        const combineAndSetBookings = () => {
+          const combined = [...uidBookings];
+          emailBookings.forEach(eb => {
+            if (!combined.find(cb => cb.id === eb.id)) {
+              combined.push(eb);
+            }
+          });
+          
+          combined.sort((a: any, b: any) => {
+            const parseDate = (dateStr: string) => {
+              if (!dateStr) return 0;
+              try {
+                const [datePart, timePart] = dateStr.split(', ');
+                const [day, month, year] = datePart.split('/');
+                const [hour, minute, second] = timePart ? timePart.split(':') : ['00', '00', '00'];
+                return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)).getTime();
+              } catch (e) {
+                return 0;
+              }
+            };
+            return parseDate(b.createdAt) - parseDate(a.createdAt);
+          });
+          
+          setBookings(combined);
+          setLoading(false);
+          setError(null);
+        };
+
+        unsubscribeUid = onSnapshot(uidQuery, (snapshot) => {
+          uidBookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          combineAndSetBookings();
+        }, (error) => {
+          console.error("Error fetching UID bookings:", error);
+        });
+
+        if (user.email) {
+          const emailQuery = query(collection(db, 'bookings'), where('email', '==', user.email.toLowerCase()));
+          unsubscribeEmail = onSnapshot(emailQuery, (snapshot) => {
+            emailBookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            combineAndSetBookings();
+          }, (error) => {
+            console.error("Error fetching Email bookings:", error);
+          });
         }
-        try {
-          handleFirestoreError(error, OperationType.GET, 'bookings');
-        } catch (e) {
-          // Ignore throw in listener to keep component alive but show error UI
-        }
-      });
+        
+        unsubscribe = () => {
+          unsubscribeUid();
+          unsubscribeEmail();
+        };
+      }
     } catch (error) {
       setLoading(false);
       console.error("Error setting up bookings listener:", error);
@@ -2818,8 +2859,7 @@ const Reviews = () => {
   useEffect(() => {
     const q = query(
       collection(db, 'reviews'),
-      where('status', '==', 'approved'),
-      orderBy('createdAt', 'desc')
+      where('status', '==', 'approved')
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -2827,6 +2867,23 @@ const Reviews = () => {
         id: doc.id,
         ...doc.data()
       }));
+      
+      // Sort in memory to avoid requiring a composite index
+      reviewsData.sort((a: any, b: any) => {
+        const parseDate = (dateStr: string) => {
+          if (!dateStr) return 0;
+          try {
+            const [datePart, timePart] = dateStr.split(', ');
+            const [day, month, year] = datePart.split('/');
+            const [hour, minute, second] = timePart ? timePart.split(':') : ['00', '00', '00'];
+            return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)).getTime();
+          } catch (e) {
+            return 0;
+          }
+        };
+        return parseDate(b.createdAt) - parseDate(a.createdAt);
+      });
+      
       setReviews(reviewsData);
       setLoading(false);
     }, (error) => {

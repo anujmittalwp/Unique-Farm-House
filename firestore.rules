@@ -96,7 +96,7 @@ service cloud.firestore {
              data.amountPaid is number && data.amountPaid >= 0 &&
              data.securityDeposit is number && data.securityDeposit >= 0 &&
              data.bookingAmount is number && data.bookingAmount >= 0 &&
-             data.bookedBy in ['client', 'admin'] &&
+             data.bookedBy in ['client', 'admin', 'admin_for_client', 'admin_personal'] &&
              data.paymentMethod in ['upi', 'card', 'netbanking'] &&
              data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
              isValidDateTimeString(data.createdAt) &&
@@ -162,7 +162,7 @@ service cloud.firestore {
     }
 
     match /bookings/{bookingId} {
-      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || (('email' in resource.data) && resource.data.email == request.auth.token.email) || isAdmin());
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || (('email' in resource.data) && resource.data.email == request.auth.token.email.lower()) || isAdmin());
       allow create: if (
         // Client can create a pending booking for themselves
         (isAuthenticated() && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
