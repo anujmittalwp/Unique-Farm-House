@@ -46,9 +46,13 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((request.auth.token.email == "anujkumarmittal@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == "anujkumarmittal@gmail.com" ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isOwnerEmail() {
+      return isAuthenticated() && request.auth.token.email == "anujkumarmittal@gmail.com";
     }
 
     function isValidEmail(email) {
@@ -104,21 +108,24 @@ service cloud.firestore {
     }
 
     function isValidReview(data) {
-      return data.keys().hasAll(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName']) &&
+      return data.keys().hasAll(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName', 'source']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.bookingId is string && data.bookingId.size() > 0 &&
-             data.rating is int && data.rating >= 1 && data.rating <= 5 &&
-             data.comment is string && data.comment.size() > 0 && data.comment.size() <= 1000 &&
+             (data.rating is int || data.rating is number) && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() <= 1000 &&
              data.status in ['pending', 'approved', 'rejected'] &&
+             data.source in ['manual', 'google'] &&
              isValidDateTimeString(data.createdAt) &&
              data.userName is string && data.userName.size() > 0 &&
-             data.keys().hasOnly(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName']);
+             (!('googleReviewId' in data) || (data.googleReviewId is string && data.googleReviewId.size() > 0)) &&
+             data.keys().hasOnly(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName', 'source', 'googleReviewId']);
     }
 
     function isValidLog(data) {
       return data.keys().hasAll(['adminId', 'adminEmail', 'action', 'targetId', 'createdAt']) &&
              data.adminId is string && data.adminId == request.auth.uid &&
-             data.adminEmail is string && data.adminEmail == request.auth.token.email &&
+             data.adminEmail is string && 
+             (data.adminEmail == "" || !('email' in request.auth.token) || data.adminEmail == request.auth.token.email) &&
              data.action is string &&
              data.targetId is string &&
              isValidDateTimeString(data.createdAt) &&
@@ -184,18 +191,27 @@ service cloud.firestore {
     }
 
     match /reviews/{reviewId} {
-      allow read: if resource.data.status == 'approved' || isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      allow create: if isAuthenticated() && 
-                      request.resource.data.uid == request.auth.uid && 
-                      request.resource.data.status == 'pending' &&
-                      isValidReview(request.resource.data);
-      allow update: if isAdmin() && isValidReview(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if resource.data.status == 'approved' || isAdmin() || isOwnerEmail() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if (
+        // Client can create a pending manual review
+        (isAuthenticated() && 
+         request.resource.data.uid == request.auth.uid && 
+         request.resource.data.status == 'pending' &&
+         request.resource.data.source == 'manual' &&
+         isValidReview(request.resource.data)) ||
+        // Admin can create a synced google review
+        ((isAdmin() || isOwnerEmail()) && 
+         request.resource.data.source == 'google' &&
+         request.resource.data.status == 'approved' &&
+         isValidReview(request.resource.data))
+      );
+      allow update: if (isAdmin() || isOwnerEmail()) && isValidReview(request.resource.data);
+      allow delete: if isAdmin() || isOwnerEmail();
     }
 
     match /logs/{logId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() && isValidLog(request.resource.data);
+      allow read: if isAdmin() || isOwnerEmail();
+      allow create: if (isAdmin() || isOwnerEmail()) && isValidLog(request.resource.data);
     }
 
     match /availability/{bookingId} {

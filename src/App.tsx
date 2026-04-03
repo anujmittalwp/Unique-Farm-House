@@ -63,8 +63,10 @@ import {
   Download,
   Share2,
   Plus,
-  Minus
+  Minus,
+  Search
 } from 'lucide-react';
+import { GoogleGenAI, Type } from "@google/genai";
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -354,7 +356,15 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
       }, { merge: true });
       onClose();
     } catch (err: any) {
-      setError(err.message || 'An error occurred during Google Login');
+      if (err.code === 'auth/unauthorized-domain') {
+        setError('This domain is not authorized for Google Login. Please add it to the "Authorized domains" in the Firebase Console (Authentication > Settings).');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setError('The login popup was closed before completing the process.');
+      } else if (err.message?.includes('redirect_uri_mismatch')) {
+        setError('Google Login configuration error: redirect_uri_mismatch. Please ensure the redirect URI is added to the Google Cloud Console.');
+      } else {
+        setError(err.message || 'An error occurred during Google Login');
+      }
     } finally {
       setLoading(false);
     }
@@ -568,6 +578,7 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [newUrl, setNewUrl] = useState({ name: '', url: '' });
+  const [lastSync, setLastSync] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -575,7 +586,12 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
         const docRef = doc(db, 'settings', 'calendar_sync');
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          setUrls(docSnap.data().urls || []);
+          const data = docSnap.data();
+          setUrls(data.urls || []);
+          if (data.lastSync) {
+            const date = data.lastSync.toDate ? data.lastSync.toDate() : new Date(data.lastSync);
+            setLastSync(format(date, 'dd/MM/yyyy, HH:mm:ss'));
+          }
         }
       } catch (error) {
         console.error('Error fetching sync settings:', error);
@@ -620,6 +636,7 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
       const data = await response.json();
       if (response.ok) {
         showToast(`Sync completed! ${data.count} external events imported.`, 'success');
+        setLastSync(format(new Date(), 'dd/MM/yyyy, HH:mm:ss'));
       } else {
         showToast(data.error || 'Sync failed', 'error');
       }
@@ -675,6 +692,13 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
             {syncing ? 'Syncing...' : 'Sync Now'}
           </button>
         </div>
+
+        {lastSync && (
+          <div className="mb-6 flex items-center gap-2 text-[10px] text-luxury-dark/40 font-bold uppercase tracking-widest">
+            <Clock size={12} />
+            Last Synced: {lastSync}
+          </div>
+        )}
 
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -874,10 +898,159 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
+  const [syncingReviews, setSyncingReviews] = useState(false);
+
+  const syncGoogleReviews = async (silent = false) => {
+    if (userRole !== 'admin') return;
+    if (!silent) setSyncingReviews(true);
+    
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const lastSync = localStorage.getItem('last_google_review_sync');
+    const now = new Date().getTime();
+    
+    // Check last sync time to avoid redundant calls (every 4 hours to save quota)
+    if (silent && lastSync && now - parseInt(lastSync) < 4 * 60 * 60 * 1000) {
+      return;
+    }
+
+    const fetchReviews = async (searchPrompt: string, retryCount = 0): Promise<any[]> => {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: searchPrompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  userName: { type: Type.STRING, description: "Name of the reviewer" },
+                  rating: { type: Type.NUMBER, description: "Rating from 1 to 5" },
+                  comment: { type: Type.STRING, description: "The review text" },
+                  googleReviewId: { type: Type.STRING, description: "Unique identifier for the review" }
+                },
+                required: ["userName", "rating", "comment", "googleReviewId"]
+              }
+            }
+          }
+        });
+
+        if (!response.text) {
+          console.log("No response text from AI for prompt:", searchPrompt.substring(0, 50) + "...");
+          return [];
+        }
+        console.log(`Found ${JSON.parse(response.text).length} reviews from AI.`);
+        return JSON.parse(response.text);
+      } catch (err: any) {
+        console.error("Error in fetchReviews:", err);
+        
+        // Handle Quota Exceeded (429)
+        if (err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED')) {
+          if (retryCount < 2) {
+            console.log(`Quota hit, retrying in ${5 * (retryCount + 1)}s...`);
+            await new Promise(resolve => setTimeout(resolve, 5000 * (retryCount + 1)));
+            return fetchReviews(searchPrompt, retryCount + 1);
+          }
+          throw new Error('Google API quota exceeded. Please try again in an hour.');
+        }
+        return [];
+      }
+    };
+
+    try {
+      const primaryPrompt = `Search for the 9 guest reviews for "Unique Farm House" located at Plot No. 22, Phase 17, Sector 135, Noida, Uttar Pradesh 201305. 
+      The business has a 5.0 rating and 9 reviews. 
+      Reference: https://share.google/0842ZzYEOiewzaYWD.
+      
+      IMPORTANT: ONLY include reviews for this specific location. DO NOT include reviews for "Elivaas".
+      Extract the reviewer names, ratings, and the full text of each review.
+      
+      Return a JSON array of objects with userName, rating, comment, and googleReviewId.`;
+
+      let reviewsData = await fetchReviews(primaryPrompt);
+
+      // Retry with more general terms if few results found
+      if (reviewsData.length < 5) {
+        console.log("Few reviews found, retrying with broader terms...");
+        const generalPrompt = `Search for the 9 reviews of "Unique Farm House" in Sector 135, Noida, Plot No. 22. 
+        The business has a 5.0 rating and 9 reviews.
+        Find the 9 guest testimonials and ratings for the specific "Unique Farm House" location. 
+        Return a JSON array of objects with userName, rating, comment, and googleReviewId.`;
+        const additionalReviews = await fetchReviews(generalPrompt);
+        
+        // Merge and deduplicate
+        const existingIds = new Set(reviewsData.map((r: any) => r.googleReviewId));
+        additionalReviews.forEach((r: any) => {
+          if (!existingIds.has(r.googleReviewId)) {
+            reviewsData.push(r);
+          }
+        });
+      }
+
+      if (reviewsData.length === 0) {
+        if (!silent) showToast('No reviews found on Google. Please try again later.', 'info');
+        return;
+      }
+
+      let newCount = 0;
+      for (const review of reviewsData) {
+        try {
+          if (!review.googleReviewId || typeof review.googleReviewId !== 'string') {
+            console.warn("Skipping review with invalid googleReviewId:", review);
+            continue;
+          }
+
+          const q = query(collection(db, 'reviews'), where('googleReviewId', '==', review.googleReviewId));
+          const snapshot = await getDocs(q);
+          
+          if (snapshot.empty) {
+            await addDoc(collection(db, 'reviews'), {
+              userName: review.userName || 'Anonymous',
+              rating: Math.round(Number(review.rating)) || 5,
+              comment: review.comment || '',
+              googleReviewId: review.googleReviewId,
+              uid: 'google_sync',
+              bookingId: 'google_sync',
+              status: 'approved',
+              source: 'google',
+              createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
+            });
+            newCount++;
+          }
+        } catch (error) {
+          console.error("Error syncing individual review:", error);
+          // Don't throw here to allow other reviews to sync
+        }
+      }
+
+      localStorage.setItem('last_google_review_sync', now.toString());
+      if (!silent) {
+        showToast(`Successfully synced ${newCount} new reviews from Google.`, 'success');
+        await logAdminAction('sync_google_reviews', 'all', `Synced ${newCount} new reviews`);
+      }
+    } catch (error: any) {
+      console.error('Sync error:', error);
+      if (!silent) {
+        const errorMessage = error?.message || String(error);
+        showToast(`Sync error: ${errorMessage}`, 'error');
+      }
+    } finally {
+      if (!silent) setSyncingReviews(false);
+    }
+  };
+
+  useEffect(() => {
+    if (userRole === 'admin') {
+      // Auto-sync on dashboard load (silent)
+      syncGoogleReviews(true);
+    }
+  }, [userRole]);
 
   useEffect(() => {
     // Ensure hidden tabs are not active
-    const hiddenTabs = ['notifications', 'logs', 'sync'];
+    const hiddenTabs: string[] = [];
     if (userRole === 'admin' && hiddenTabs.includes(activeFilter)) {
       setActiveFilter('upcoming');
     }
@@ -1210,7 +1383,10 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
               { id: 'pending', label: 'Pending' },
               { id: 'completed', label: 'Completed' },
               { id: 'all', label: 'All' },
-              { id: 'reviews', label: 'Manage Reviews' }
+              { id: 'reviews', label: 'Reviews' },
+              { id: 'logs', label: 'Logs' },
+              { id: 'sync', label: 'Calendar Sync' },
+              { id: 'notifications', label: 'Notifications' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1223,7 +1399,11 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
               >
                 {tab.label}
                 <span className="ml-2 opacity-50">
-                  ({tab.id === 'reviews' ? reviews.length : bookings.filter(b => {
+                  ({tab.id === 'reviews' ? reviews.length : 
+                    tab.id === 'logs' ? adminLogs.length :
+                    tab.id === 'notifications' ? notifications.length :
+                    tab.id === 'sync' ? 'iCal' :
+                    bookings.filter(b => {
                     if (tab.id === 'all') return true;
                     if (tab.id === 'pending') return b.status === 'pending';
                     if (!b.checkIn || !b.checkOut) return false;
@@ -1266,6 +1446,25 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
           </div>
         ) : activeFilter === 'reviews' && userRole === 'admin' ? (
           <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h3 className="text-xl font-serif font-bold text-luxury-dark">Guest Reviews</h3>
+                <p className="text-sm text-luxury-dark/60">Manage and approve guest testimonials</p>
+              </div>
+              <button
+                onClick={() => syncGoogleReviews(false)}
+                disabled={syncingReviews}
+                className="flex items-center gap-2 px-4 py-2 bg-luxury-gold text-luxury-dark rounded-xl font-bold hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg"
+              >
+                {syncingReviews ? (
+                  <RefreshCw size={18} className="animate-spin" />
+                ) : (
+                  <Share2 size={18} />
+                )}
+                {syncingReviews ? 'Syncing...' : 'Sync Google Reviews'}
+              </button>
+            </div>
+
             <div className="flex flex-wrap gap-2 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
               {[
                 { id: 'all', label: 'All Reviews' },
@@ -1421,24 +1620,26 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                       <p className="text-xs text-luxury-dark/40 mt-1">
                         {notif.createdAt?.toDate ? format(notif.createdAt.toDate(), 'dd/MM/yyyy, HH:mm:ss') : 'Just now'}
                       </p>
-                      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-luxury-dark/5 p-4 rounded-2xl">
-                        <div>
-                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests</p>
-                          <p className="text-xs font-bold text-luxury-dark">{notif.details.dayGuestAdults || 0}A, {notif.details.dayGuestChildren?.length || 0}C (Day) / {notif.details.nightGuestAdults || 0}A, {notif.details.nightGuestChildren?.length || 0}C (Night)</p>
+                      {notif.details && (
+                        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-luxury-dark/5 p-4 rounded-2xl">
+                          <div>
+                            <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests</p>
+                            <p className="text-xs font-bold text-luxury-dark">{notif.details.dayGuestAdults || 0}A, {notif.details.dayGuestChildren?.length || 0}C (Day) / {notif.details.nightGuestAdults || 0}A, {notif.details.nightGuestChildren?.length || 0}C (Night)</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Dates</p>
+                            <p className="text-xs font-bold text-luxury-dark">{notif.details.checkIn} - {notif.details.checkOut}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Amount</p>
+                            <p className="text-xs font-bold text-luxury-dark">₹{(notif.details.totalAmount || 0).toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Contact</p>
+                            <p className="text-xs font-bold text-luxury-dark">{notif.details.mobile}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Dates</p>
-                          <p className="text-xs font-bold text-luxury-dark">{notif.details.checkIn} - {notif.details.checkOut}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Amount</p>
-                          <p className="text-xs font-bold text-luxury-dark">₹{notif.details.totalAmount.toLocaleString()}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Contact</p>
-                          <p className="text-xs font-bold text-luxury-dark">{notif.details.mobile}</p>
-                        </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                   {!notif.read && (
@@ -1514,16 +1715,16 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-2xl font-serif font-bold text-luxury-dark">₹{booking.totalAmount.toLocaleString()}</p>
+                            <p className="text-2xl font-serif font-bold text-luxury-dark">₹{(booking.totalAmount || 0).toLocaleString()}</p>
                             <div className="mt-2 space-y-1">
                               <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${getPaymentStatusColor(booking.paymentStatus)}`}>
                                 {booking.paymentStatus === 'paid' ? 'Paid' : booking.paymentStatus === 'part-paid' ? 'Partially Paid' : 'Unpaid'}
                               </div>
                               <div className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold space-y-0.5">
-                                <p>Booking: ₹{(booking.bookingAmount || (booking.totalAmount - (booking.securityDeposit || 5000))).toLocaleString()}</p>
+                                <p>Booking: ₹{(booking.bookingAmount || ((booking.totalAmount || 0) - (booking.securityDeposit || 5000))).toLocaleString()}</p>
                                 <p>Security: ₹{(booking.securityDeposit || 5000).toLocaleString()}</p>
                                 <p className="pt-1 border-t border-luxury-dark/5">Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
-                                <p className="text-luxury-gold">Balance: ₹{(booking.totalAmount - (booking.amountPaid || 0)).toLocaleString()}</p>
+                                <p className="text-luxury-gold">Balance: ₹{((booking.totalAmount || 0) - (booking.amountPaid || 0)).toLocaleString()}</p>
                               </div>
                             </div>
                           </div>
@@ -1552,7 +1753,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                           </div>
                           <div className="space-y-1">
                             <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
-                            <p className="font-bold text-luxury-dark">{booking.createdAt.split(',')[0]}</p>
+                            <p className="font-bold text-luxury-dark">{(booking.createdAt || '').split(',')[0]}</p>
                           </div>
                         </div>
 
@@ -1678,7 +1879,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                             </div>
                             <div className="text-center min-w-[100px]">
                               <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Amount</p>
-                              <p className="text-xs font-bold text-luxury-dark">₹{booking.totalAmount.toLocaleString()}</p>
+                              <p className="text-xs font-bold text-luxury-dark">₹{(booking.totalAmount || 0).toLocaleString()}</p>
                             </div>
                             <div className="text-center min-w-[100px]">
                               <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Payment</p>
@@ -1770,16 +1971,16 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-2xl font-serif font-bold text-luxury-dark">₹{booking.totalAmount.toLocaleString()}</p>
+                      <p className="text-2xl font-serif font-bold text-luxury-dark">₹{(booking.totalAmount || 0).toLocaleString()}</p>
                       <div className="mt-2 space-y-1">
                         <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${getPaymentStatusColor(booking.paymentStatus)}`}>
                           {booking.paymentStatus === 'paid' ? 'Paid' : booking.paymentStatus === 'part-paid' ? 'Partially Paid' : 'Unpaid'}
                         </div>
                         <div className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold space-y-0.5">
-                          <p>Booking: ₹{(booking.bookingAmount || (booking.totalAmount - (booking.securityDeposit || 5000))).toLocaleString()}</p>
+                          <p>Booking: ₹{(booking.bookingAmount || ((booking.totalAmount || 0) - (booking.securityDeposit || 5000))).toLocaleString()}</p>
                           <p>Security: ₹{(booking.securityDeposit || 5000).toLocaleString()}</p>
                           <p className="pt-1 border-t border-luxury-dark/5">Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
-                          <p className="text-luxury-gold">Balance: ₹{(booking.totalAmount - (booking.amountPaid || 0)).toLocaleString()}</p>
+                          <p className="text-luxury-gold">Balance: ₹{((booking.totalAmount || 0) - (booking.amountPaid || 0)).toLocaleString()}</p>
                         </div>
                       </div>
                     </div>
@@ -1845,7 +2046,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                       </div>
                       <div className="text-center min-w-[100px]">
                         <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Total Amount</p>
-                        <p className="text-xs font-bold text-luxury-dark">₹{booking.totalAmount.toLocaleString()}</p>
+                        <p className="text-xs font-bold text-luxury-dark">₹{(booking.totalAmount || 0).toLocaleString()}</p>
                       </div>
                       <div className="text-center min-w-[100px]">
                         <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Payment</p>
@@ -2144,7 +2345,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-serif mb-6 sm:mb-8 leading-[1.1] tracking-tight"
         >
           Experience Luxury & Serenity at <br />
-          <span className="italic text-luxury-gold">Unique Farmhouse Noida</span>
+          <span className="italic text-luxury-gold">Unique Farm House Noida</span>
         </motion.h1>
 
         <motion.p 
@@ -2153,7 +2354,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           transition={{ delay: 0.6 }}
           className="text-base sm:text-lg md:text-xl font-light mb-8 sm:mb-12 max-w-2xl mx-auto text-white/90 leading-relaxed"
         >
-          Premium Private Villa / Farmhouse Stay in Noida. A sanctuary for celebrations, staycations, and unforgettable moments.
+          Premium Private Villa / Farmhouse Stay in Noida. Also known as Unique Farm House, we offer a sanctuary for celebrations, staycations, and unforgettable moments.
         </motion.p>
 
         <motion.div 
@@ -2233,7 +2434,7 @@ const About = () => {
             <h2 className="section-title text-left text-3xl sm:text-4xl md:text-5xl leading-tight">A Private Farm House / Villa Stay in the Heart of Noida</h2>
             <div className="space-y-6 text-luxury-dark/70 text-base sm:text-lg leading-relaxed">
               <p>
-                Unique Farmhouse offers a refined escape from the urban hustle. Our premium 4BHK private villa is designed for those who seek exclusivity, comfort, and a touch of nature without leaving the city.
+                Unique Farmhouse (also known as Unique Farm House) offers a refined escape from the urban hustle. Our premium 4BHK private villa is designed for those who seek exclusivity, comfort, and a touch of nature without leaving the city.
               </p>
               <p>
                 Whether you're planning an intimate family gathering, a vibrant party, or traditional ceremonies like Haldi, Mehndi, and Sangeet, our spacious interiors and lush outdoors provide the perfect backdrop.
@@ -2532,6 +2733,7 @@ const ReviewForm = ({ booking, user, onClose, showToast }: { booking: any; user:
         rating,
         comment,
         status: 'pending',
+        source: 'manual',
         createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
         userName: user.displayName || user.email?.split('@')[0] || 'Guest'
       });
@@ -2688,8 +2890,13 @@ const Reviews = () => {
                     {currentReview.userName[0].toUpperCase()}
                   </span>
                 </div>
-                <h4 className="text-base sm:text-lg font-medium">{currentReview.userName}</h4>
-                <span className="text-xs sm:text-sm text-white/50">Verified Guest</span>
+                <h4 className="text-base sm:text-lg font-medium flex items-center gap-2">
+                  {currentReview.userName}
+                  {currentReview.source === 'google' && (
+                    <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4 opacity-70" />
+                  )}
+                </h4>
+                <span className="text-xs sm:text-sm text-white/50">{currentReview.source === 'google' ? 'Google Review' : 'Verified Guest'}</span>
               </div>
             </motion.div>
           </AnimatePresence>
@@ -2755,7 +2962,7 @@ const BookingCalendar = ({
   const renderDayContents = (day: number, date: Date) => {
     const dayOfWeek = date.getDay();
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6;
-    const price = isWeekend ? 19000 : 16000;
+    const price = isWeekend ? 25000 : 22000;
     
     const isSoldOut = allBookings.some((b: any) => {
       const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
@@ -2811,8 +3018,8 @@ const BookingCalendar = ({
             <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Sold Out</span>
           </div>
           <div className="flex items-center gap-2 ml-2 border-l border-white/10 pl-4">
-            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekday: ₹16k</span>
-            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekend: ₹19k</span>
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekday: ₹22k</span>
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekend: ₹25k</span>
           </div>
         </div>
       </DatePicker>
@@ -2848,6 +3055,24 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [amountPaid, setAmountPaid] = useState<number>(editBooking?.amountPaid || 0);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
+  const [clients, setClients] = useState<any[]>([]);
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
+
+  useEffect(() => {
+    if (userRole === 'admin' && isAdminBooking) {
+      const fetchClients = async () => {
+        try {
+          const q = query(collection(db, 'users'), where('role', '==', 'client'));
+          const snapshot = await getDocs(q);
+          setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        } catch (err) {
+          console.error('Error fetching clients:', err);
+        }
+      };
+      fetchClients();
+    }
+  }, [userRole, isAdminBooking]);
 
   useEffect(() => {
     if (!editBooking && checkIn && checkOut) {
@@ -2859,9 +3084,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       while (current < end) {
         const day = current.getDay(); 
         if (day >= 1 && day <= 4) {
-          total += 16000;
+          total += 22000;
         } else {
-          total += 19000;
+          total += 25000;
         }
         current.setDate(current.getDate() + 1);
       }
@@ -3063,7 +3288,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         mobile,
         email,
         occasion,
-        bookedBy: userRole === 'admin' ? 'admin' : 'client',
+        bookedBy: userRole === 'admin' ? (isAdminBooking ? 'admin_for_client' : 'admin_personal') : 'client',
         paymentMethod: paymentMethod
       };
 
@@ -3307,37 +3532,144 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       )}
       {userRole === 'admin' && !editBooking && (
-        <div className="p-4 bg-luxury-gold/10 border border-luxury-gold/20 rounded-xl mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-luxury-gold rounded-full flex items-center justify-center text-luxury-dark">
-              <User size={20} />
+        <div className="space-y-4 mb-6">
+          <div className="p-4 bg-luxury-gold/10 border border-luxury-gold/20 rounded-xl flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-luxury-gold rounded-full flex items-center justify-center text-luxury-dark">
+                <User size={20} />
+              </div>
+              <div>
+                <p className="font-bold text-luxury-dark text-sm">Booking Mode</p>
+                <p className="text-[10px] text-luxury-dark/60 uppercase tracking-widest">
+                  {isAdminBooking ? 'Booking for a Client' : 'Personal Booking'}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="font-bold text-luxury-dark text-sm">Admin Booking Mode</p>
-              <p className="text-[10px] text-luxury-dark/60 uppercase tracking-widest">Booking on behalf of customer</p>
+            <div className="flex bg-white p-1 rounded-lg border border-luxury-dark/10">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAdminBooking(false);
+                  setName(user?.displayName || '');
+                  setEmail(user?.email || '');
+                  setMobile('');
+                }}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  !isAdminBooking ? 'bg-luxury-dark text-white' : 'text-luxury-dark/40 hover:text-luxury-dark'
+                }`}
+              >
+                Personal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAdminBooking(true);
+                  setName('');
+                  setEmail('');
+                  setMobile('');
+                }}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  isAdminBooking ? 'bg-luxury-dark text-white' : 'text-luxury-dark/40 hover:text-luxury-dark'
+                }`}
+              >
+                Client
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              const newMode = !isAdminBooking;
-              setIsAdminBooking(newMode);
-              if (newMode) {
-                setName('');
-                setEmail('');
-              } else {
-                setName(user?.displayName || '');
-                setEmail(user?.email || '');
-              }
-            }}
-            className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
-              isAdminBooking 
-                ? 'bg-luxury-dark text-white' 
-                : 'bg-white text-luxury-dark border border-luxury-dark/10'
-            }`}
-          >
-            {isAdminBooking ? 'Enabled' : 'Disabled'}
-          </button>
+
+          {isAdminBooking && (
+            <div className="relative">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search existing client by email or name..."
+                  value={clientSearch}
+                  onChange={(e) => {
+                    setClientSearch(e.target.value);
+                    setShowClientDropdown(true);
+                  }}
+                  onFocus={() => setShowClientDropdown(true)}
+                  className="w-full px-4 py-3 pl-10 bg-white border border-luxury-dark/10 rounded-xl text-sm focus:outline-none focus:border-luxury-gold transition-colors"
+                />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-luxury-dark/30" size={18} />
+                {clientSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClientSearch('');
+                      setShowClientDropdown(false);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-luxury-dark/30 hover:text-luxury-dark"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              <AnimatePresence>
+                {showClientDropdown && (clientSearch || clients.length > 0) && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute z-50 w-full mt-2 bg-white border border-luxury-dark/10 rounded-2xl shadow-xl max-h-60 overflow-y-auto"
+                  >
+                    <div className="p-2">
+                      <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/30 px-3 py-2">
+                        {clientSearch ? 'Search Results' : 'Recent Clients'}
+                      </p>
+                      {clients
+                        .filter(c => 
+                          c.email.toLowerCase().includes(clientSearch.toLowerCase()) || 
+                          c.displayName.toLowerCase().includes(clientSearch.toLowerCase())
+                        )
+                        .map(client => (
+                          <button
+                            key={client.id}
+                            type="button"
+                            onClick={() => {
+                              setName(client.displayName);
+                              setEmail(client.email);
+                              setMobile(client.mobile || '');
+                              setClientSearch(client.email);
+                              setShowClientDropdown(false);
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-luxury-cream rounded-xl transition-colors text-left"
+                          >
+                            <div className="w-8 h-8 rounded-full bg-luxury-gold/20 flex items-center justify-center text-luxury-gold font-bold text-xs">
+                              {client.displayName[0].toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-luxury-dark">{client.displayName}</p>
+                              <p className="text-[10px] text-luxury-dark/40">{client.email}</p>
+                            </div>
+                          </button>
+                        ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setName('');
+                          setEmail('');
+                          setMobile('');
+                          setClientSearch('');
+                          setShowClientDropdown(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-luxury-cream rounded-xl transition-colors text-left border-t border-luxury-dark/5 mt-1"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-luxury-dark/5 flex items-center justify-center text-luxury-dark/40">
+                          <Plus size={16} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-luxury-dark">New Client</p>
+                          <p className="text-[10px] text-luxury-dark/40">Enter details manually below</p>
+                        </div>
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
       )}
 
@@ -3733,11 +4065,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="flex gap-4 px-1">
             <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest flex items-center gap-1">
               <span className="w-1 h-1 rounded-full bg-luxury-gold" />
-              Weekday: ₹16,000
+              Weekday: ₹22,000
             </p>
             <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest flex items-center gap-1">
               <span className="w-1 h-1 rounded-full bg-luxury-gold" />
-              Weekend: ₹19,000
+              Weekend: ₹25,000
             </p>
           </div>
         </div>
@@ -3970,7 +4302,7 @@ const LocationSection = () => {
 
               <div className="flex flex-col sm:flex-row gap-4">
                 <a 
-                  href="https://www.google.com/maps/place/ELIVAAS+Unique+Farmhouse/data=!4m2!3m1!1s0x0:0x96585d25a6908e74?sa=X&ved=1t:2428&ictx=111" 
+                  href="https://www.google.com/maps/dir//Unique+Farm+House,+Plot+No.+22,+Phase+17,+Sector+135,+Noida,+Uttar+Pradesh+201305/@28.5134549,77.3898596,15z/data=!4m8!4m7!1m0!1m5!1m1!1s0x390ce9c8aeda8887:0x68be2c850b642f5d!2m2!1d77.3948326!2d28.4865429" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="luxury-button flex items-center justify-center gap-2 text-sm sm:text-base"
@@ -3994,7 +4326,7 @@ const LocationSection = () => {
             className="h-[300px] sm:h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-black/5"
           >
             <iframe 
-              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3506.223456789!2d77.4012!3d28.5034!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x96585d25a6908e74!2sELIVAAS%20Unique%20Farmhouse!5e0!3m2!1sen!2sin!4v1710000000000!5m2!1sen!2sin" 
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3506.874123456789!2d77.3926!3d28.4865!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x390ce9c8aeda8887%3A0x68be2c850b642f5d!2sUnique%20Farm%20House!5e0!3m2!1sen!2sin!4v1711880000000!5m2!1sen!2sin" 
               width="100%" 
               height="100%" 
               style={{ border: 0 }} 
@@ -4124,11 +4456,100 @@ const Footer = () => {
               <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
               <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
             </div>
-            <p className="text-white/20 text-[10px] uppercase tracking-[0.3em]">© 2024 Unique Farmhouse. All Rights Reserved.</p>
+            <p className="text-white/20 text-[10px] uppercase tracking-[0.3em]">© 2024 Unique Farmhouse (Unique Farm House). All Rights Reserved.</p>
           </div>
         </div>
       </div>
     </footer>
+  );
+};
+
+const WelcomeModal = ({ isOpen, onClose, onBookNow }: { isOpen: boolean; onClose: () => void; onBookNow: () => void }) => {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-luxury-dark/80 backdrop-blur-md"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+          >
+            {/* Close Button */}
+            <button 
+              onClick={onClose}
+              className="absolute top-6 right-6 z-10 p-2 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full transition-colors text-white"
+            >
+              <X size={20} />
+            </button>
+
+            {/* Header Image */}
+            <div className="relative h-64">
+              <img 
+                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg" 
+                alt="Welcome to Unique Farmhouse" 
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-white via-white/20 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-8 text-center">
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                >
+                  <span className="text-luxury-gold text-[10px] uppercase tracking-[0.4em] font-bold mb-2 block">Welcome to</span>
+                  <h2 className="text-3xl sm:text-4xl font-serif text-luxury-dark leading-tight">Unique Farm House</h2>
+                </motion.div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-8 sm:p-10 text-center space-y-6">
+              <p className="text-luxury-dark/60 text-sm sm:text-base leading-relaxed">
+                Experience the pinnacle of luxury and serenity in the heart of Noida. Your private sanctuary for celebrations, staycations, and unforgettable moments awaits.
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-luxury-cream rounded-2xl border border-luxury-gold/10">
+                  <Heart className="text-luxury-gold mx-auto mb-2" size={20} />
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark">Inclusive</p>
+                </div>
+                <div className="p-4 bg-luxury-cream rounded-2xl border border-luxury-gold/10">
+                  <ShieldCheck className="text-luxury-gold mx-auto mb-2" size={20} />
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark">Secure</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 pt-2">
+                <button 
+                  onClick={() => {
+                    onBookNow();
+                    onClose();
+                  }}
+                  className="luxury-button w-full !py-4 flex items-center justify-center gap-2 group"
+                >
+                  Explore & Book Now <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </button>
+                <button 
+                  onClick={onClose}
+                  className="text-luxury-dark/40 hover:text-luxury-dark text-xs font-bold uppercase tracking-widest transition-colors"
+                >
+                  Maybe Later
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -4138,6 +4559,7 @@ export default function App() {
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
+  const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -4174,6 +4596,17 @@ export default function App() {
       </motion.div>
     );
   };
+
+  useEffect(() => {
+    const hasVisited = localStorage.getItem('has_visited_unique_farmhouse');
+    if (!hasVisited) {
+      const timer = setTimeout(() => {
+        setIsWelcomeModalOpen(true);
+        localStorage.setItem('has_visited_unique_farmhouse', 'true');
+      }, 2000); // Show after 2 seconds
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   useEffect(() => {
     const qAvailability = query(collection(db, 'availability'), where('status', 'in', ['confirmed', 'pending']));
@@ -4350,6 +4783,12 @@ export default function App() {
       <AnimatePresence>
         {toast && <Toast />}
       </AnimatePresence>
+
+      <WelcomeModal 
+        isOpen={isWelcomeModalOpen} 
+        onClose={() => setIsWelcomeModalOpen(false)} 
+        onBookNow={openBookingModal}
+      />
     </div>
     </ErrorBoundary>
   );

@@ -149,6 +149,15 @@
           "enum": ["pending", "approved", "rejected"],
           "description": "The approval status of the review."
         },
+        "source": {
+          "type": "string",
+          "enum": ["manual", "google"],
+          "description": "The source of the review."
+        },
+        "googleReviewId": {
+          "type": "string",
+          "description": "The ID of the review on Google (if applicable)."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -159,7 +168,7 @@
           "description": "The name of the user who left the review."
         }
       },
-      "required": ["uid", "bookingId", "rating", "comment", "status", "createdAt", "userName"]
+      "required": ["uid", "bookingId", "rating", "comment", "status", "createdAt", "userName", "source"]
     },
     "AdminLog": {
       "title": "AdminLog",
