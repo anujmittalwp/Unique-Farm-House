@@ -3,11 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
-import admin from "firebase-admin";
-import { getFirestore } from "firebase-admin/firestore";
-import { ICalCalendar, ICalCalendarMethod } from "ical-generator";
 import nodeIcal from "node-ical";
-import { format, parse, isValid, addDays } from "date-fns";
 import { Resend } from "resend";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -16,43 +12,7 @@ if (!process.env.RESEND_API_KEY) {
   console.warn('RESEND_API_KEY not found in environment, using provided key from context.');
 }
 
-// Initialize Firebase Admin
 const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8'));
-
-console.log('Initializing Firebase Admin...');
-console.log('Project ID:', firebaseConfig.projectId);
-console.log('Database ID:', firebaseConfig.firestoreDatabaseId || '(default)');
-
-const adminApp = admin.apps.length 
-  ? admin.app() 
-  : admin.initializeApp();
-
-// Use the named database if provided, otherwise use the default
-const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)' 
-  ? getFirestore(adminApp, firebaseConfig.firestoreDatabaseId) 
-  : getFirestore(adminApp);
-
-// Test database connection
-async function testDb() {
-  try {
-    // Try a simple read to verify connection and permissions
-    const testSnapshot = await db.collection('bookings').limit(1).get();
-    console.log('Firebase Admin: Successfully connected to database. Found', testSnapshot.size, 'bookings.');
-  } catch (error) {
-    console.error('Firebase Admin: Database connection test failed.');
-    if (error instanceof Error) {
-      console.error('Error Message:', error.message);
-      console.error('Error Stack:', error.stack);
-      
-      if (error.message.includes('PERMISSION_DENIED')) {
-        console.error('CRITICAL: Permission Denied. This usually means the service account does not have "Cloud Datastore User" or "Firebase Admin" roles, or the Database ID is incorrect.');
-      }
-    } else {
-      console.error('Unknown Error:', error);
-    }
-  }
-}
-testDb();
 
 async function startServer() {
   const app = express();
@@ -66,19 +26,7 @@ async function startServer() {
     if (!booking) return res.status(400).json({ error: 'Booking details required' });
 
     try {
-      console.log('Attempting to add notification to Firestore');
-      // 1. Store in Firestore Notifications
-      await db.collection('notifications').add({
-        type: type || 'new_booking',
-        bookingId: booking.id || 'new',
-        message: `${type === 'update' ? 'Updated' : 'New'} booking from ${booking.name}`,
-        details: booking,
-        read: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-      console.log('Notification added to Firestore successfully');
-
-      // 2. Send Email via Resend (if API key exists)
+      // 1. Send Email via Resend (if API key exists)
       if (process.env.RESEND_API_KEY) {
         // Send to Admin
         await resend.emails.send({
@@ -203,54 +151,37 @@ async function startServer() {
   });
 
   // iCal Export
-  app.get("/api/calendar/export", async (req, res) => {
+  app.get(["/api/calendar/export", "/api/calendar/export.ics", "/api/calendar/bookings.ics"], async (req, res) => {
     try {
-      console.log('Generating iCal export for database:', firebaseConfig.firestoreDatabaseId || '(default)');
+      const projectId = firebaseConfig.projectId;
+      const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+      const apiKey = firebaseConfig.apiKey;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/public/calendar?key=${apiKey}`;
       
-      const bookingsRef = db.collection('bookings');
-      console.log('Collection path: bookings');
-      
-      const query = bookingsRef.where('status', '==', 'confirmed');
-      console.log('Executing query: status == confirmed');
-      
-      const bookingsSnapshot = await query.get();
-      console.log(`Found ${bookingsSnapshot.size} confirmed bookings`);
-
-      const calendar = new ICalCalendar({ name: 'Unique Farmhouse Bookings' });
-      calendar.method(ICalCalendarMethod.PUBLISH);
-
-      bookingsSnapshot.forEach(doc => {
-        try {
-          const data = doc.data();
-          if (!data.checkIn || !data.checkOut || typeof data.checkIn !== 'string' || typeof data.checkOut !== 'string') {
-            return;
-          }
-
-          const checkIn = parse(data.checkIn, 'dd/MM/yyyy', new Date());
-          const checkOut = parse(data.checkOut, 'dd/MM/yyyy', new Date());
-
-          if (isValid(checkIn) && isValid(checkOut)) {
-            // Ensure checkOut is after checkIn for ical-generator
-            const endDate = checkOut <= checkIn ? addDays(checkIn, 1) : checkOut;
-            
-            calendar.createEvent({
-              start: checkIn,
-              end: endDate,
-              summary: `Booking: ${data.name || 'Guest'}`,
-              description: `Guests: ${data.dayGuestAdults || 0}A ${data.dayGuestChildren?.length || 0}C (Day) / ${data.nightGuestAdults || 0}A ${data.nightGuestChildren?.length || 0}C (Night)\nOccasion: ${data.occasion || 'N/A'}\nMobile: ${data.mobile || 'N/A'}`,
-              location: 'Unique Farmhouse, Sector 135, Noida',
-              url: process.env.APP_URL,
-              id: doc.id,
-            });
-          }
-        } catch (err) {
-          console.error(`Error processing booking ${doc.id} for calendar:`, err);
+      const response = await fetch(url);
+      if (!response.ok) {
+        if (response.status === 404) {
+          return res.setHeader('Content-Type', 'text/calendar').send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR'));
         }
-      });
+        const errorText = await response.text();
+        console.error('Firestore fetch error:', response.status, errorText);
+        throw new Error('Failed to fetch calendar from Firestore');
+      }
+      
+      const data = await response.json();
+      let icsContent = data.fields?.icsData?.stringValue;
+      
+      if (!icsContent) {
+        return res.setHeader('Content-Type', 'text/calendar').send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR'));
+      }
 
-      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      if (!icsContent.includes('CALSCALE:GREGORIAN')) {
+        icsContent = icsContent.replace('PRODID:-//Unique Farmhouse//Bookings//EN\r\n', 'PRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n');
+      }
+
+      res.setHeader('Content-Type', 'text/calendar');
       res.setHeader('Content-Disposition', 'attachment; filename="bookings.ics"');
-      res.send(calendar.toString());
+      res.send(Buffer.from(icsContent));
     } catch (error) {
       console.error('Export error:', error);
       res.status(500).send('Error generating calendar: ' + (error instanceof Error ? error.message : String(error)));
@@ -260,14 +191,9 @@ async function startServer() {
   // iCal Sync (Import)
   app.post("/api/calendar/sync", async (req, res) => {
     try {
-      const settingsDoc = await db.collection('settings').doc('calendar_sync').get();
-      if (!settingsDoc.exists) {
-        return res.status(404).json({ error: 'Sync settings not found' });
-      }
-
-      const { urls } = settingsDoc.data() as { urls: { name: string, url: string }[] };
+      const { urls } = req.body;
       if (!urls || urls.length === 0) {
-        return res.json({ message: 'No external calendars to sync' });
+        return res.json({ message: 'No external calendars to sync', events: [] });
       }
 
       const allExternalEvents: any[] = [];
@@ -277,6 +203,10 @@ async function startServer() {
           const events = await nodeIcal.fromURL(item.url);
           Object.values(events).forEach(event => {
             if (event.type === 'VEVENT') {
+              // Ignore events that originated from our own system to prevent duplicates
+              if (event.uid && event.uid.includes('@uniquefarmhouse.com')) {
+                return;
+              }
               allExternalEvents.push({
                 source: item.name,
                 start: event.start,
@@ -291,25 +221,7 @@ async function startServer() {
         }
       }
 
-      // Clear old external blocked dates and save new ones
-      const batch = db.batch();
-      const blockedSnapshot = await db.collection('blocked_dates').where('type', '==', 'external').get();
-      blockedSnapshot.forEach(doc => batch.delete(doc.ref));
-
-      allExternalEvents.forEach(event => {
-        const docRef = db.collection('blocked_dates').doc();
-        batch.set(docRef, {
-          ...event,
-          type: 'external',
-          status: 'confirmed',
-          checkIn: format(event.start, 'dd/MM/yyyy'),
-          checkOut: format(event.end, 'dd/MM/yyyy'),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      });
-
-      await batch.commit();
-      res.json({ message: 'Sync completed', count: allExternalEvents.length });
+      res.json({ message: 'Sync completed', events: allExternalEvents });
     } catch (error) {
       console.error('Sync error:', error);
       res.status(500).json({ error: 'Sync failed' });

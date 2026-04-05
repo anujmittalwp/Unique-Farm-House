@@ -46,13 +46,13 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (request.auth.token.email == "anujkumarmittal@gmail.com" ||
+        ((('email' in request.auth.token) && request.auth.token.email == "anujkumarmittal@gmail.com") ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isOwnerEmail() {
-      return isAuthenticated() && request.auth.token.email == "anujkumarmittal@gmail.com";
+      return isAuthenticated() && ('email' in request.auth.token) && request.auth.token.email == "anujkumarmittal@gmail.com";
     }
 
     function isValidEmail(email) {
@@ -223,6 +223,11 @@ service cloud.firestore {
 
     match /settings/calendar_sync {
       allow read, write: if isAdmin();
+    }
+
+    match /public/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /blocked_dates/{dateId} {
