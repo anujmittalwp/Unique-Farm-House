@@ -226,6 +226,52 @@
         }
       },
       "required": ["checkIn", "checkOut", "status"]
+    },
+    "GalleryImage": {
+      "title": "GalleryImage",
+      "description": "An image in the gallery.",
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string",
+          "description": "The URL of the image."
+        },
+        "title": {
+          "type": "string",
+          "description": "The title of the image."
+        },
+        "category": {
+          "type": "string",
+          "description": "The category of the image (e.g., 'Exterior', 'Interior')."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the image was added."
+        }
+      },
+      "required": ["src", "title", "category", "createdAt"]
+    },
+    "AppSetting": {
+      "title": "AppSetting",
+      "description": "Application settings and content.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The setting key (e.g., 'hero_images')."
+        },
+        "value": {
+          "type": "object",
+          "description": "The setting value (can be any object)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The last time the setting was updated."
+        }
+      },
+      "required": ["key", "value", "updatedAt"]
     }
   },
   "firestore": {
@@ -248,6 +294,14 @@
     "logs/{logId}": {
       "schema": "AdminLog",
       "description": "Administrative action logs."
+    },
+    "gallery/{imageId}": {
+      "schema": "GalleryImage",
+      "description": "Gallery images."
+    },
+    "settings/{settingId}": {
+      "schema": "AppSetting",
+      "description": "App settings and content."
     }
   }
 }

@@ -242,6 +242,16 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /gallery/{imageId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

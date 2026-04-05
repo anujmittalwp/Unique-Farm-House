@@ -37,6 +37,7 @@ import {
   Target,
   Menu,
   X,
+  Upload,
   Info,
   ArrowRight,
   MessageCircle,
@@ -893,13 +894,23 @@ const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; show
   );
 };
 
-const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, onLogout }: { user: FirebaseUser; userRole: string | null; onClose: () => void; onLogin: () => void; allBookings: any[]; showToast: (msg: string, type?: 'success' | 'error' | 'info') => void; onLogout: () => void }) => {
+const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, onLogout, galleryImages, heroSettings }: { 
+  user: FirebaseUser; 
+  userRole: string | null; 
+  onClose: () => void; 
+  onLogin: () => void; 
+  allBookings: any[]; 
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void; 
+  onLogout: () => void;
+  galleryImages: any[];
+  heroSettings: any;
+}) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings'>('all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -911,6 +922,192 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [syncingReviews, setSyncingReviews] = useState(false);
+
+  // Gallery Management State
+  const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
+  const [isAddingImage, setIsAddingImage] = useState(false);
+  const [editingGalleryImage, setEditingGalleryImage] = useState<any | null>(null);
+  const [seedProgress, setSeedProgress] = useState<{ current: number; total: number } | null>(null);
+
+  const galleryCategories = ['Villa', 'Pool', 'Interiors', 'Dining', 'Activities', 'Amenities'];
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 800 * 1024) { // Firestore has 1MB limit, keeping it safe at 800KB
+        showToast('Image size should be less than 800KB for direct upload. For larger images, please use a URL.', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (isEdit && editingGalleryImage) {
+          setEditingGalleryImage({ ...editingGalleryImage, src: reader.result as string });
+        } else {
+          setNewGalleryImage(prev => ({ ...prev, src: reader.result as string }));
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Hero Settings State
+  const [editingHero, setEditingHero] = useState<any>(null);
+  const [isSavingHero, setIsSavingHero] = useState(false);
+
+  useEffect(() => {
+    if (heroSettings) {
+      setEditingHero(heroSettings);
+    } else {
+      setEditingHero({
+        backgroundImage: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg",
+        title: "Experience Luxury & Serenity at",
+        subtitle: "Welcome to Noida's Finest Retreat",
+        description: "Premium Private Villa / Farmhouse Stay in Noida. Also known as Unique Farm House, we offer a sanctuary for celebrations, staycations, and unforgettable moments.",
+        highlight: "Unique Farm House Noida"
+      });
+    }
+  }, [heroSettings]);
+
+  const handleAddGalleryImage = async () => {
+    if (!newGalleryImage.src || !newGalleryImage.title) {
+      showToast('Please fill in both title and image URL', 'error');
+      return;
+    }
+    setIsAddingImage(true);
+    try {
+      await addDoc(collection(db, 'gallery'), {
+        ...newGalleryImage,
+        createdAt: serverTimestamp()
+      });
+      await logAdminAction('add_gallery_image', 'new', `Added gallery image: ${newGalleryImage.title}`);
+      setNewGalleryImage({ src: '', title: '', category: 'Villa' });
+      showToast('Image added to gallery successfully', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'gallery');
+      showToast('Failed to add image', 'error');
+    } finally {
+      setIsAddingImage(false);
+    }
+  };
+
+  const handleUpdateGalleryImage = async () => {
+    if (!editingGalleryImage || !editingGalleryImage.src || !editingGalleryImage.title) {
+      showToast('Please fill in both title and image URL', 'error');
+      return;
+    }
+    setIsAddingImage(true);
+    try {
+      const { id, ...data } = editingGalleryImage;
+      await setDoc(doc(db, 'gallery', id), {
+        ...data,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      await logAdminAction('update_gallery_image', id, `Updated gallery image: ${editingGalleryImage.title}`);
+      setEditingGalleryImage(null);
+      showToast('Image updated successfully', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `gallery/${editingGalleryImage.id}`);
+      showToast('Failed to update image', 'error');
+    } finally {
+      setIsAddingImage(false);
+    }
+  };
+
+  const handleDeleteGalleryImage = async (imageId: string, title: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${title}" from the gallery?`)) return;
+    try {
+      await deleteDoc(doc(db, 'gallery', imageId));
+      await logAdminAction('delete_gallery_image', imageId, `Deleted gallery image: ${title}`);
+      showToast('Image removed from gallery', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `gallery/${imageId}`);
+      showToast('Failed to delete image', 'error');
+    }
+  };
+
+  const handleSeedGallery = async () => {
+    if (isAddingImage) return;
+    
+    setIsAddingImage(true);
+    const fallbackImages = [
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg", title: "Cottage & Pool", category: "Villa" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg", title: "Lawn View", category: "Villa" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599338/Unique_Farm_House_Cottage_And_Swimming_Pool10_nbuyma.jpg", title: "Poolside", category: "Pool" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599336/Unique_Farm_House_Cottage_And_Swimming_Pool8_ls2pzs.jpg", title: "Villa Exterior", category: "Villa" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599323/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn8_z0yfvu.jpg", title: "Garden Area", category: "Villa" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599319/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn7_edain1.jpg", title: "Night View", category: "Villa" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599317/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn4_j0n7zt.jpg", title: "Pool Deck", category: "Pool" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599315/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn3_mtstvj.jpg", title: "Villa Entrance", category: "Villa" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599275/Unique_Farm_House_Swimming_Pool12_lo1abs.jpg", title: "Swimming Pool", category: "Pool" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599271/Unique_Farm_House_Swimming_Pool15_khet3t.jpg", title: "Pool Lounge", category: "Pool" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599265/Unique_Farm_House_Swimming_Pool11_wzrzyv.jpg", title: "Crystal Clear Water", category: "Pool" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599261/Unique_Farm_House_Swimming_Pool8_acccpc.jpg", title: "Pool Evening", category: "Pool" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599260/Unique_Farm_House_Swimming_Pool7_e5jxkv.jpg", title: "Poolside Relaxation", category: "Pool" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774596185/Unique_Farm_House_High_Tea3_pp6cha.jpg", title: "High Tea Setup", category: "Dining" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586829/Unique_Farm_House_Bonfire2_ublmjv.jpg", title: "Bonfire Night", category: "Activities" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586828/Unique_Farm_House_Bonfire4_bnrw9y.jpg", title: "Cozy Bonfire", category: "Activities" },
+      { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg", title: "Evening Bonfire", category: "Activities" },
+    ];
+    
+    setSeedProgress({ current: 0, total: fallbackImages.length });
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      console.log('Starting gallery seed process...');
+      for (let i = 0; i < fallbackImages.length; i++) {
+        try {
+          await addDoc(collection(db, 'gallery'), {
+            ...fallbackImages[i],
+            createdAt: serverTimestamp()
+          });
+          successCount++;
+          console.log(`Successfully imported image ${i + 1}/${fallbackImages.length}`);
+        } catch (err) {
+          console.error(`Failed to import image ${i + 1}:`, err);
+          errorCount++;
+        }
+        setSeedProgress({ current: i + 1, total: fallbackImages.length });
+        // Small delay to allow UI updates and avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      await logAdminAction('seed_gallery', 'bulk', `Imported ${successCount} default images to gallery (${errorCount} failed)`);
+      
+      if (errorCount === 0) {
+        showToast('All default images imported successfully', 'success');
+      } else if (successCount > 0) {
+        showToast(`Imported ${successCount} images, but ${errorCount} failed.`, 'info');
+      } else {
+        showToast('Failed to import any images. Please check your connection or permissions.', 'error');
+      }
+    } catch (error) {
+      console.error('Critical error during gallery seeding:', error);
+      handleFirestoreError(error, OperationType.CREATE, 'gallery');
+      showToast('An unexpected error occurred during import', 'error');
+    } finally {
+      setIsAddingImage(false);
+      // Keep progress bar visible for a moment after completion
+      setTimeout(() => setSeedProgress(null), 5000);
+    }
+  };
+
+  const handleSaveHeroSettings = async () => {
+    setIsSavingHero(true);
+    try {
+      await setDoc(doc(db, 'settings', 'hero'), {
+        ...editingHero,
+        updatedAt: serverTimestamp()
+      });
+      await logAdminAction('update_hero_settings', 'hero', 'Updated hero section settings');
+      showToast('Hero settings saved successfully', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/hero');
+      showToast('Failed to save settings', 'error');
+    } finally {
+      setIsSavingHero(false);
+    }
+  };
 
   const syncGoogleReviews = async (silent = false) => {
     if (userRole !== 'admin') return;
@@ -1470,6 +1667,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
               { id: 'completed', label: 'Completed' },
               { id: 'all', label: 'All' },
               { id: 'reviews', label: 'Reviews' },
+              { id: 'gallery', label: 'Gallery' },
+              { id: 'settings', label: 'Settings' },
               { id: 'logs', label: 'Logs' },
               { id: 'sync', label: 'Calendar Sync' },
               { id: 'notifications', label: 'Notifications' }
@@ -1488,6 +1687,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                   ({tab.id === 'reviews' ? reviews.length : 
                     tab.id === 'logs' ? adminLogs.length :
                     tab.id === 'notifications' ? notifications.length :
+                    tab.id === 'gallery' ? galleryImages.length :
+                    tab.id === 'settings' ? 'Edit' :
                     tab.id === 'sync' ? 'iCal' :
                     bookings.filter(b => {
                     if (tab.id === 'all') return true;
@@ -1746,6 +1947,247 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                 <p className="text-luxury-dark/40 font-medium italic">No notifications found.</p>
               </div>
             )}
+          </div>
+        ) : activeFilter === 'gallery' && userRole === 'admin' ? (
+          <div className="space-y-8">
+            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <h3 className="text-xl font-serif font-bold text-luxury-dark mb-6">Add New Image to Gallery</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Image Title</label>
+                  <input 
+                    type="text" 
+                    value={newGalleryImage.title}
+                    onChange={(e) => setNewGalleryImage({...newGalleryImage, title: e.target.value})}
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                    placeholder="e.g. Sunset Pool View"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Category</label>
+                  <select 
+                    value={newGalleryImage.category}
+                    onChange={(e) => setNewGalleryImage({...newGalleryImage, category: e.target.value})}
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                  >
+                    {galleryCategories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Image Source</label>
+                  <div className="flex flex-col gap-3">
+                    <input 
+                      type="text" 
+                      value={newGalleryImage.src}
+                      onChange={(e) => setNewGalleryImage({...newGalleryImage, src: e.target.value})}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      placeholder="Paste Image URL (Cloudinary, etc.)"
+                    />
+                    <div className="relative">
+                      <input 
+                        type="file" 
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                        id="gallery-upload"
+                      />
+                      <label 
+                        htmlFor="gallery-upload"
+                        className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-luxury-gold/10 text-luxury-gold border border-dashed border-luxury-gold/30 rounded-xl text-xs font-bold cursor-pointer hover:bg-luxury-gold/20 transition-all"
+                      >
+                        <Upload size={14} />
+                        OR UPLOAD FROM DEVICE
+                      </label>
+                    </div>
+                  </div>
+                  {newGalleryImage.src && (
+                    <div className="mt-4 relative w-full h-32 rounded-xl overflow-hidden border border-luxury-dark/10">
+                      <img src={newGalleryImage.src} alt="Preview" className="w-full h-full object-cover" />
+                      <button 
+                        onClick={() => setNewGalleryImage(prev => ({ ...prev, src: '' }))}
+                        className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full shadow-lg"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button 
+                onClick={handleAddGalleryImage}
+                disabled={isAddingImage}
+                className="mt-6 px-8 py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
+              >
+                {isAddingImage ? 'Adding...' : 'Add to Gallery'}
+              </button>
+              {galleryImages.length === 0 && (
+                <div className="mt-6 flex flex-col gap-4">
+                  <button 
+                    onClick={handleSeedGallery}
+                    disabled={isAddingImage}
+                    className="px-8 py-3 bg-luxury-gold/10 text-luxury-gold rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 w-fit"
+                  >
+                    {isAddingImage ? 'Importing...' : 'Import Default Images'}
+                  </button>
+                  
+                  {seedProgress && (
+                    <div className="w-full max-w-md space-y-2">
+                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">
+                        <span>Importing Images</span>
+                        <span>{Math.round((seedProgress.current / seedProgress.total) * 100)}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-luxury-dark/5 rounded-full overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(seedProgress.current / seedProgress.total) * 100}%` }}
+                          className="h-full bg-luxury-gold transition-all duration-300"
+                        />
+                      </div>
+                      <p className="text-[9px] text-luxury-dark/30 italic">
+                        Processing {seedProgress.current} of {seedProgress.total} images...
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {galleryImages.map((img) => (
+                <div key={img.id} className="group relative bg-white rounded-2xl overflow-hidden border border-luxury-dark/5 shadow-sm">
+                  <img src={img.src} alt={img.title} className="w-full h-48 object-cover" referrerPolicy="no-referrer" />
+                  <div className="p-4">
+                    {editingGalleryImage?.id === img.id ? (
+                      <div className="space-y-3">
+                        <input 
+                          type="text" 
+                          value={editingGalleryImage.title}
+                          onChange={(e) => setEditingGalleryImage({...editingGalleryImage, title: e.target.value})}
+                          className="w-full px-3 py-2 bg-luxury-dark/5 border-none rounded-lg text-xs focus:ring-1 focus:ring-luxury-gold outline-none"
+                        />
+                        <select 
+                          value={editingGalleryImage.category}
+                          onChange={(e) => setEditingGalleryImage({...editingGalleryImage, category: e.target.value})}
+                          className="w-full px-3 py-2 bg-luxury-dark/5 border-none rounded-lg text-xs focus:ring-1 focus:ring-luxury-gold outline-none"
+                        >
+                          {galleryCategories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={handleUpdateGalleryImage}
+                            className="flex-1 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded-lg"
+                          >
+                            Save
+                          </button>
+                          <button 
+                            onClick={() => setEditingGalleryImage(null)}
+                            className="flex-1 py-2 bg-luxury-dark/5 text-luxury-dark/40 text-[10px] font-bold rounded-lg"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold mb-1">{img.category}</p>
+                        <p className="text-sm font-bold text-luxury-dark truncate">{img.title}</p>
+                        <div className="mt-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => setEditingGalleryImage(img)}
+                            className="flex-1 py-2 bg-luxury-dark/5 text-luxury-dark text-[10px] font-bold rounded-lg hover:bg-luxury-dark hover:text-white transition-all"
+                          >
+                            Edit
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteGalleryImage(img.id, img.title)}
+                            className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {galleryImages.length === 0 && (
+                <div className="col-span-full py-24 text-center bg-luxury-dark/5 rounded-3xl border border-dashed border-luxury-dark/10">
+                  <p className="text-luxury-dark/40 font-medium italic">No images found in the database. Use the button above to import default images or add a new one.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : activeFilter === 'settings' && userRole === 'admin' ? (
+          <div className="max-w-4xl mx-auto space-y-12">
+            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <div className="flex justify-between items-center mb-8">
+                <h3 className="text-2xl font-serif font-bold text-luxury-dark">Hero Section Settings</h3>
+                <button 
+                  onClick={handleSaveHeroSettings}
+                  disabled={isSavingHero}
+                  className="px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20"
+                >
+                  {isSavingHero ? 'Saving...' : 'Save Settings'}
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Hero Background Image URL</label>
+                    <input 
+                      type="text" 
+                      value={editingHero?.backgroundImage || ''}
+                      onChange={(e) => setEditingHero({...editingHero, backgroundImage: e.target.value})}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Hero Subtitle</label>
+                    <input 
+                      type="text" 
+                      value={editingHero?.subtitle || ''}
+                      onChange={(e) => setEditingHero({...editingHero, subtitle: e.target.value})}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Hero Main Title</label>
+                  <input 
+                    type="text" 
+                    value={editingHero?.title || ''}
+                    onChange={(e) => setEditingHero({...editingHero, title: e.target.value})}
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Title Highlight (Italic Gold)</label>
+                  <input 
+                    type="text" 
+                    value={editingHero?.highlight || ''}
+                    onChange={(e) => setEditingHero({...editingHero, highlight: e.target.value})}
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Hero Description</label>
+                  <textarea 
+                    value={editingHero?.description || ''}
+                    onChange={(e) => setEditingHero({...editingHero, description: e.target.value})}
+                    rows={4}
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         ) : activeFilter === 'sync' && userRole === 'admin' ? (
           <CalendarSync showToast={showToast} />
@@ -2412,13 +2854,19 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
   );
 };
 
-const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
+const Hero = ({ onBookNow, settings }: { onBookNow: () => void; settings?: any }) => {
+  const bgImage = settings?.backgroundImage || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg";
+  const title = settings?.title || "Experience Luxury & Serenity at";
+  const subtitle = settings?.subtitle || "Welcome to Noida's Finest Retreat";
+  const description = settings?.description || "Premium Private Villa / Farmhouse Stay in Noida. Also known as Unique Farm House, we offer a sanctuary for celebrations, staycations, and unforgettable moments.";
+  const highlight = settings?.highlight || "Unique Farm House Noida";
+
   return (
     <section className="relative min-h-screen w-full overflow-hidden flex items-center justify-center">
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0">
         <img 
-          src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg" 
+          src={bgImage} 
           alt="Unique Farmhouse Exterior" 
           className="w-full h-full object-cover scale-105 animate-slow-zoom"
           referrerPolicy="no-referrer"
@@ -2433,7 +2881,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           transition={{ delay: 0.2 }}
           className="inline-block text-xs sm:text-sm md:text-base uppercase tracking-[0.4em] mb-4 sm:mb-6 font-medium text-luxury-gold"
         >
-          Welcome to Noida's Finest Retreat
+          {subtitle}
         </motion.span>
         
         <motion.h1 
@@ -2442,8 +2890,8 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           transition={{ delay: 0.4 }}
           className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-serif mb-6 sm:mb-8 leading-[1.1] tracking-tight"
         >
-          Experience Luxury & Serenity at <br />
-          <span className="italic text-luxury-gold">Unique Farm House Noida</span>
+          {title} <br />
+          <span className="italic text-luxury-gold">{highlight}</span>
         </motion.h1>
 
         <motion.p 
@@ -2452,7 +2900,7 @@ const Hero = ({ onBookNow }: { onBookNow: () => void }) => {
           transition={{ delay: 0.6 }}
           className="text-base sm:text-lg md:text-xl font-light mb-8 sm:mb-12 max-w-2xl mx-auto text-white/90 leading-relaxed"
         >
-          Premium Private Villa / Farmhouse Stay in Noida. Also known as Unique Farm House, we offer a sanctuary for celebrations, staycations, and unforgettable moments.
+          {description}
         </motion.p>
 
         <motion.div 
@@ -2678,51 +3126,28 @@ const Amenities = () => {
   );
 };
 
-const Gallery = ({ onImageClick }: { onImageClick: (img: any) => void }) => {
-  const images = [
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/7_njohl7.jpg", title: "Grand Entrance", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/5_jgyrsh.jpg", title: "Luxury Living Room", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/6_vohx9o.jpg", title: "Private Pool Area", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg", title: "Master Bedroom", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/9_dimmxb.jpg", title: "Dining Experience", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720361/10_cqiiz0.jpg", title: "Modern Kitchen", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720361/4_rghbk0.jpg", title: "Designer Bathroom", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720366/11_by6w6j.jpg", title: "Lush Garden", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720395/12_u3lwmc.jpg", title: "Evening View", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720397/13.1_e9ejt0.jpg", title: "Cozy Lounge", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720429/13_zi1f4k.jpg", title: "Villa Night View", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg", title: "Poolside Relaxation", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/14_q7pecm.jpg", title: "Interior Lounge", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/16_hnu7kn.jpg", title: "Bedroom Suite", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/17_dadfct.jpg", title: "Garden Path", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720564/18_jscf2j.jpg", title: "Living Space", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720564/19_qbqdte.jpg", title: "Outdoor Seating", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720565/20_hpzg1q.jpg", title: "Modern Decor", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720581/21_xudpvb.jpg", title: "Villa Facade", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720581/22_adlt8z.jpg", title: "Dining Detail", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720582/23_czfkcy.jpg", title: "Pool View", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720582/24.1_mlxwh4.jpg", title: "Bedroom View", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720585/24.2_jwm62w.jpg", title: "Luxury Suite", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720593/24_owlcft.jpg", title: "Villa Exterior", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720596/25_e5rtfq.jpg", title: "Kitchen Detail", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720602/26_bzoxx0.jpg", title: "Bathroom Luxury", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720602/42_ua0rcq.jpg", title: "Garden View", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720609/29_dxwezp.jpg", title: "Entrance Gate", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720609/30_jvwyob.jpg", title: "Lounge Area", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720610/31_wbkk7e.jpg", title: "Pool at Night", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720611/32_pry8jz.jpg", title: "Master Bath", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720620/33_o0las8.jpg", title: "Villa Side View", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720621/34_hvefd6.jpg", title: "Elegant Living", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720622/35_uwijsn.jpg", title: "Pool Deck", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720632/36_azxit4.jpg", title: "Bedroom Comfort", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720632/37_o1jpil.jpg", title: "Dining Area", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720633/38_zv3kex.jpg", title: "Kitchen Modern", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720644/40_ajnhuo.jpg", title: "Villa Entrance", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720645/39_nd6ctt.jpg", title: "Lush Lawn", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720645/41_ahh1ur.jpg", title: "Interior Design", category: "Interior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720645/28_hszcpi.jpg", title: "Poolside View", category: "Exterior" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720646/27_tffeod.jpg", title: "Villa Night", category: "Exterior" },
+const Gallery = ({ onImageClick, images: firestoreImages }: { onImageClick: (img: any) => void; images?: any[] }) => {
+  const fallbackImages = [
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg", title: "Cottage & Pool", category: "Villa" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg", title: "Lawn View", category: "Villa" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599338/Unique_Farm_House_Cottage_And_Swimming_Pool10_nbuyma.jpg", title: "Poolside", category: "Pool" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599336/Unique_Farm_House_Cottage_And_Swimming_Pool8_ls2pzs.jpg", title: "Villa Exterior", category: "Villa" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599323/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn8_z0yfvu.jpg", title: "Garden Area", category: "Villa" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599319/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn7_edain1.jpg", title: "Night View", category: "Villa" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599317/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn4_j0n7zt.jpg", title: "Pool Deck", category: "Pool" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599315/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn3_mtstvj.jpg", title: "Villa Entrance", category: "Villa" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599275/Unique_Farm_House_Swimming_Pool12_lo1abs.jpg", title: "Swimming Pool", category: "Pool" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599271/Unique_Farm_House_Swimming_Pool15_khet3t.jpg", title: "Pool Lounge", category: "Pool" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599265/Unique_Farm_House_Swimming_Pool11_wzrzyv.jpg", title: "Crystal Clear Water", category: "Pool" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599261/Unique_Farm_House_Swimming_Pool8_acccpc.jpg", title: "Pool Evening", category: "Pool" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599260/Unique_Farm_House_Swimming_Pool7_e5jxkv.jpg", title: "Poolside Relaxation", category: "Pool" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774596185/Unique_Farm_House_High_Tea3_pp6cha.jpg", title: "High Tea Setup", category: "Dining" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586829/Unique_Farm_House_Bonfire2_ublmjv.jpg", title: "Bonfire Night", category: "Activities" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586828/Unique_Farm_House_Bonfire4_bnrw9y.jpg", title: "Cozy Bonfire", category: "Activities" },
+    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg", title: "Evening Bonfire", category: "Activities" },
   ];
+
+  const images = firestoreImages && firestoreImages.length > 0 ? firestoreImages : fallbackImages;
 
   return (
     <section id="gallery" className="py-16 sm:py-24 px-6 bg-white overflow-hidden">
@@ -4715,6 +5140,8 @@ export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [allBookings, setAllBookings] = useState<any[]>([]);
+  const [galleryImages, setGalleryImages] = useState<any[]>([]);
+  const [heroSettings, setHeroSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -4795,6 +5222,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const qGallery = query(collection(db, 'gallery'));
+    const unsubscribeGallery = onSnapshot(qGallery, (snapshot) => {
+      setGalleryImages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'gallery'));
+
+    const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'hero'), (docSnap) => {
+      if (docSnap.exists()) {
+        setHeroSettings(docSnap.data());
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/hero'));
+
+    return () => {
+      unsubscribeGallery();
+      unsubscribeSettings();
+    };
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       try {
         setUser(currentUser);
@@ -4868,10 +5313,10 @@ export default function App() {
         onMyBookings={() => setIsDashboardOpen(true)}
       />
       <main>
-        <Hero onBookNow={openBookingModal} />
+        <Hero onBookNow={openBookingModal} settings={heroSettings} />
         <About />
         <Amenities />
-        <Gallery onImageClick={setSelectedImage} />
+        <Gallery onImageClick={setSelectedImage} images={galleryImages} />
         <Reviews />
         <BookingSection onBookNow={openBookingModal} />
         <LocationSection />
@@ -4892,7 +5337,17 @@ export default function App() {
       
       <AnimatePresence>
         {isDashboardOpen && user && (
-          <MyBookings user={user} userRole={userRole} onClose={() => setIsDashboardOpen(false)} onLogin={() => setIsAuthModalOpen(true)} allBookings={allBookings} showToast={showToast} onLogout={handleSignOut} />
+          <MyBookings 
+            user={user} 
+            userRole={userRole} 
+            onClose={() => setIsDashboardOpen(false)} 
+            onLogin={() => setIsAuthModalOpen(true)} 
+            allBookings={allBookings} 
+            showToast={showToast} 
+            onLogout={handleSignOut}
+            galleryImages={galleryImages}
+            heroSettings={heroSettings}
+          />
         )}
       </AnimatePresence>
 
