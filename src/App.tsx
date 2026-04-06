@@ -101,6 +101,26 @@ import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { auth, db } from './firebase';
 
+const GALLERY_FALLBACK_IMAGES = [
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg", title: "Cottage & Pool", category: "Villa" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg", title: "Lawn View", category: "Villa" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599338/Unique_Farm_House_Cottage_And_Swimming_Pool10_nbuyma.jpg", title: "Poolside", category: "Pool" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599336/Unique_Farm_House_Cottage_And_Swimming_Pool8_ls2pzs.jpg", title: "Villa Exterior", category: "Villa" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599323/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn8_z0yfvu.jpg", title: "Garden Area", category: "Villa" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599319/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn7_edain1.jpg", title: "Night View", category: "Villa" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599317/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn4_j0n7zt.jpg", title: "Pool Deck", category: "Pool" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599315/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn3_mtstvj.jpg", title: "Villa Entrance", category: "Villa" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599275/Unique_Farm_House_Swimming_Pool12_lo1abs.jpg", title: "Swimming Pool", category: "Pool" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599271/Unique_Farm_House_Swimming_Pool15_khet3t.jpg", title: "Pool Lounge", category: "Pool" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599265/Unique_Farm_House_Swimming_Pool11_wzrzyv.jpg", title: "Crystal Clear Water", category: "Pool" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599261/Unique_Farm_House_Swimming_Pool8_acccpc.jpg", title: "Pool Evening", category: "Pool" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599260/Unique_Farm_House_Swimming_Pool7_e5jxkv.jpg", title: "Poolside Relaxation", category: "Pool" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774596185/Unique_Farm_House_High_Tea3_pp6cha.jpg", title: "High Tea Setup", category: "Dining" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586829/Unique_Farm_House_Bonfire2_ublmjv.jpg", title: "Bonfire Night", category: "Activities" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586828/Unique_Farm_House_Bonfire4_bnrw9y.jpg", title: "Cozy Bonfire", category: "Activities" },
+  { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg", title: "Evening Bonfire", category: "Activities" },
+];
+
 enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -926,6 +946,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   // Gallery Management State
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
   const [isAddingImage, setIsAddingImage] = useState(false);
+  const [isFetchingCloudinary, setIsFetchingCloudinary] = useState(false);
   const [editingGalleryImage, setEditingGalleryImage] = useState<any | null>(null);
   const [seedProgress, setSeedProgress] = useState<{ current: number; total: number } | null>(null);
 
@@ -1022,6 +1043,64 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `gallery/${imageId}`);
       showToast('Failed to delete image', 'error');
+    }
+  };
+
+  const handleRemoveDuplicates = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'gallery'));
+      const seen = new Set();
+      const toDelete: any[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (seen.has(data.src)) {
+          toDelete.push(doc.ref);
+        } else {
+          seen.add(data.src);
+        }
+      });
+      
+      if (toDelete.length === 0) {
+        showToast('No duplicate images found', 'info');
+        return;
+      }
+      
+      const batch = writeBatch(db);
+      toDelete.forEach((ref) => batch.delete(ref));
+      await batch.commit();
+      
+      showToast(`Removed ${toDelete.length} duplicate images`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to remove duplicates', 'error');
+    }
+  };
+
+  const handleFetchCloudinaryImages = async () => {
+    setIsFetchingCloudinary(true);
+    try {
+      const response = await fetch('/api/cloudinary/images');
+      if (!response.ok) throw new Error('Failed to fetch images');
+      const images = await response.json();
+      
+      const batch = writeBatch(db);
+      for (const img of images) {
+        const docRef = doc(collection(db, 'gallery'));
+        batch.set(docRef, {
+          src: img.secure_url,
+          title: img.public_id.split('/').pop(),
+          category: 'Villa',
+          createdAt: serverTimestamp()
+        });
+      }
+      await batch.commit();
+      showToast('Images imported from Cloudinary', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to import images', 'error');
+    } finally {
+      setIsFetchingCloudinary(false);
     }
   };
 
@@ -1687,7 +1766,25 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                   ({tab.id === 'reviews' ? reviews.length : 
                     tab.id === 'logs' ? adminLogs.length :
                     tab.id === 'notifications' ? notifications.length :
-                    tab.id === 'gallery' ? galleryImages.length :
+                    tab.id === 'gallery' ? (galleryImages.length + 17 - galleryImages.filter(img => [
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599338/Unique_Farm_House_Cottage_And_Swimming_Pool10_nbuyma.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599336/Unique_Farm_House_Cottage_And_Swimming_Pool8_ls2pzs.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599323/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn8_z0yfvu.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599319/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn7_edain1.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599317/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn4_j0n7zt.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599315/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn3_mtstvj.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599275/Unique_Farm_House_Swimming_Pool12_lo1abs.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599271/Unique_Farm_House_Swimming_Pool15_khet3t.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599265/Unique_Farm_House_Swimming_Pool11_wzrzyv.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599261/Unique_Farm_House_Swimming_Pool8_acccpc.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599260/Unique_Farm_House_Swimming_Pool7_e5jxkv.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774596185/Unique_Farm_House_High_Tea3_pp6cha.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586829/Unique_Farm_House_Bonfire2_ublmjv.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586828/Unique_Farm_House_Bonfire4_bnrw9y.jpg",
+                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg"
+                    ].includes(img.src)).length) :
                     tab.id === 'settings' ? 'Edit' :
                     tab.id === 'sync' ? 'iCal' :
                     bookings.filter(b => {
@@ -2022,36 +2119,89 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
               >
                 {isAddingImage ? 'Adding...' : 'Add to Gallery'}
               </button>
-              {galleryImages.length === 0 && (
-                <div className="mt-6 flex flex-col gap-4">
-                  <button 
-                    onClick={handleSeedGallery}
-                    disabled={isAddingImage}
-                    className="px-8 py-3 bg-luxury-gold/10 text-luxury-gold rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 w-fit"
-                  >
-                    {isAddingImage ? 'Importing...' : 'Import Default Images'}
-                  </button>
-                  
-                  {seedProgress && (
-                    <div className="w-full max-w-md space-y-2">
-                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">
-                        <span>Importing Images</span>
-                        <span>{Math.round((seedProgress.current / seedProgress.total) * 100)}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-luxury-dark/5 rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${(seedProgress.current / seedProgress.total) * 100}%` }}
-                          className="h-full bg-luxury-gold transition-all duration-300"
-                        />
-                      </div>
-                      <p className="text-[9px] text-luxury-dark/30 italic">
-                        Processing {seedProgress.current} of {seedProgress.total} images...
-                      </p>
-                    </div>
-                  )}
+              
+              <button 
+                onClick={handleFetchCloudinaryImages}
+                disabled={isFetchingCloudinary}
+                className="mt-6 ml-4 px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
+              >
+                {isFetchingCloudinary ? 'Fetching...' : 'Fetch from Cloudinary'}
+              </button>
+
+              <button 
+                onClick={handleRemoveDuplicates}
+                className="mt-6 ml-4 px-8 py-3 bg-red-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-700 transition-all"
+              >
+                Remove Duplicates
+              </button>
+              
+              <div className="mt-8 flex flex-wrap gap-4 items-center justify-between border-t border-luxury-dark/5 pt-8">
+                <div className="flex gap-6">
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold">Database Images</p>
+                    <p className="text-2xl font-serif font-bold text-luxury-dark">{galleryImages.length}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold">Default Images</p>
+                    <p className="text-2xl font-serif font-bold text-luxury-dark">17</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold">Total Visible</p>
+                    <p className="text-2xl font-serif font-bold text-luxury-gold">
+                      {galleryImages.length + 17 - galleryImages.filter(img => [
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599338/Unique_Farm_House_Cottage_And_Swimming_Pool10_nbuyma.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599336/Unique_Farm_House_Cottage_And_Swimming_Pool8_ls2pzs.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599323/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn8_z0yfvu.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599319/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn7_edain1.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599317/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn4_j0n7zt.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599315/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn3_mtstvj.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599275/Unique_Farm_House_Swimming_Pool12_lo1abs.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599271/Unique_Farm_House_Swimming_Pool15_khet3t.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599265/Unique_Farm_House_Swimming_Pool11_wzrzyv.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599261/Unique_Farm_House_Swimming_Pool8_acccpc.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599260/Unique_Farm_House_Swimming_Pool7_e5jxkv.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774596185/Unique_Farm_House_High_Tea3_pp6cha.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586829/Unique_Farm_House_Bonfire2_ublmjv.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586828/Unique_Farm_House_Bonfire4_bnrw9y.jpg",
+                        "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg"
+                      ].includes(img.src)).length}
+                    </p>
+                  </div>
                 </div>
-              )}
+
+                {galleryImages.length < 17 && (
+                  <div className="flex flex-col gap-4">
+                    <button 
+                      onClick={handleSeedGallery}
+                      disabled={isAddingImage}
+                      className="px-8 py-3 bg-luxury-gold/10 text-luxury-gold rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 w-fit"
+                    >
+                      {isAddingImage ? 'Importing...' : 'Import Missing Default Images'}
+                    </button>
+                    
+                    {seedProgress && (
+                      <div className="w-full max-w-md space-y-2">
+                        <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">
+                          <span>Importing Images</span>
+                          <span>{Math.round((seedProgress.current / seedProgress.total) * 100)}%</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-luxury-dark/5 rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(seedProgress.current / seedProgress.total) * 100}%` }}
+                            className="h-full bg-luxury-gold transition-all duration-300"
+                          />
+                        </div>
+                        <p className="text-[9px] text-luxury-dark/30 italic">
+                          Processing {seedProgress.current} of {seedProgress.total} images...
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -3127,74 +3277,96 @@ const Amenities = () => {
 };
 
 const Gallery = ({ onImageClick, images: firestoreImages }: { onImageClick: (img: any) => void; images?: any[] }) => {
-  const fallbackImages = [
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg", title: "Cottage & Pool", category: "Villa" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg", title: "Lawn View", category: "Villa" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599338/Unique_Farm_House_Cottage_And_Swimming_Pool10_nbuyma.jpg", title: "Poolside", category: "Pool" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599336/Unique_Farm_House_Cottage_And_Swimming_Pool8_ls2pzs.jpg", title: "Villa Exterior", category: "Villa" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599323/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn8_z0yfvu.jpg", title: "Garden Area", category: "Villa" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599319/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn7_edain1.jpg", title: "Night View", category: "Villa" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599317/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn4_j0n7zt.jpg", title: "Pool Deck", category: "Pool" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599315/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn3_mtstvj.jpg", title: "Villa Entrance", category: "Villa" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599275/Unique_Farm_House_Swimming_Pool12_lo1abs.jpg", title: "Swimming Pool", category: "Pool" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599271/Unique_Farm_House_Swimming_Pool15_khet3t.jpg", title: "Pool Lounge", category: "Pool" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599265/Unique_Farm_House_Swimming_Pool11_wzrzyv.jpg", title: "Crystal Clear Water", category: "Pool" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599261/Unique_Farm_House_Swimming_Pool8_acccpc.jpg", title: "Pool Evening", category: "Pool" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599260/Unique_Farm_House_Swimming_Pool7_e5jxkv.jpg", title: "Poolside Relaxation", category: "Pool" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774596185/Unique_Farm_House_High_Tea3_pp6cha.jpg", title: "High Tea Setup", category: "Dining" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586829/Unique_Farm_House_Bonfire2_ublmjv.jpg", title: "Bonfire Night", category: "Activities" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586828/Unique_Farm_House_Bonfire4_bnrw9y.jpg", title: "Cozy Bonfire", category: "Activities" },
-    { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg", title: "Evening Bonfire", category: "Activities" },
-  ];
-
-  const images = firestoreImages && firestoreImages.length > 0 ? firestoreImages : fallbackImages;
+  const [activeCategory, setActiveCategory] = useState('All');
+  
+  // Combine Firestore images with fallback images, avoiding duplicates by src
+  const firestoreSrcs = new Set((firestoreImages || []).map(img => img.src));
+  const uniqueFallbackImages = GALLERY_FALLBACK_IMAGES.filter(img => !firestoreSrcs.has(img.src));
+  
+  const allImages = [...(firestoreImages || []), ...uniqueFallbackImages];
+  const categories = ['All', 'Villa', 'Pool', 'Interiors', 'Dining', 'Activities', 'Amenities'];
+  
+  const filteredImages = activeCategory === 'All' 
+    ? allImages 
+    : allImages.filter(img => img.category === activeCategory);
 
   return (
     <section id="gallery" className="py-16 sm:py-24 px-6 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-12 sm:mb-16 gap-6">
+        <div className="flex flex-col md:flex-row justify-between items-center mb-12 sm:mb-16 gap-8">
           <div className="text-center md:text-left">
             <span className="section-subtitle !text-left !mx-0">Visual Journey</span>
             <h2 className="section-title !text-left !mb-0 text-3xl sm:text-4xl md:text-5xl">Peek Inside Our Villa</h2>
           </div>
+          
+          <div className="flex flex-wrap justify-center gap-2">
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  activeCategory === cat 
+                    ? 'bg-luxury-dark text-white shadow-lg shadow-luxury-dark/20' 
+                    : 'bg-luxury-dark/5 text-luxury-dark/40 hover:bg-luxury-dark/10 hover:text-luxury-dark'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
         
         <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          layout
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5 }}
           className="columns-1 sm:columns-2 lg:columns-3 gap-4 sm:gap-6 space-y-4 sm:space-y-6"
         >
-          {images.map((img, index) => (
-            <motion.div 
-              key={index}
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              onClick={() => onImageClick(img)}
-              className="relative group overflow-hidden rounded-2xl cursor-zoom-in"
-            >
-              <img 
-                src={img.src} 
-                alt={img.title} 
-                className="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-110"
-                referrerPolicy="no-referrer"
-              />
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col items-center justify-center text-white p-4 sm:p-6">
-                <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.3em] mb-2 text-luxury-gold font-bold">{img.category}</span>
-                <h3 className="text-lg sm:text-xl font-serif text-center">{img.title}</h3>
-                <div className="mt-3 sm:mt-4 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
-                  <Maximize size={16} className="sm:size-[18px]" />
+          <AnimatePresence mode="popLayout">
+            {filteredImages.map((img, index) => (
+              <motion.div 
+                layout
+                key={img.id || img.src}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.3 }}
+                whileHover={{ y: -5 }}
+                onClick={() => onImageClick(img)}
+                className="relative group overflow-hidden rounded-3xl cursor-zoom-in shadow-sm hover:shadow-2xl hover:shadow-luxury-gold/10 transition-all duration-500"
+              >
+                <img 
+                  src={img.src} 
+                  alt={img.title} 
+                  className="w-full h-auto object-cover transition-transform duration-1000 group-hover:scale-110"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col items-center justify-end text-white p-6 sm:p-8">
+                  <div className="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500 text-center">
+                    <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.4em] mb-3 text-luxury-gold font-bold block">{img.category}</span>
+                    <h3 className="text-lg sm:text-2xl font-serif mb-4">{img.title}</h3>
+                    <div className="mx-auto w-10 h-10 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center hover:bg-luxury-gold hover:text-luxury-dark transition-colors">
+                      <Maximize size={18} />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </motion.div>
+
+        {filteredImages.length === 0 && (
+          <div className="py-24 text-center">
+            <p className="text-luxury-dark/30 italic font-serif text-xl">No images found in this category.</p>
+          </div>
+        )}
       </div>
     </section>
   );
 };
 
-const GalleryModal = ({ image, onClose }: { image: any, onClose: () => void }) => {
+const GalleryModal = ({ image, onClose, onNext, onPrev }: { image: any, onClose: () => void, onNext?: () => void, onPrev?: () => void }) => {
   return (
     <AnimatePresence>
       {image && (
@@ -3207,28 +3379,49 @@ const GalleryModal = ({ image, onClose }: { image: any, onClose: () => void }) =
             className="absolute inset-0 bg-black/95 backdrop-blur-xl"
           />
           <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
             className="relative max-w-7xl w-full max-h-full flex flex-col items-center"
           >
             <button 
               onClick={onClose}
-              className="absolute -top-12 right-0 text-white/70 hover:text-white transition-colors p-2"
+              className="absolute -top-16 right-0 text-white/50 hover:text-white transition-colors p-2 z-10"
             >
               <X size={32} />
             </button>
+
+            <div className="relative group w-full flex items-center justify-center">
+              {onPrev && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onPrev(); }}
+                  className="absolute left-4 p-4 bg-white/5 hover:bg-white/10 backdrop-blur-md rounded-full text-white opacity-0 group-hover:opacity-100 transition-all duration-300 z-10"
+                >
+                  <ChevronLeft size={24} />
+                </button>
+              )}
+              
+              <img 
+                src={image.src} 
+                alt={image.title} 
+                className="w-full h-auto max-h-[75vh] object-contain rounded-2xl shadow-2xl"
+                referrerPolicy="no-referrer"
+              />
+
+              {onNext && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onNext(); }}
+                  className="absolute right-4 p-4 bg-white/5 hover:bg-white/10 backdrop-blur-md rounded-full text-white opacity-0 group-hover:opacity-100 transition-all duration-300 z-10"
+                >
+                  <ChevronRight size={24} />
+                </button>
+              )}
+            </div>
             
-            <img 
-              src={image.src} 
-              alt={image.title} 
-              className="w-full h-auto max-h-[80vh] object-contain rounded-lg shadow-2xl"
-              referrerPolicy="no-referrer"
-            />
-            
-            <div className="mt-6 text-center text-white">
-              <span className="text-luxury-gold text-xs uppercase tracking-[0.3em] font-bold mb-2 block">{image.category}</span>
-              <h3 className="text-2xl font-serif">{image.title}</h3>
+            <div className="mt-8 text-center text-white max-w-2xl px-6">
+              <span className="text-luxury-gold text-[10px] uppercase tracking-[0.4em] font-bold mb-3 block">{image.category}</span>
+              <h3 className="text-2xl sm:text-4xl font-serif mb-2">{image.title}</h3>
+              {image.description && <p className="text-white/60 text-sm sm:text-base leading-relaxed">{image.description}</p>}
             </div>
           </motion.div>
         </div>
@@ -5333,7 +5526,26 @@ export default function App() {
         showToast={showToast}
       />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
-      <GalleryModal image={selectedImage} onClose={() => setSelectedImage(null)} />
+      <GalleryModal 
+        image={selectedImage} 
+        onClose={() => setSelectedImage(null)} 
+        onNext={() => {
+          const firestoreSrcs = new Set(galleryImages.map(img => img.src));
+          const uniqueFallbackImages = GALLERY_FALLBACK_IMAGES.filter(img => !firestoreSrcs.has(img.src));
+          const allImages = [...galleryImages, ...uniqueFallbackImages];
+          const currentIndex = allImages.findIndex(img => img.src === selectedImage.src);
+          const nextIndex = (currentIndex + 1) % allImages.length;
+          setSelectedImage(allImages[nextIndex]);
+        }}
+        onPrev={() => {
+          const firestoreSrcs = new Set(galleryImages.map(img => img.src));
+          const uniqueFallbackImages = GALLERY_FALLBACK_IMAGES.filter(img => !firestoreSrcs.has(img.src));
+          const allImages = [...galleryImages, ...uniqueFallbackImages];
+          const currentIndex = allImages.findIndex(img => img.src === selectedImage.src);
+          const prevIndex = (currentIndex - 1 + allImages.length) % allImages.length;
+          setSelectedImage(allImages[prevIndex]);
+        }}
+      />
       
       <AnimatePresence>
         {isDashboardOpen && user && (

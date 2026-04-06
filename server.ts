@@ -5,11 +5,22 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import nodeIcal from "node-ical";
 import { Resend } from "resend";
+import { v2 as cloudinary } from "cloudinary";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const resend = new Resend(process.env.RESEND_API_KEY || 're_4zWip7uS_HvzE8i5v91eudf2KKS5Hmyp1');
 if (!process.env.RESEND_API_KEY) {
   console.warn('RESEND_API_KEY not found in environment, using provided key from context.');
+}
+
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+} else {
+  console.warn('Cloudinary credentials not found in environment.');
 }
 
 const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8'));
@@ -136,6 +147,26 @@ async function startServer() {
     } catch (error) {
       console.error('Reminder error:', error);
       res.status(500).json({ error: 'Failed to send reminder' });
+    }
+  });
+
+  // Cloudinary API
+  app.get("/api/cloudinary/images", async (req, res) => {
+    try {
+      if (!process.env.CLOUDINARY_CLOUD_NAME) {
+        return res.status(500).json({ error: 'Cloudinary not configured' });
+      }
+      
+      const resources = await cloudinary.api.resources({
+        type: 'upload',
+        prefix: req.query.prefix as string || '',
+        max_results: 100,
+      });
+      
+      res.json(resources.resources);
+    } catch (error) {
+      console.error('Cloudinary fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch images from Cloudinary' });
     }
   });
 
