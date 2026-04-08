@@ -3153,7 +3153,7 @@ const About = () => {
   );
 };
 
-const Amenities = () => {
+const Amenities = ({ onAmenityClick }: { onAmenityClick: (category: string) => void }) => {
   const amenities = [
     { 
       icon: <Home size={32} />, 
@@ -3239,6 +3239,17 @@ const Amenities = () => {
     },
   ];
 
+  const categoryMapping: Record<string, string> = {
+    "Private Villa": "Villa",
+    "Private Pool": "Pool",
+    "Secure & Private": "Amenities",
+    "Spacious Interiors": "Interiors",
+    "LGBTQ+ Friendly": "Amenities",
+    "Premium Stay": "Amenities",
+    "Operated Kitchen": "Dining",
+    "Games & Fun": "Activities"
+  };
+
   return (
     <section id="amenities" className="py-16 sm:py-24 px-6 bg-luxury-cream">
       <div className="max-w-7xl mx-auto">
@@ -3253,7 +3264,11 @@ const Amenities = () => {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: index * 0.1 }}
-              className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-black/5 hover:shadow-xl transition-all duration-500 group flex flex-col items-center text-center"
+              onClick={() => {
+                onAmenityClick(categoryMapping[item.title] || 'Amenities');
+                document.getElementById('gallery')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-black/5 hover:shadow-xl transition-all duration-500 group flex flex-col items-center text-center cursor-pointer"
             >
               <div className="text-luxury-gold mb-3 sm:mb-4 group-hover:scale-110 transition-transform duration-500">
                 {item.icon}
@@ -3276,8 +3291,12 @@ const Amenities = () => {
   );
 };
 
-const Gallery = ({ onImageClick, images: firestoreImages }: { onImageClick: (img: any) => void; images?: any[] }) => {
-  const [activeCategory, setActiveCategory] = useState('All');
+const Gallery = ({ onImageClick, images: firestoreImages, initialCategory = 'All' }: { onImageClick: (img: any) => void; images?: any[]; initialCategory?: string }) => {
+  const [activeCategory, setActiveCategory] = useState(initialCategory);
+  
+  useEffect(() => {
+    setActiveCategory(initialCategory);
+  }, [initialCategory]);
   
   // Combine Firestore images with fallback images, avoiding duplicates by src
   const firestoreSrcs = new Set((firestoreImages || []).map(img => img.src));
@@ -5322,6 +5341,50 @@ const WelcomeModal = ({ isOpen, onClose, onBookNow }: { isOpen: boolean; onClose
   );
 };
 
+const InstallPrompt = ({ onInstall, onClose, isIOS }: { onInstall: () => void; onClose: () => void; isIOS: boolean }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 100 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 100 }}
+      className="fixed bottom-6 left-6 right-6 z-[150] bg-white rounded-3xl shadow-2xl p-6 border border-luxury-dark/5 flex flex-col sm:flex-row items-center gap-6"
+    >
+      <div className="w-16 h-16 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg">
+        <img 
+          src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
+          alt="App Icon" 
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+      <div className="flex-grow text-center sm:text-left">
+        <h3 className="text-lg font-serif font-bold text-luxury-dark">Install Unique Farmhouse</h3>
+        <p className="text-sm text-luxury-dark/60">
+          {isIOS 
+            ? "Tap the share button and select 'Add to Home Screen' to install." 
+            : "Add to your home screen for a better experience and quick access."}
+        </p>
+      </div>
+      <div className="flex items-center gap-3 w-full sm:w-auto">
+        <button 
+          onClick={onClose}
+          className="flex-1 sm:flex-none px-6 py-3 rounded-xl border border-luxury-dark/10 text-luxury-dark font-bold text-sm hover:bg-luxury-cream transition-colors"
+        >
+          Not Now
+        </button>
+        {!isIOS && (
+          <button 
+            onClick={onInstall}
+            className="flex-1 sm:flex-none px-6 py-3 rounded-xl bg-luxury-gold text-white font-bold text-sm hover:bg-luxury-gold/90 shadow-lg shadow-luxury-gold/20 transition-all"
+          >
+            Install App
+          </button>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+
 // --- Main App ---
 
 export default function App() {
@@ -5329,6 +5392,7 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
+  const [galleryCategory, setGalleryCategory] = useState('All');
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -5337,6 +5401,57 @@ export default function App() {
   const [heroSettings, setHeroSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      const dismissed = localStorage.getItem('install_prompt_dismissed');
+      // If dismissed more than 7 days ago, show again
+      const sevenDays = 7 * 24 * 60 * 60 * 1000;
+      if (!dismissed || (Date.now() - parseInt(dismissed)) > sevenDays) {
+        setShowInstallPrompt(true);
+      }
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // iOS check
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
+    const isStandalone = (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches;
+    
+    if (isIosDevice && !isStandalone) {
+      setIsIOS(true);
+      const dismissed = localStorage.getItem('install_prompt_dismissed');
+      const sevenDays = 7 * 24 * 60 * 60 * 1000;
+      if (!dismissed || (Date.now() - parseInt(dismissed)) > sevenDays) {
+        setShowInstallPrompt(true);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallPrompt(false);
+    }
+    setDeferredPrompt(null);
+  };
+
+  const handleCloseInstallPrompt = () => {
+    setShowInstallPrompt(false);
+    localStorage.setItem('install_prompt_dismissed', Date.now().toString());
+  };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
@@ -5508,8 +5623,8 @@ export default function App() {
       <main>
         <Hero onBookNow={openBookingModal} settings={heroSettings} />
         <About />
-        <Amenities />
-        <Gallery onImageClick={setSelectedImage} images={galleryImages} />
+        <Amenities onAmenityClick={setGalleryCategory} />
+        <Gallery onImageClick={setSelectedImage} images={galleryImages} initialCategory={galleryCategory} />
         <Reviews />
         <BookingSection onBookNow={openBookingModal} />
         <LocationSection />
@@ -5600,6 +5715,13 @@ export default function App() {
 
       <AnimatePresence>
         {toast && <Toast />}
+        {showInstallPrompt && (
+          <InstallPrompt 
+            onInstall={handleInstallClick} 
+            onClose={handleCloseInstallPrompt} 
+            isIOS={isIOS}
+          />
+        )}
       </AnimatePresence>
 
       <WelcomeModal 
