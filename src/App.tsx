@@ -930,7 +930,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings'>('upcoming');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings'>(userRole === 'admin' ? 'upcoming' : 'all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -1320,13 +1320,14 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
     }
   }, [userRole]);
 
+  const [hasSetDefaultFilter, setHasSetDefaultFilter] = useState(false);
+
   useEffect(() => {
-    // Ensure hidden tabs are not active
-    const hiddenTabs: string[] = [];
-    if (userRole === 'admin' && hiddenTabs.includes(activeFilter)) {
-      setActiveFilter('upcoming');
+    if (userRole && !hasSetDefaultFilter) {
+      setActiveFilter(userRole === 'admin' ? 'upcoming' : 'all');
+      setHasSetDefaultFilter(true);
     }
-  }, [userRole, activeFilter]);
+  }, [userRole, hasSetDefaultFilter]);
 
   const handleChangePassword = async () => {
     setIsUpdateModalOpen(true);
@@ -1501,7 +1502,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
       if (!isValid(checkInDate) || !isValid(checkOutDate)) return false;
       
       if (activeFilter === 'upcoming') {
-        return booking.status === 'confirmed' && checkInDate >= new Date(today.getTime() - 86400000);
+        return (booking.status === 'confirmed' || booking.status === 'pending') && checkInDate >= new Date(today.getTime() - 86400000);
       }
       if (activeFilter === 'completed') {
         return booking.status === 'confirmed' && checkOutDate < today;
