@@ -138,6 +138,8 @@ const GALLERY_FALLBACK_IMAGES = [
   { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg", title: "Evening Bonfire", category: "Activities" },
 ];
 
+const APP_VERSION = '1.0.6';
+
 enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -1506,7 +1508,7 @@ const AssignExpenseModal = ({ booking, expenseCategories, onClose, showToast }: 
   );
 };
 
-const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, onLogout, galleryImages, heroSettings }: { 
+const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, onLogout, galleryImages, heroSettings, onClearCache }: { 
   user: FirebaseUser; 
   userRole: string | null; 
   onClose: () => void; 
@@ -1516,6 +1518,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   onLogout: () => void;
   galleryImages: any[];
   heroSettings: any;
+  onClearCache?: () => void;
 }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1723,6 +1726,9 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
       setAnalyzeProgress({ current: i + 1, total: galleryImages.length });
       console.log(`Analyzing image ${i + 1}/${galleryImages.length}: ${img.title}`);
 
+      // Add a small delay to avoid hitting rate limits too quickly
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       try {
         const imageData = await getBase64FromUrl(img.src);
         if (!imageData) {
@@ -1767,8 +1773,12 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
           console.warn('AI returned invalid result format:', result);
           failCount++;
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error analyzing image:', img.id, err);
+        if (err?.message?.toLowerCase().includes('quota')) {
+          showToast('Gemini API quota exceeded. Please wait a few minutes before trying again.', 'error');
+          break; // Stop the loop if we hit quota
+        }
         failCount++;
       }
     }
@@ -3085,6 +3095,19 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
                   />
                 </div>
               </div>
+            </div>
+            
+            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-4">App Maintenance</h3>
+              <p className="text-sm text-luxury-dark/60 mb-8">
+                If you are experiencing issues with outdated content or login problems, you can force clear the application cache and cookies.
+              </p>
+              <button 
+                onClick={onClearCache}
+                className="px-8 py-3 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all border border-red-100"
+              >
+                Clear Cache & Refresh App
+              </button>
             </div>
           </div>
         ) : activeFilter === 'sync' && userRole === 'admin' ? (
@@ -6299,6 +6322,26 @@ export default function App() {
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
+    // Version check to clear stale cache
+    const lastVersion = localStorage.getItem('app_version');
+    if (lastVersion !== APP_VERSION) {
+      console.log(`New version detected (${APP_VERSION}). Clearing stale data...`);
+      // Clear specific items that might cause issues, or all if needed
+      // We keep auth-related items if possible, but usually better to clear all for a fresh start
+      const keysToKeep = ['firebase:authUser']; // Example of what to keep
+      const savedAuth = localStorage.getItem('firebase:authUser');
+      
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      if (savedAuth) localStorage.setItem('firebase:authUser', savedAuth);
+      localStorage.setItem('app_version', APP_VERSION);
+      
+      if (lastVersion) {
+        window.location.reload();
+      }
+    }
+
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -6330,6 +6373,14 @@ export default function App() {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, []);
+
+  const handleClearCache = () => {
+    if (window.confirm('This will clear your local app data and reload the application. You may need to sign in again. Continue?')) {
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.reload();
+    }
+  };
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
@@ -6567,6 +6618,7 @@ export default function App() {
             onLogout={handleSignOut}
             galleryImages={galleryImages}
             heroSettings={heroSettings}
+            onClearCache={handleClearCache}
           />
         )}
       </AnimatePresence>
