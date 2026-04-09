@@ -104,7 +104,8 @@ service cloud.firestore {
              (!('mobile' in data) || (data.mobile is string && data.mobile.size() <= 20)) &&
              (!('email' in data) || (data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)))) &&
              (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 256)) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']);
+             (!('expenses' in data) || data.expenses is list) &&
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses']);
     }
 
     function isValidReview(data) {
@@ -179,7 +180,8 @@ service cloud.firestore {
          request.resource.data.status == 'pending' &&
          request.resource.data.paymentStatus == resource.data.paymentStatus &&
          request.resource.data.amountPaid == resource.data.amountPaid &&
-         request.resource.data.createdAt == resource.data.createdAt) ||
+         request.resource.data.createdAt == resource.data.createdAt &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenses'])) ||
         // Client can cancel their own pending booking
         (resource.data.uid == request.auth.uid && 
          request.resource.data.status == 'cancelled' && resource.data.status == 'pending' &&
@@ -249,6 +251,11 @@ service cloud.firestore {
 
     match /settings/{settingId} {
       allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /expense_categories/{categoryId} {
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 

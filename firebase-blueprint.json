@@ -54,13 +54,23 @@
           "format": "date",
           "description": "The check-out date."
         },
-        "guestsDay": {
+        "dayGuestAdults": {
           "type": "integer",
-          "description": "The number of guests for day stay (max 25)."
+          "description": "The number of adult day guests."
         },
-        "guestsNight": {
+        "dayGuestChildren": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Ages of child day guests."
+        },
+        "nightGuestAdults": {
           "type": "integer",
-          "description": "The number of guests for night stay."
+          "description": "The number of adult night guests."
+        },
+        "nightGuestChildren": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Ages of child night guests."
         },
         "status": {
           "type": "string",
@@ -112,16 +122,29 @@
         },
         "bookedBy": {
           "type": "string",
-          "enum": ["client", "admin"],
           "description": "Who made the booking (client or admin)."
         },
         "paymentMethod": {
           "type": "string",
           "enum": ["upi", "card", "netbanking"],
           "description": "The payment method selected for the booking."
+        },
+        "expenses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": { "type": "string" },
+              "amount": { "type": "number" },
+              "note": { "type": "string" },
+              "date": { "type": "string" }
+            },
+            "required": ["category", "amount"]
+          },
+          "description": "Expenses associated with this booking."
         }
       },
-      "required": ["uid", "checkIn", "checkOut", "guestsDay", "guestsNight", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy", "paymentMethod"]
+      "required": ["uid", "checkIn", "checkOut", "dayGuestAdults", "dayGuestChildren", "nightGuestAdults", "nightGuestChildren", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy", "paymentMethod"]
     },
     "Review": {
       "title": "Review",
@@ -252,6 +275,23 @@
       },
       "required": ["src", "title", "category", "createdAt"]
     },
+    "ExpenseCategory": {
+      "title": "ExpenseCategory",
+      "description": "A category for booking expenses.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the category."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the category was created."
+        }
+      },
+      "required": ["name", "createdAt"]
+    },
     "AppSetting": {
       "title": "AppSetting",
       "description": "Application settings and content.",
@@ -302,6 +342,10 @@
     "settings/{settingId}": {
       "schema": "AppSetting",
       "description": "App settings and content."
+    },
+    "expense_categories/{categoryId}": {
+      "schema": "ExpenseCategory",
+      "description": "Categories for expenses."
     }
   }
 }

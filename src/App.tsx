@@ -49,6 +49,9 @@ import {
   CreditCard,
   LogOut,
   History,
+  TrendingUp,
+  TrendingDown,
+  PieChart,
   LayoutDashboard,
   Eye,
   Moon,
@@ -93,11 +96,25 @@ import {
   getDoc,
   getDocs,
   deleteDoc,
+  updateDoc,
   or,
   writeBatch
 } from 'firebase/firestore';
 import { format, addDays, parse, isValid } from 'date-fns';
 import DatePicker from 'react-datepicker';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer, 
+  Cell,
+  AreaChart,
+  Area
+} from 'recharts';
 import "react-datepicker/dist/react-datepicker.css";
 import { auth, db } from './firebase';
 
@@ -914,6 +931,497 @@ const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; show
   );
 };
 
+const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showToast }: { 
+  bookings: any[], 
+  expenseCategories: any[], 
+  onAssignExpense: (b: any) => void,
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
+}) => {
+  const [newCategory, setNewCategory] = useState('');
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+
+  const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
+
+  const handleAddCategory = async () => {
+    if (!newCategory.trim()) return;
+    setIsAddingCategory(true);
+    try {
+      if (editingCategory) {
+        await setDoc(doc(db, 'expense_categories', editingCategory.id), {
+          name: newCategory.trim(),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+        showToast('Category updated successfully', 'success');
+      } else {
+        await addDoc(collection(db, 'expense_categories'), {
+          name: newCategory.trim(),
+          createdAt: serverTimestamp()
+        });
+        showToast('Category added successfully', 'success');
+      }
+      setNewCategory('');
+      setEditingCategory(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'expense_categories');
+    } finally {
+      setIsAddingCategory(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this category?')) return;
+    try {
+      await deleteDoc(doc(db, 'expense_categories', id));
+      showToast('Category deleted', 'success');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `expense_categories/${id}`);
+    }
+  };
+
+  const handleEditCategory = (cat: any) => {
+    setEditingCategory({ id: cat.id, name: cat.name });
+    setNewCategory(cat.name);
+  };
+
+  const financialData = useMemo(() => {
+    const months: { [key: string]: { income: number; expenses: number; bookings: number } } = {};
+    
+    // Process last 12 months
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = format(d, 'MMM yyyy');
+      months[monthKey] = { income: 0, expenses: 0, bookings: 0 };
+    }
+
+    bookings.forEach(booking => {
+      if (booking.status !== 'confirmed') return;
+      
+      const checkInDate = parse(booking.checkIn, 'dd/MM/yyyy', new Date());
+      if (!isValid(checkInDate)) return;
+      
+      const monthKey = format(checkInDate, 'MMM yyyy');
+      if (months[monthKey]) {
+        months[monthKey].income += (booking.bookingAmount || 0);
+        months[monthKey].bookings += 1;
+        
+        if (booking.expenses && Array.isArray(booking.expenses)) {
+          booking.expenses.forEach((exp: any) => {
+            months[monthKey].expenses += (exp.amount || 0);
+          });
+        }
+      }
+    });
+
+    return Object.entries(months)
+      .map(([name, data]) => ({ name, ...data }))
+      .reverse();
+  }, [bookings]);
+
+  const stats = useMemo(() => {
+    const totalIncome = financialData.reduce((sum, d) => sum + d.income, 0);
+    const totalExpenses = financialData.reduce((sum, d) => sum + d.expenses, 0);
+    const totalBookings = financialData.reduce((sum, d) => sum + d.bookings, 0);
+    const netProfit = totalIncome - totalExpenses;
+    
+    return { totalIncome, totalExpenses, totalBookings, netProfit };
+  }, [financialData]);
+
+  const expenseByCategory = useMemo(() => {
+    const categories: { [key: string]: number } = {};
+    bookings.forEach(booking => {
+      if (booking.expenses && Array.isArray(booking.expenses)) {
+        booking.expenses.forEach((exp: any) => {
+          categories[exp.category] = (categories[exp.category] || 0) + exp.amount;
+        });
+      }
+    });
+    return Object.entries(categories).map(([name, value]) => ({ name, value }));
+  }, [bookings]);
+
+  const COLORS = ['#C8A45D', '#141414', '#4B5563', '#9CA3AF', '#D1D5DB', '#F3F4F6'];
+
+  return (
+    <div className="space-y-12">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <TrendingUp size={24} />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Total Income</p>
+              <h3 className="text-2xl font-serif font-bold text-luxury-dark">₹{stats.totalIncome.toLocaleString()}</h3>
+            </div>
+          </div>
+          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Based on booking amounts only</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center">
+              <TrendingDown size={24} />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Total Expenses</p>
+              <h3 className="text-2xl font-serif font-bold text-luxury-dark">₹{stats.totalExpenses.toLocaleString()}</h3>
+            </div>
+          </div>
+          <p className="text-[10px] text-luxury-dark/30 font-medium italic">All recorded booking costs</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-luxury-gold/10 text-luxury-gold flex items-center justify-center">
+              <IndianRupee size={24} />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Net Profit</p>
+              <h3 className="text-2xl font-serif font-bold text-luxury-dark">₹{stats.netProfit.toLocaleString()}</h3>
+            </div>
+          </div>
+          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Income minus expenses</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-luxury-dark/5 text-luxury-dark flex items-center justify-center">
+              <Calendar size={24} />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Total Bookings</p>
+              <h3 className="text-2xl font-serif font-bold text-luxury-dark">{stats.totalBookings}</h3>
+            </div>
+          </div>
+          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Confirmed bookings count</p>
+        </div>
+      </div>
+
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
+          <h3 className="text-xl font-serif font-bold text-luxury-dark mb-8">Monthly Performance</h3>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={financialData}>
+                <defs>
+                  <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#C8A45D" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#C8A45D" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fontSize: 10, fontWeight: 600, fill: '#9CA3AF' }}
+                  dy={10}
+                />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fontSize: 10, fontWeight: 600, fill: '#9CA3AF' }}
+                  tickFormatter={(value) => `₹${value/1000}k`}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#141414', 
+                    border: 'none', 
+                    borderRadius: '16px',
+                    color: '#fff',
+                    fontSize: '12px'
+                  }}
+                  itemStyle={{ color: '#fff' }}
+                />
+                <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }} />
+                <Area type="monotone" dataKey="income" stroke="#C8A45D" strokeWidth={3} fillOpacity={1} fill="url(#colorIncome)" name="Income" />
+                <Area type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={3} fillOpacity={0} name="Expenses" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
+          <h3 className="text-xl font-serif font-bold text-luxury-dark mb-8">Expense Distribution</h3>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={expenseByCategory} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F3F4F6" />
+                <XAxis type="number" hide />
+                <YAxis 
+                  dataKey="name" 
+                  type="category" 
+                  axisLine={false} 
+                  tickLine={false}
+                  tick={{ fontSize: 10, fontWeight: 700, fill: '#141414' }}
+                  width={100}
+                />
+                <Tooltip 
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{ 
+                    backgroundColor: '#141414', 
+                    border: 'none', 
+                    borderRadius: '16px',
+                    color: '#fff',
+                    fontSize: '12px'
+                  }}
+                />
+                <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={20}>
+                  {expenseByCategory.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Income List Section */}
+      <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
+        <div className="flex justify-between items-center mb-8">
+          <h3 className="text-xl font-serif font-bold text-luxury-dark">Booking Income Details</h3>
+          <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Confirmed Bookings Only</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-luxury-dark/5">
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Guest</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Amount (No Security)</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Expenses</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-luxury-dark/5">
+              {bookings.filter(b => b.status === 'confirmed').map(booking => {
+                const totalExp = (booking.expenses || []).reduce((sum: number, e: any) => sum + e.amount, 0);
+                return (
+                  <tr key={booking.id} className="hover:bg-luxury-cream/30 transition-colors group">
+                    <td className="px-4 py-4 text-xs font-medium text-luxury-dark/60">{booking.checkIn}</td>
+                    <td className="px-4 py-4 text-xs font-bold text-luxury-dark">{booking.name}</td>
+                    <td className="px-4 py-4 text-xs font-bold text-emerald-600">₹{(booking.bookingAmount || 0).toLocaleString()}</td>
+                    <td className="px-4 py-4 text-xs font-bold text-red-500">₹{totalExp.toLocaleString()}</td>
+                    <td className="px-4 py-4 text-right">
+                      <button 
+                        onClick={() => onAssignExpense(booking)}
+                        className="px-4 py-2 bg-luxury-dark text-white text-[10px] font-bold rounded-xl hover:bg-luxury-gold hover:text-luxury-dark transition-all uppercase tracking-widest"
+                      >
+                        Assign Expenses
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {bookings.filter(b => b.status === 'confirmed').length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-12 text-center text-luxury-dark/30 italic">No confirmed bookings found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Category Management Section */}
+      <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
+        <h3 className="text-xl font-serif font-bold text-luxury-dark mb-8">Expense Categories</h3>
+        <div className="flex flex-col sm:flex-row gap-3 mb-8">
+          <input 
+            type="text" 
+            placeholder="New category name..."
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm font-bold focus:outline-none focus:border-luxury-gold transition-colors"
+          />
+          <div className="flex gap-2">
+            <button 
+              onClick={handleAddCategory}
+              disabled={isAddingCategory || !newCategory.trim()}
+              className="flex-1 sm:flex-none px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
+            >
+              {isAddingCategory ? 'Saving...' : editingCategory ? 'Update' : 'Add Category'}
+            </button>
+            {editingCategory && (
+              <button 
+                onClick={() => { setEditingCategory(null); setNewCategory(''); }}
+                className="px-6 py-3 bg-luxury-dark/5 text-luxury-dark/40 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-luxury-dark/10 transition-all"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          {expenseCategories.map(cat => (
+            <div key={cat.id} className="flex items-center gap-3 px-4 py-2 bg-luxury-dark/5 rounded-xl group">
+              <span className="text-xs font-bold text-luxury-dark">{cat.name}</span>
+              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={() => handleEditCategory(cat)}
+                  className="text-luxury-gold hover:text-luxury-dark"
+                >
+                  <Edit3 size={14} />
+                </button>
+                <button 
+                  onClick={() => handleDeleteCategory(cat.id)}
+                  className="text-red-400 hover:text-red-600"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+          {expenseCategories.length === 0 && (
+            <p className="text-xs text-luxury-dark/30 italic">No custom categories added yet.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AssignExpenseModal = ({ booking, expenseCategories, onClose, showToast }: {
+  booking: any;
+  expenseCategories: any[];
+  onClose: () => void;
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+}) => {
+  const [category, setCategory] = useState(expenseCategories[0]?.name || 'Cleaning');
+  const [amount, setAmount] = useState<number>(0);
+  const [note, setNote] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (amount <= 0) {
+      showToast('Please enter a valid amount', 'error');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const newExpense = {
+        category,
+        amount,
+        note,
+        date: format(new Date(), 'yyyy-MM-dd')
+      };
+      
+      const updatedExpenses = [...(booking.expenses || []), newExpense];
+      
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        expenses: updatedExpenses
+      });
+      
+      showToast('Expense assigned successfully', 'success');
+      onClose();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `bookings/${booking.id}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-luxury-dark/80 backdrop-blur-md"
+      />
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+      >
+        <div className="p-8">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-serif font-bold text-luxury-dark">Assign Expense</h3>
+            <button onClick={onClose} className="text-luxury-dark/40 hover:text-luxury-dark transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="space-y-6">
+            <div className="p-4 bg-luxury-cream/50 rounded-2xl border border-luxury-dark/5">
+              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest mb-1">Booking For</p>
+              <p className="text-sm font-bold text-luxury-dark">{booking.name}</p>
+              <p className="text-[10px] font-medium text-luxury-dark/60">{booking.checkIn} - {booking.checkOut}</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Category</label>
+                <select 
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm font-bold focus:outline-none focus:border-luxury-gold transition-colors"
+                >
+                  {expenseCategories.length > 0 ? (
+                    expenseCategories.map(cat => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Cleaning">Cleaning</option>
+                      <option value="Maintenance">Maintenance</option>
+                      <option value="Electricity">Electricity</option>
+                      <option value="Staff">Staff</option>
+                      <option value="Food">Food</option>
+                      <option value="Other">Other</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Amount (₹)</label>
+                <input 
+                  type="number"
+                  value={amount || ''}
+                  onChange={(e) => setAmount(parseInt(e.target.value) || 0)}
+                  placeholder="Enter amount"
+                  className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm font-bold focus:outline-none focus:border-luxury-gold transition-colors"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Note (Optional)</label>
+                <textarea 
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Add a note..."
+                  rows={3}
+                  className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm font-bold focus:outline-none focus:border-luxury-gold transition-colors resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
+              <p className="text-[10px] text-amber-800 font-medium leading-relaxed">
+                <span className="font-bold">Note:</span> This popup is for adding new expenses only. To modify or delete existing expenses, please go to <span className="font-bold">Modify Booking</span>.
+              </p>
+            </div>
+
+            <button 
+              onClick={handleSave}
+              disabled={isSaving}
+              className="w-full py-4 bg-luxury-dark text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Assign Expense'}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, onLogout, galleryImages, heroSettings }: { 
   user: FirebaseUser; 
   userRole: string | null; 
@@ -930,7 +1438,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings'>(userRole === 'admin' ? 'upcoming' : 'all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance'>(userRole === 'admin' ? 'upcoming' : 'all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -942,6 +1450,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [syncingReviews, setSyncingReviews] = useState(false);
+  const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
+  const [assigningExpenseBooking, setAssigningExpenseBooking] = useState<any | null>(null);
 
   // Gallery Management State
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
@@ -1355,6 +1865,13 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
       }, (error) => handleFirestoreError(error, OperationType.GET, 'notifications'));
       return () => unsubscribe();
     }
+    if (userRole === 'admin' && activeFilter === 'finance') {
+      const q = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setExpenseCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'expense_categories'));
+      return () => unsubscribe();
+    }
   }, [userRole, activeFilter]);
 
   const filteredReviews = useMemo(() => {
@@ -1641,7 +2158,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} />
+              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} />
             </div>
           </div>
         ) : reviewingBooking ? (
@@ -1668,7 +2185,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{userRole === 'admin' ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} />
+              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} />
             </div>
           </div>
         ) : (
@@ -1744,6 +2261,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
              {[
               { id: 'upcoming', label: 'Upcoming' },
               { id: 'pending', label: 'Pending' },
+              { id: 'finance', label: 'Finance' },
               { id: 'completed', label: 'Completed' },
               { id: 'all', label: 'All' },
               { id: 'reviews', label: 'Reviews' },
@@ -1788,6 +2306,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                     ].includes(img.src)).length) :
                     tab.id === 'settings' ? 'Edit' :
                     tab.id === 'sync' ? 'iCal' :
+                    tab.id === 'finance' ? 'Stats' :
                     bookings.filter(b => {
                     if (tab.id === 'all') return true;
                     if (tab.id === 'pending') return b.status === 'pending';
@@ -1941,6 +2460,13 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
             )}
           </div>
         </div>
+        ) : activeFilter === 'finance' && userRole === 'admin' ? (
+          <FinanceDashboard 
+            bookings={bookings} 
+            expenseCategories={expenseCategories}
+            onAssignExpense={setAssigningExpenseBooking}
+            showToast={showToast}
+          />
         ) : activeFilter === 'logs' && userRole === 'admin' ? (
           <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
@@ -2789,6 +3315,17 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
       </div>
     )}
     
+    <AnimatePresence>
+      {assigningExpenseBooking && (
+        <AssignExpenseModal 
+          booking={assigningExpenseBooking}
+          expenseCategories={expenseCategories}
+          onClose={() => setAssigningExpenseBooking(null)}
+          showToast={showToast}
+        />
+      )}
+    </AnimatePresence>
+
     <AnimatePresence>
       {isConfirmModalOpen && (
         <ConfirmationModal 
@@ -3779,7 +4316,7 @@ const BookingCalendar = ({
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [] }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
@@ -3787,7 +4324,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   userRole?: string | null,
   onLogin?: () => void,
   allBookings?: any[],
-  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
+  expenseCategories?: any[]
 }) => {
   const [name, setName] = useState(editBooking?.name || (userRole === 'admin' && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
@@ -3815,6 +4353,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   }, [userRole, editBooking, hasSetDefaultBookingMode]);
 
   const [amountPaid, setAmountPaid] = useState<number>(editBooking?.amountPaid || 0);
+  const [expenses, setExpenses] = useState<any[]>(editBooking?.expenses || []);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [clients, setClients] = useState<any[]>([]);
@@ -4046,6 +4585,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         totalAmount,
         amountPaid: amountPaid,
         securityDeposit,
+        expenses,
         paymentStatus: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'part-paid' : 'unpaid'),
         createdAt: editBooking ? editBooking.createdAt : format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
         name,
@@ -4910,6 +5450,101 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       )}
 
+      {userRole === 'admin' && (
+        <div className="space-y-3 pt-4 border-t border-luxury-dark/5">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Booking Expenses</label>
+            <button 
+              type="button"
+              onClick={() => setExpenses([...expenses, { category: 'Other', amount: 0, note: '', date: format(new Date(), 'yyyy-MM-dd') }])}
+              className="text-[9px] font-bold text-luxury-gold hover:text-luxury-dark uppercase tracking-widest flex items-center gap-1"
+            >
+              <Plus size={12} /> Add Expense
+            </button>
+          </div>
+          
+          <div className="space-y-3">
+            {expenses.map((expense, index) => (
+              <div key={index} className="p-4 bg-luxury-cream rounded-2xl border border-black/5 space-y-3 relative group">
+                <button 
+                  type="button"
+                  onClick={() => setExpenses(expenses.filter((_, i) => i !== index))}
+                  className="absolute top-2 right-2 p-1 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={14} />
+                </button>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Category</label>
+                    <select 
+                      value={expense.category}
+                      onChange={(e) => {
+                        const newExpenses = [...expenses];
+                        newExpenses[index].category = e.target.value;
+                        setExpenses(newExpenses);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-bold focus:outline-none"
+                    >
+                      {expenseCategories.length > 0 ? (
+                        expenseCategories.map(cat => (
+                          <option key={cat.id} value={cat.name}>{cat.name}</option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="Cleaning">Cleaning</option>
+                          <option value="Maintenance">Maintenance</option>
+                          <option value="Electricity">Electricity</option>
+                          <option value="Staff">Staff</option>
+                          <option value="Food">Food</option>
+                          <option value="Other">Other</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Amount (₹)</label>
+                    <input 
+                      type="number"
+                      value={expense.amount}
+                      onChange={(e) => {
+                        const newExpenses = [...expenses];
+                        newExpenses[index].amount = parseInt(e.target.value) || 0;
+                        setExpenses(newExpenses);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-bold focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Note</label>
+                  <input 
+                    type="text"
+                    placeholder="Optional note..."
+                    value={expense.note}
+                    onChange={(e) => {
+                      const newExpenses = [...expenses];
+                      newExpenses[index].note = e.target.value;
+                      setExpenses(newExpenses);
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-medium focus:outline-none"
+                  />
+                </div>
+              </div>
+            ))}
+            {expenses.length === 0 && (
+              <p className="text-[10px] text-center text-luxury-dark/20 italic py-2">No expenses recorded for this booking.</p>
+            )}
+            {expenses.length > 0 && (
+              <div className="flex justify-between items-center px-1">
+                <span className="text-[9px] font-bold text-luxury-dark/40 uppercase tracking-widest">Total Expenses</span>
+                <span className="text-xs font-bold text-red-600">₹{expenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2 px-1">
         <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">
           <span>Booking Amount</span>
@@ -4947,7 +5582,16 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast }: { isOpen: boolean, onClose: () => void, user: FirebaseUser | null, userRole: string | null, onLogin: () => void, allBookings: any[], showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [] }: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  user: FirebaseUser | null, 
+  userRole: string | null, 
+  onLogin: () => void, 
+  allBookings: any[], 
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
+  expenseCategories?: any[]
+}) => {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -4978,7 +5622,7 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} />
             </div>
           </motion.div>
         </div>
