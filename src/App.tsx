@@ -3803,8 +3803,17 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [isAdminBooking, setIsAdminBooking] = useState(userRole === 'admin' && !editBooking);
+  const [hasSetDefaultBookingMode, setHasSetDefaultBookingMode] = useState(false);
   const [bookingAmount, setBookingAmount] = useState<number>(editBooking?.bookingAmount || (editBooking ? (editBooking.totalAmount - (editBooking.securityDeposit || 5000)) : 0));
   const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || 5000);
+
+  useEffect(() => {
+    if (userRole === 'admin' && !editBooking && !hasSetDefaultBookingMode) {
+      setIsAdminBooking(true);
+      setHasSetDefaultBookingMode(true);
+    }
+  }, [userRole, editBooking, hasSetDefaultBookingMode]);
+
   const [amountPaid, setAmountPaid] = useState<number>(editBooking?.amountPaid || 0);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
@@ -3928,16 +3937,16 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    if (!name.trim()) newErrors.name = "Full name is required";
-    if (!mobile.trim()) {
+    if (!name.trim() && !isAdminBooking) newErrors.name = "Full name is required";
+    if (!mobile.trim() && !isAdminBooking) {
       newErrors.mobile = "Mobile number is required";
-    } else if (!/^\d{10}$/.test(mobile.replace(/\D/g, ''))) {
+    } else if (mobile.trim() && !/^\d{10}$/.test(mobile.replace(/\D/g, ''))) {
       newErrors.mobile = "Please enter a valid 10-digit mobile number";
     }
     
-    if (!email.trim()) {
+    if (!email.trim() && !isAdminBooking) {
       newErrors.email = "Email address is required";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    } else if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = "Please enter a valid email address";
     }
     
@@ -3995,6 +4004,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
+      console.log('Validation errors:', newErrors);
+      showToast('Please fix the errors in the form', 'error');
       return;
     }
     
@@ -4044,6 +4055,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         bookedBy: userRole === 'admin' ? (bookedBy || (isAdminBooking ? 'admin_for_client' : 'admin_personal')) : 'client',
         paymentMethod: paymentMethod
       };
+
+      console.log('Submitting booking data:', bookingData);
 
       if (user || isAdminBooking || !user) { // Allow guest bookings
         if (editBooking) {
@@ -4914,7 +4927,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
       <button 
         type="submit"
-        disabled={loading || !!errors.checkIn || !!errors.checkOut}
+        disabled={loading}
         className="w-full bg-luxury-dark text-white py-4 rounded-xl font-bold hover:bg-luxury-gold hover:text-luxury-dark transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
       >
         {loading ? (

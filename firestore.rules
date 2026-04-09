@@ -46,13 +46,13 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((('email' in request.auth.token) && request.auth.token.email == "anujkumarmittal@gmail.com") ||
+        ((('email' in request.auth.token) && request.auth.token.email.lower() == "anujkumarmittal@gmail.com") ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isOwnerEmail() {
-      return isAuthenticated() && ('email' in request.auth.token) && request.auth.token.email == "anujkumarmittal@gmail.com";
+      return isAuthenticated() && ('email' in request.auth.token) && request.auth.token.email.lower() == "anujkumarmittal@gmail.com";
     }
 
     function isValidEmail(email) {
@@ -96,7 +96,7 @@ service cloud.firestore {
              data.amountPaid is number && data.amountPaid >= 0 &&
              data.securityDeposit is number && data.securityDeposit >= 0 &&
              data.bookingAmount is number && data.bookingAmount >= 0 &&
-             data.bookedBy in ['client', 'admin', 'admin_for_client', 'admin_personal'] &&
+             data.bookedBy is string && data.bookedBy.size() <= 128 &&
              data.paymentMethod in ['upi', 'card', 'netbanking'] &&
              data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
              isValidDateTimeString(data.createdAt) &&
