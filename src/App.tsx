@@ -939,8 +939,55 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
 }) => {
   const [newCategory, setNewCategory] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
-
   const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
+
+  // Filter State
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+
+  const years = useMemo(() => {
+    const yearsSet = new Set<string>();
+    bookings.forEach(b => {
+      const d = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+      if (isValid(d)) yearsSet.add(d.getFullYear().toString());
+    });
+    const currentYear = new Date().getFullYear().toString();
+    yearsSet.add(currentYear);
+    return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+  }, [bookings]);
+
+  const months = [
+    { value: 'all', label: 'All Months' },
+    { value: '0', label: 'January' },
+    { value: '1', label: 'February' },
+    { value: '2', label: 'March' },
+    { value: '3', label: 'April' },
+    { value: '4', label: 'May' },
+    { value: '5', label: 'June' },
+    { value: '6', label: 'July' },
+    { value: '7', label: 'August' },
+    { value: '8', label: 'September' },
+    { value: '9', label: 'October' },
+    { value: '10', label: 'November' },
+    { value: '11', label: 'December' },
+  ];
+
+  const filteredBookings = useMemo(() => {
+    return bookings.filter(b => {
+      if (b.status !== 'confirmed') return false;
+      const d = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+      if (!isValid(d)) return false;
+      
+      const yearMatch = d.getFullYear().toString() === selectedYear;
+      const monthMatch = selectedMonth === 'all' || d.getMonth().toString() === selectedMonth;
+      
+      return yearMatch && monthMatch;
+    }).sort((a, b) => {
+      const dateA = parse(a.checkIn, 'dd/MM/yyyy', new Date());
+      const dateB = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+      return dateB.getTime() - dateA.getTime();
+    });
+  }, [bookings, selectedMonth, selectedYear]);
 
   const handleAddCategory = async () => {
     if (!newCategory.trim()) return;
@@ -984,14 +1031,14 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
   };
 
   const financialData = useMemo(() => {
-    const months: { [key: string]: { income: number; expenses: number; bookings: number } } = {};
+    const monthsData: { [key: string]: { income: number; expenses: number; bookings: number } } = {};
     
-    // Process last 12 months
-    const now = new Date();
+    // Process last 12 months based on selected year
+    const year = parseInt(selectedYear);
     for (let i = 0; i < 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const d = new Date(year, i, 1);
       const monthKey = format(d, 'MMM yyyy');
-      months[monthKey] = { income: 0, expenses: 0, bookings: 0 };
+      monthsData[monthKey] = { income: 0, expenses: 0, bookings: 0 };
     }
 
     bookings.forEach(booking => {
@@ -1001,35 +1048,37 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
       if (!isValid(checkInDate)) return;
       
       const monthKey = format(checkInDate, 'MMM yyyy');
-      if (months[monthKey]) {
-        months[monthKey].income += (booking.bookingAmount || 0);
-        months[monthKey].bookings += 1;
+      if (monthsData[monthKey]) {
+        monthsData[monthKey].income += (booking.bookingAmount || 0);
+        monthsData[monthKey].bookings += 1;
         
         if (booking.expenses && Array.isArray(booking.expenses)) {
           booking.expenses.forEach((exp: any) => {
-            months[monthKey].expenses += (exp.amount || 0);
+            monthsData[monthKey].expenses += (exp.amount || 0);
           });
         }
       }
     });
 
-    return Object.entries(months)
-      .map(([name, data]) => ({ name, ...data }))
-      .reverse();
-  }, [bookings]);
+    return Object.entries(monthsData)
+      .map(([name, data]) => ({ name, ...data }));
+  }, [bookings, selectedYear]);
 
   const stats = useMemo(() => {
-    const totalIncome = financialData.reduce((sum, d) => sum + d.income, 0);
-    const totalExpenses = financialData.reduce((sum, d) => sum + d.expenses, 0);
-    const totalBookings = financialData.reduce((sum, d) => sum + d.bookings, 0);
+    const totalIncome = filteredBookings.reduce((sum, b) => sum + (b.bookingAmount || 0), 0);
+    const totalExpenses = filteredBookings.reduce((sum, b) => {
+      const expSum = (b.expenses || []).reduce((s: number, e: any) => s + (e.amount || 0), 0);
+      return sum + expSum;
+    }, 0);
+    const totalBookings = filteredBookings.length;
     const netProfit = totalIncome - totalExpenses;
     
     return { totalIncome, totalExpenses, totalBookings, netProfit };
-  }, [financialData]);
+  }, [filteredBookings]);
 
   const expenseByCategory = useMemo(() => {
     const categories: { [key: string]: number } = {};
-    bookings.forEach(booking => {
+    filteredBookings.forEach(booking => {
       if (booking.expenses && Array.isArray(booking.expenses)) {
         booking.expenses.forEach((exp: any) => {
           categories[exp.category] = (categories[exp.category] || 0) + exp.amount;
@@ -1037,12 +1086,47 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
       }
     });
     return Object.entries(categories).map(([name, value]) => ({ name, value }));
-  }, [bookings]);
+  }, [filteredBookings]);
 
   const COLORS = ['#C8A45D', '#141414', '#4B5563', '#9CA3AF', '#D1D5DB', '#F3F4F6'];
 
   return (
     <div className="space-y-12">
+      {/* Filters Section */}
+      <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm flex flex-col sm:flex-row gap-4 items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-luxury-gold/10 text-luxury-gold flex items-center justify-center">
+            <Search size={20} />
+          </div>
+          <div>
+            <h4 className="text-sm font-serif font-bold text-luxury-dark">Finance Filters</h4>
+            <p className="text-[10px] text-luxury-dark/40 font-bold uppercase tracking-widest">Refine your data</p>
+          </div>
+        </div>
+        
+        <div className="flex gap-3 w-full sm:w-auto">
+          <select 
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="flex-1 sm:flex-none px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-xs font-bold focus:outline-none focus:border-luxury-gold transition-colors"
+          >
+            {months.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+          
+          <select 
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+            className="flex-1 sm:flex-none px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-xs font-bold focus:outline-none focus:border-luxury-gold transition-colors"
+          >
+            {years.map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
@@ -1197,7 +1281,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
               </tr>
             </thead>
             <tbody className="divide-y divide-luxury-dark/5">
-              {bookings.filter(b => b.status === 'confirmed').map(booking => {
+              {filteredBookings.map(booking => {
                 const totalExp = (booking.expenses || []).reduce((sum: number, e: any) => sum + e.amount, 0);
                 return (
                   <tr key={booking.id} className="hover:bg-luxury-cream/30 transition-colors group">
@@ -1216,9 +1300,9 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
                   </tr>
                 );
               })}
-              {bookings.filter(b => b.status === 'confirmed').length === 0 && (
+              {filteredBookings.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-luxury-dark/30 italic">No confirmed bookings found.</td>
+                  <td colSpan={5} className="px-4 py-12 text-center text-luxury-dark/30 italic">No confirmed bookings found for the selected period.</td>
                 </tr>
               )}
             </tbody>
