@@ -1541,6 +1541,9 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
   const [isAddingImage, setIsAddingImage] = useState(false);
   const [isFetchingCloudinary, setIsFetchingCloudinary] = useState(false);
+  const [isAnalyzingGallery, setIsAnalyzingGallery] = useState(false);
+  const [isAnalyzeConfirmOpen, setIsAnalyzeConfirmOpen] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number } | null>(null);
   const [editingGalleryImage, setEditingGalleryImage] = useState<any | null>(null);
   const [seedProgress, setSeedProgress] = useState<{ current: number; total: number } | null>(null);
 
@@ -1669,6 +1672,111 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
       console.error(err);
       showToast('Failed to remove duplicates', 'error');
     }
+  };
+
+  const handleAutoAnalyzeGallery = async () => {
+    console.log('Auto-analyze gallery requested. Images count:', galleryImages.length);
+    if (galleryImages.length === 0) {
+      showToast('No images to analyze', 'info');
+      return;
+    }
+    setIsAnalyzeConfirmOpen(true);
+  };
+
+  const startAnalysis = async () => {
+    setIsAnalyzeConfirmOpen(false);
+    setIsAnalyzingGallery(true);
+    setAnalyzeProgress({ current: 0, total: galleryImages.length });
+    console.log('Starting AI analysis of gallery images...');
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    const getBase64FromUrl = async (url: string): Promise<{ data: string, mimeType: string } | null> => {
+      try {
+        console.log('Fetching image:', url);
+        const response = await fetch(url, { mode: 'cors' });
+        if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64String = (reader.result as string).split(',')[1];
+            resolve({ data: base64String, mimeType: blob.type });
+          };
+          reader.onerror = () => {
+            console.error('FileReader error');
+            resolve(null);
+          };
+          reader.readAsDataURL(blob);
+        });
+      } catch (e) {
+        console.error('Failed to fetch image for analysis:', url, e);
+        return null;
+      }
+    };
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < galleryImages.length; i++) {
+      const img = galleryImages[i];
+      setAnalyzeProgress({ current: i + 1, total: galleryImages.length });
+      console.log(`Analyzing image ${i + 1}/${galleryImages.length}: ${img.title}`);
+
+      try {
+        const imageData = await getBase64FromUrl(img.src);
+        if (!imageData) {
+          console.warn('Skipping image due to fetch failure:', img.src);
+          failCount++;
+          continue;
+        }
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  data: imageData.data,
+                  mimeType: imageData.mimeType
+                }
+              },
+              {
+                text: `Analyze this image of a luxury farmhouse and provide:
+1. A concise, elegant title (max 5 words).
+2. The most appropriate category from this list: [${galleryCategories.join(', ')}].
+Return the result as a JSON object with keys 'title' and 'category'. Do not include markdown formatting.`
+              }
+            ]
+          },
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+
+        const result = JSON.parse(response.text || '{}');
+        console.log('AI Analysis result:', result);
+        if (result.title && result.category) {
+          await updateDoc(doc(db, 'gallery', img.id), {
+            title: result.title,
+            category: result.category,
+            updatedAt: serverTimestamp()
+          });
+          successCount++;
+        } else {
+          console.warn('AI returned invalid result format:', result);
+          failCount++;
+        }
+      } catch (err) {
+        console.error('Error analyzing image:', img.id, err);
+        failCount++;
+      }
+    }
+
+    setIsAnalyzingGallery(false);
+    setAnalyzeProgress(null);
+    showToast(`Analysis complete: ${successCount} updated, ${failCount} failed`, successCount > 0 ? 'success' : 'error');
+    await logAdminAction('auto_analyze_gallery', 'bulk', `AI analyzed ${successCount} gallery images (${failCount} failed)`);
   };
 
   const handleFetchCloudinaryImages = async () => {
@@ -2745,6 +2853,14 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
               >
                 Remove Duplicates
               </button>
+
+              <button 
+                onClick={handleAutoAnalyzeGallery}
+                disabled={isAnalyzingGallery}
+                className="mt-6 ml-4 px-8 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50"
+              >
+                {isAnalyzingGallery ? 'Analyzing...' : 'Auto-Analyze All Images'}
+              </button>
               
               <div className="mt-8 flex flex-wrap gap-4 items-center justify-between border-t border-luxury-dark/5 pt-8">
                 <div className="flex gap-6">
@@ -2782,7 +2898,27 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                   </div>
                 </div>
 
-                {galleryImages.length < 17 && (
+                <div className="flex flex-col gap-4">
+                  {isAnalyzingGallery && analyzeProgress && (
+                    <div className="w-full max-w-md space-y-2">
+                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-emerald-600">
+                        <span>Analyzing Images</span>
+                        <span>{Math.round((analyzeProgress.current / analyzeProgress.total) * 100)}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-emerald-50 rounded-full overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(analyzeProgress.current / analyzeProgress.total) * 100}%` }}
+                          className="h-full bg-emerald-500 transition-all duration-300"
+                        />
+                      </div>
+                      <p className="text-[9px] text-emerald-600/60 italic">
+                        Processing {analyzeProgress.current} of {analyzeProgress.total}...
+                      </p>
+                    </div>
+                  )}
+
+                  {galleryImages.length < 17 && (
                   <div className="flex flex-col gap-4">
                     <button 
                       onClick={handleSeedGallery}
@@ -2814,6 +2950,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
                 )}
               </div>
             </div>
+          </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {galleryImages.map((img) => (
@@ -3434,6 +3571,20 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
           message={`Are you sure you want to delete the booking for ${bookingToDelete?.name}? This action cannot be undone.`}
           confirmText="Delete"
           type="danger"
+        />
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {isAnalyzeConfirmOpen && (
+        <ConfirmationModal 
+          isOpen={isAnalyzeConfirmOpen}
+          onClose={() => setIsAnalyzeConfirmOpen(false)}
+          onConfirm={startAnalysis}
+          title="Auto-Analyze Gallery"
+          message={`This will use AI to analyze all ${galleryImages.length} images and update their titles and categories. This process may take a few minutes. Continue?`}
+          confirmText="Start Analysis"
+          type="info"
         />
       )}
     </AnimatePresence>
