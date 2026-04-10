@@ -1687,6 +1687,14 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   };
 
   const startAnalysis = async () => {
+    const lastQuotaError = localStorage.getItem('last_google_quota_error');
+    const now = new Date().getTime();
+    
+    if (lastQuotaError && now - parseInt(lastQuotaError) < 60 * 60 * 1000) {
+      showToast('AI analysis is on cooldown due to recent quota limits. Please try again in an hour.', 'info');
+      return;
+    }
+
     setIsAnalyzeConfirmOpen(false);
     setIsAnalyzingGallery(true);
     setAnalyzeProgress({ current: 0, total: galleryImages.length });
@@ -1775,8 +1783,9 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
         }
       } catch (err: any) {
         console.error('Error analyzing image:', img.id, err);
-        if (err?.message?.toLowerCase().includes('quota')) {
-          showToast('Gemini API quota exceeded. Please wait a few minutes before trying again.', 'error');
+        if (err?.message?.toLowerCase().includes('quota') || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED')) {
+          localStorage.setItem('last_google_quota_error', new Date().getTime().toString());
+          showToast('Gemini API quota exceeded. Cooldown active for 1 hour.', 'error');
           break; // Stop the loop if we hit quota
         }
         failCount++;
@@ -1906,8 +1915,15 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
     
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const lastSync = localStorage.getItem('last_google_review_sync');
+    const lastQuotaError = localStorage.getItem('last_google_quota_error');
     const now = new Date().getTime();
     
+    // Check for recent quota error (cooldown for 1 hour)
+    if (lastQuotaError && now - parseInt(lastQuotaError) < 60 * 60 * 1000) {
+      console.log("Sync skipped due to recent quota error cooldown.");
+      return;
+    }
+
     // Check last sync time to avoid redundant calls (every 4 hours to save quota)
     if (silent && lastSync && now - parseInt(lastSync) < 4 * 60 * 60 * 1000) {
       return;
@@ -1948,12 +1964,14 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
         
         // Handle Quota Exceeded (429)
         if (err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED')) {
+          localStorage.setItem('last_google_quota_error', new Date().getTime().toString());
           if (retryCount < 2) {
-            console.log(`Quota hit, retrying in ${5 * (retryCount + 1)}s...`);
-            await new Promise(resolve => setTimeout(resolve, 5000 * (retryCount + 1)));
+            const delay = 10000 * (retryCount + 1);
+            console.log(`Quota hit, retrying in ${delay / 1000}s...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
             return fetchReviews(searchPrompt, retryCount + 1);
           }
-          throw new Error('Google API quota exceeded. Please try again in an hour.');
+          throw new Error('Google API quota exceeded. Cooldown active for 1 hour.');
         }
         return [];
       }
