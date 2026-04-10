@@ -4172,6 +4172,7 @@ const Gallery = ({ onImageClick, images: firestoreImages, initialCategory = 'All
                 <img 
                   src={img.src} 
                   alt={img.title} 
+                  loading="lazy"
                   className="w-full h-auto object-cover transition-transform duration-1000 group-hover:scale-110"
                   referrerPolicy="no-referrer"
                 />
@@ -6063,6 +6064,94 @@ const LocationSection = () => {
   );
 };
 
+const SEOContent = () => {
+  return (
+    <section className="py-16 sm:py-24 px-6 bg-luxury-cream/30">
+      <div className="max-w-4xl mx-auto prose prose-luxury prose-sm sm:prose-base lg:prose-lg">
+        <h2 className="section-title text-left text-3xl sm:text-4xl mb-8">Ultimate Guide to Booking the Best Farmhouse in Noida for Parties and Stays</h2>
+        
+        <div className="space-y-12 text-luxury-dark/80 leading-relaxed">
+          <div id="about-detailed">
+            <h3 className="text-2xl font-serif text-luxury-dark mb-4">About Unique Farmhouse Noida</h3>
+            <p>
+              Welcome to <strong>Unique Farmhouse Noida</strong>, your premier destination for luxury farm stays and private celebrations in the heart of Uttar Pradesh. Also known as <strong>Unique Farm House</strong>, we provide an unparalleled experience that combines the serenity of nature with the comforts of a high-end villa. Whether you are looking for a <strong>farmhouse in Noida</strong> for a quiet weekend getaway or a <strong>farm house in Noida</strong> to host a grand birthday party, we have the perfect space for you.
+            </p>
+            <p>
+              Our property is strategically located in Sector 135, making it easily accessible for residents of Noida, Greater Noida, and Delhi. We pride ourselves on being one of the most sought-after <strong>farmhouses in Delhi NCR</strong>, offering a sanctuary away from the city's hustle while remaining close to major urban hubs.
+            </p>
+          </div>
+
+          <div id="amenities-detailed">
+            <h3 className="text-2xl font-serif text-luxury-dark mb-4">World-Class Amenities for a Perfect Stay</h3>
+            <p>
+              At Unique Farmhouse, we believe that luxury lies in the details. Our <strong>luxury villa in Noida</strong> is equipped with state-of-the-art facilities designed to cater to your every need. 
+            </p>
+            <ul>
+              <li><strong>Private Swimming Pool:</strong> Dive into our crystal-clear pool, perfect for summer pool parties or a relaxing morning swim.</li>
+              <li><strong>Lush Green Gardens:</strong> Our expansive party lawn can accommodate large gatherings, making it an ideal <strong>wedding farmhouse in Noida</strong>.</li>
+              <li><strong>Spacious Bedrooms:</strong> Experience comfort in our well-appointed rooms featuring premium bedding and modern decor.</li>
+              <li><strong>Fully Equipped Kitchen:</strong> Cook your favorite meals or hire our professional catering services for your events.</li>
+              <li><strong>High-Speed Wi-Fi & Entertainment:</strong> Stay connected and entertained with our high-speed internet and sound systems.</li>
+            </ul>
+          </div>
+
+          <div id="pricing-detailed">
+            <h3 className="text-2xl font-serif text-luxury-dark mb-4">Transparent Pricing for Farmhouse Booking in Noida</h3>
+            <p>
+              Finding an affordable yet <strong>luxury farmhouse in Noida</strong> can be challenging. At Unique Farmhouse, we offer competitive and transparent pricing models. Our rates vary based on the day of the week, the number of guests, and the type of event. 
+            </p>
+            <p>
+              Whether you are searching for a <strong>farmhouse for party in Delhi NCR</strong> or a long-term staycation, we provide customized packages. Contact us today for a detailed quote and discover why we are the top choice for <strong>farm house booking near me</strong>.
+            </p>
+          </div>
+
+          <div id="why-choose-us">
+            <h3 className="text-2xl font-serif text-luxury-dark mb-4">Why Choose Unique Farmhouse for Your Next Event?</h3>
+            <p>
+              Choosing the right venue is crucial for the success of any event. Here is why Unique Farmhouse stands out among the <strong>best farmhouses in Noida</strong>:
+            </p>
+            <ol>
+              <li><strong>Privacy & Security:</strong> Enjoy your private moments without any external interference in our gated property.</li>
+              <li><strong>Versatility:</strong> From corporate retreats to intimate family gatherings and high-energy parties, our space adapts to your vision.</li>
+              <li><strong>Location:</strong> Located in Sector 135, we are just a short drive from the Noida-Greater Noida Expressway.</li>
+              <li><strong>Exceptional Service:</strong> Our dedicated staff is always on hand to ensure your stay is seamless and memorable.</li>
+            </ol>
+          </div>
+
+          <div id="faqs">
+            <h3 className="text-2xl font-serif text-luxury-dark mb-4">Frequently Asked Questions (FAQs)</h3>
+            <div className="space-y-6">
+              <div>
+                <h4 className="font-bold text-luxury-dark">1. What is the capacity of the farmhouse for parties?</h4>
+                <p>Our lawn can accommodate up to 100+ guests, while the villa itself is perfect for overnight stays for up to 15-20 people.</p>
+              </div>
+              <div>
+                <h4 className="font-bold text-luxury-dark">2. Is the swimming pool private?</h4>
+                <p>Yes, the pool is exclusively for the use of the guests who book the property. We ensure complete privacy.</p>
+              </div>
+              <div>
+                <h4 className="font-bold text-luxury-dark">3. Do you allow outside catering?</h4>
+                <p>Yes, we allow outside catering. We also have an in-house kitchen if you prefer to cook or bring your own chef.</p>
+              </div>
+              <div>
+                <h4 className="font-bold text-luxury-dark">4. How do I book the farmhouse?</h4>
+                <p>You can book directly through our website using the "Book Now" button or call us at +91 9313501001 for availability.</p>
+              </div>
+            </div>
+          </div>
+
+          <div id="local-seo-content">
+            <h3 className="text-2xl font-serif text-luxury-dark mb-4">Serving Noida, Delhi NCR, and Beyond</h3>
+            <p>
+              If you are looking for a <strong>farmhouse in Delhi NCR</strong> or a <strong>farm house near me</strong> in the Noida region, Unique Farmhouse is your go-to destination. We serve clients from all over the National Capital Region, providing a premium alternative to crowded hotels and generic banquet halls. Our <strong>party farmhouse in Noida</strong> is specifically designed to host vibrant celebrations while maintaining a sophisticated atmosphere.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const Footer = () => {
   return (
     <footer className="bg-luxury-dark text-white py-12 sm:py-16 px-6 border-t border-white/5">
@@ -6322,6 +6411,20 @@ const InstallPrompt = ({ onInstall, onClose, isIOS }: { onInstall: () => void; o
 // --- Main App ---
 
 export default function App() {
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 400);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
@@ -6590,6 +6693,7 @@ export default function App() {
         <Reviews />
         <BookingSection onBookNow={openBookingModal} />
         <LocationSection />
+        <SEOContent />
       </main>
       <Footer />
       
@@ -6658,6 +6762,22 @@ export default function App() {
           <MessageCircle size={20} /> WhatsApp
         </a>
       </div>
+
+      {/* Scroll to Top Button */}
+      <AnimatePresence>
+        {showScrollTop && (
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            onClick={scrollToTop}
+            aria-label="Scroll to top"
+            className="fixed bottom-24 right-8 z-50 bg-white text-luxury-dark p-4 rounded-full shadow-2xl flex items-center justify-center hover:bg-luxury-gold transition-colors border border-black/5"
+          >
+            <ChevronLeft size={24} className="rotate-90" />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Desktop Floating WhatsApp Button */}
       <motion.a

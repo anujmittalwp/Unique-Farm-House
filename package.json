@@ -13,6 +13,7 @@
   "dependencies": {
     "@google-cloud/firestore": "^8.3.0",
     "@google/genai": "^1.29.0",
+    "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.14",
     "@types/react-datepicker": "^6.2.0",
     "@vitejs/plugin-react": "^5.0.4",
