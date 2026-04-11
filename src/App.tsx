@@ -336,6 +336,7 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -521,13 +522,20 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
                     <div className="relative">
                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
                       <input 
-                        type="password" 
+                        type={showPassword ? 'text' : 'password'} 
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="w-full bg-luxury-dark/5 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                        className="w-full bg-luxury-dark/5 border-none rounded-2xl py-4 pl-12 pr-12 focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
                         placeholder="••••••••"
                       />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 hover:text-luxury-dark/40 transition-colors"
+                      >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -906,14 +914,23 @@ const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; show
 
             <div className="space-y-2">
               <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold ml-1">Confirm New Password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm focus:outline-none focus:border-luxury-gold"
-                placeholder="••••••••"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm focus:outline-none focus:border-luxury-gold pr-12"
+                  placeholder="••••••••"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass(!showPass)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 hover:text-luxury-dark/40 transition-colors"
+                >
+                  {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -1543,6 +1560,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [syncingReviews, setSyncingReviews] = useState(false);
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
   const [assigningExpenseBooking, setAssigningExpenseBooking] = useState<any | null>(null);
+  const [blogs, setBlogs] = useState<any[]>([]);
 
   // Gallery Management State
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
@@ -2226,6 +2244,16 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
     return () => unsubscribe();
   }, [user.uid, user.email, userRole]);
 
+  useEffect(() => {
+    if (userRole === 'admin') {
+      const q = query(collection(db, 'blogs'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setBlogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'blogs'));
+      return () => unsubscribe();
+    }
+  }, [userRole]);
+
   const filteredBookings = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -2510,6 +2538,7 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
                   ({tab.id === 'reviews' ? reviews.length : 
                     tab.id === 'logs' ? adminLogs.length :
                     tab.id === 'notifications' ? notifications.length :
+                    tab.id === 'blogs' ? blogs.length :
                     tab.id === 'gallery' ? (galleryImages.length + 17 - galleryImages.filter(img => [
                       "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg",
                       "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg",
