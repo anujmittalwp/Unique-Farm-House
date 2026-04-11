@@ -70,6 +70,7 @@ import {
   Minus,
   Search
 } from 'lucide-react';
+import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   onAuthStateChanged, 
@@ -3651,29 +3652,35 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const location = useLocation();
+  const isHomePage = location.pathname === '/';
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
+    handleScroll();
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   const navLinks = [
-    { name: 'About', href: '#about' },
-    { name: 'Amenities', href: '#amenities' },
-    { name: 'Gallery', href: '#gallery' },
-    { name: 'Reviews', href: '#reviews' },
-    { name: 'Location', href: '#location' },
+    { name: 'Home', href: '/' },
+    { name: 'About', href: '/about' },
+    { name: 'Amenities', href: '/amenities' },
+    { name: 'Gallery', href: '/gallery' },
+    { name: 'Reviews', href: '/reviews' },
+    { name: 'Location', href: '/location' },
   ];
 
   const handleSignOut = () => {
     signOut(auth);
   };
 
+  const isNavSolid = isScrolled || !isHomePage;
+
   return (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${isScrolled ? 'glass-nav py-4' : 'bg-transparent py-6'}`}>
+    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${isNavSolid ? 'glass-nav py-4' : 'bg-transparent py-6'}`}>
       <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-        <a href="#" className="flex items-center gap-2 sm:gap-3">
+        <Link to="/" className="flex items-center gap-2 sm:gap-3">
           <img 
             src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
             alt="Unique Farmhouse Logo" 
@@ -3681,21 +3688,21 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
             referrerPolicy="no-referrer"
           />
           <div className="flex flex-col">
-            <span className={`text-xl sm:text-2xl font-serif font-bold tracking-tighter leading-none ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}>UNIQUE</span>
-            <span className={`text-[8px] sm:text-[10px] tracking-[0.4em] uppercase -mt-0.5 ${isScrolled ? 'text-luxury-gold' : 'text-white/80'}`}>Farmhouse</span>
+            <span className={`text-xl sm:text-2xl font-serif font-bold tracking-tighter leading-none ${isNavSolid ? 'text-luxury-dark' : 'text-white'}`}>UNIQUE</span>
+            <span className={`text-[8px] sm:text-[10px] tracking-[0.4em] uppercase -mt-0.5 ${isNavSolid ? 'text-luxury-gold' : 'text-white/80'}`}>Farmhouse</span>
           </div>
-        </a>
+        </Link>
 
         {/* Desktop Nav */}
         <div className="hidden md:flex items-center space-x-8">
           {navLinks.map((link) => (
-            <a 
+            <Link 
               key={link.name} 
-              href={link.href} 
-              className={`text-sm font-medium tracking-wide hover:text-luxury-gold transition-colors ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}
+              to={link.href} 
+              className={`text-sm font-medium tracking-wide hover:text-luxury-gold transition-colors ${isNavSolid ? 'text-luxury-dark' : 'text-white'}`}
             >
               {link.name}
-            </a>
+            </Link>
           ))}
           
           <div className="h-4 w-px bg-white/20" />
@@ -3704,7 +3711,7 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
             <div className="flex items-center gap-4">
               <button 
                 onClick={onMyBookings}
-                className={`flex items-center gap-2 text-sm font-medium hover:text-luxury-gold transition-colors ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}
+                className={`flex items-center gap-2 text-sm font-medium hover:text-luxury-gold transition-colors ${isNavSolid ? 'text-luxury-dark' : 'text-white'}`}
               >
                 {userRole === 'admin' ? <LayoutDashboard size={18} /> : <History size={18} />}
                 {userRole === 'admin' ? 'Admin Dashboard' : 'My Bookings'}
@@ -3714,7 +3721,7 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
               )}
               <button 
                 onClick={handleSignOut}
-                className={`flex items-center gap-2 text-sm font-medium hover:text-red-500 transition-colors ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}
+                className={`flex items-center gap-2 text-sm font-medium hover:text-red-500 transition-colors ${isNavSolid ? 'text-luxury-dark' : 'text-white'}`}
               >
                 <LogOut size={18} />
               </button>
@@ -3722,7 +3729,7 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
           ) : (
             <button 
               onClick={onLogin}
-              className={`flex items-center gap-2 text-sm font-medium hover:text-luxury-gold transition-colors ${isScrolled ? 'text-luxury-dark' : 'text-white'}`}
+              className={`flex items-center gap-2 text-sm font-medium hover:text-luxury-gold transition-colors ${isNavSolid ? 'text-luxury-dark' : 'text-white'}`}
             >
               <User size={18} />
               Sign In
@@ -3743,7 +3750,7 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
           className="md:hidden"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         >
-          {isMobileMenuOpen ? <X className={isScrolled ? 'text-luxury-dark' : 'text-white'} /> : <Menu className={isScrolled ? 'text-luxury-dark' : 'text-white'} />}
+          {isMobileMenuOpen ? <X className={isNavSolid ? 'text-luxury-dark' : 'text-white'} /> : <Menu className={isNavSolid ? 'text-luxury-dark' : 'text-white'} />}
         </button>
       </div>
 
@@ -3757,14 +3764,14 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
             className="absolute top-full left-0 right-0 bg-white border-b border-black/5 p-6 md:hidden flex flex-col space-y-4 shadow-xl"
           >
             {navLinks.map((link) => (
-              <a 
+              <Link 
                 key={link.name} 
-                href={link.href} 
+                to={link.href} 
                 className="text-lg font-serif text-luxury-dark hover:text-luxury-gold"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 {link.name}
-              </a>
+              </Link>
             ))}
             
             <div className="pt-6 border-t border-luxury-dark/5 flex flex-col gap-4">
@@ -4124,51 +4131,68 @@ const Gallery = ({ onImageClick, images: firestoreImages, initialCategory = 'All
     : allImages.filter(img => img.category === activeCategory);
 
   return (
-    <section id="gallery" className="py-16 sm:py-24 px-6 bg-white overflow-hidden">
+    <section id="gallery" className="py-24 px-6 bg-luxury-cream/30 overflow-hidden">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-12 sm:mb-16 gap-8">
-          <div className="text-center md:text-left">
-            <span className="section-subtitle !text-left !mx-0">Visual Journey</span>
-            <h2 className="section-title !text-left !mb-0 text-3xl sm:text-4xl md:text-5xl">Peek Inside Our Villa</h2>
+        <div className="flex flex-col md:flex-row justify-between items-end mb-16 gap-8">
+          <div className="max-w-2xl">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+            >
+              <span className="text-luxury-gold text-[10px] font-bold uppercase tracking-[0.4em] mb-4 block">Visual Journey</span>
+              <h2 className="text-4xl sm:text-5xl md:text-6xl font-serif text-luxury-dark leading-tight">
+                Peek Inside Our <span className="italic text-luxury-gold">Sanctuary</span>
+              </h2>
+            </motion.div>
           </div>
           
-          <div className="flex flex-wrap justify-center gap-2">
+          <motion.div 
+            initial={{ opacity: 0, x: 20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            className="flex flex-wrap gap-2"
+          >
             {categories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
+                className={`relative px-6 py-3 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all duration-500 overflow-hidden group ${
                   activeCategory === cat 
-                    ? 'bg-luxury-dark text-white shadow-lg shadow-luxury-dark/20' 
-                    : 'bg-luxury-dark/5 text-luxury-dark/40 hover:bg-luxury-dark/10 hover:text-luxury-dark'
+                    ? 'text-white shadow-xl shadow-luxury-dark/10' 
+                    : 'text-luxury-dark/60 hover:text-luxury-dark bg-white border border-luxury-dark/5 hover:border-luxury-dark/20'
                 }`}
               >
-                {cat}
+                {activeCategory === cat && (
+                  <motion.div 
+                    layoutId="activeCategory"
+                    className="absolute inset-0 bg-luxury-dark"
+                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                  />
+                )}
+                <span className="relative z-10">{cat}</span>
               </button>
             ))}
-          </div>
+          </motion.div>
         </div>
         
         <motion.div 
           layout
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5 }}
-          className="columns-1 sm:columns-2 lg:columns-3 gap-4 sm:gap-6 space-y-4 sm:space-y-6"
+          className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6"
         >
           <AnimatePresence mode="popLayout">
             {filteredImages.map((img, index) => (
               <motion.div 
                 layout
                 key={img.id || img.src}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ duration: 0.3 }}
-                whileHover={{ y: -5 }}
+                initial={{ opacity: 0, scale: 0.8, y: 50 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.8, y: 50 }}
+                transition={{ duration: 0.5, delay: index * 0.05 }}
                 onClick={() => onImageClick(img)}
-                className="relative group overflow-hidden rounded-3xl cursor-zoom-in shadow-sm hover:shadow-2xl hover:shadow-luxury-gold/10 transition-all duration-500"
+                className="relative group overflow-hidden rounded-[2rem] cursor-zoom-in shadow-sm hover:shadow-2xl hover:shadow-luxury-gold/20 transition-all duration-700 break-inside-avoid"
               >
+                <div className="absolute inset-0 bg-luxury-dark/20 group-hover:bg-transparent transition-colors duration-700 z-10" />
                 <img 
                   src={img.src} 
                   alt={img.title} 
@@ -4176,13 +4200,17 @@ const Gallery = ({ onImageClick, images: firestoreImages, initialCategory = 'All
                   className="w-full h-auto object-cover transition-transform duration-1000 group-hover:scale-110"
                   referrerPolicy="no-referrer"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col items-center justify-end text-white p-6 sm:p-8">
-                  <div className="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500 text-center">
-                    <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.4em] mb-3 text-luxury-gold font-bold block">{img.category}</span>
-                    <h3 className="text-lg sm:text-2xl font-serif mb-4">{img.title}</h3>
-                    <div className="mx-auto w-10 h-10 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center hover:bg-luxury-gold hover:text-luxury-dark transition-colors">
-                      <Maximize size={18} />
+                <div className="absolute inset-0 bg-gradient-to-t from-luxury-dark via-luxury-dark/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-700 z-20 flex flex-col justify-end p-8">
+                  <div className="transform translate-y-8 group-hover:translate-y-0 transition-transform duration-700">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-[10px] uppercase tracking-[0.4em] text-luxury-gold font-bold bg-white/10 backdrop-blur-md px-4 py-2 rounded-full border border-white/20">
+                        {img.category}
+                      </span>
+                      <div className="w-12 h-12 rounded-full bg-white text-luxury-dark flex items-center justify-center transform scale-0 group-hover:scale-100 transition-transform duration-500 delay-100 shadow-xl">
+                        <Maximize size={20} />
+                      </div>
                     </div>
+                    <h3 className="text-2xl sm:text-3xl font-serif text-white">{img.title}</h3>
                   </div>
                 </div>
               </motion.div>
@@ -4191,9 +4219,14 @@ const Gallery = ({ onImageClick, images: firestoreImages, initialCategory = 'All
         </motion.div>
 
         {filteredImages.length === 0 && (
-          <div className="py-24 text-center">
-            <p className="text-luxury-dark/30 italic font-serif text-xl">No images found in this category.</p>
-          </div>
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="py-32 text-center bg-white rounded-[3rem] border border-luxury-dark/5 shadow-sm mt-8"
+          >
+            <Images size={48} className="mx-auto text-luxury-dark/20 mb-6" />
+            <p className="text-luxury-dark/40 font-serif text-2xl">No images found in this category.</p>
+          </motion.div>
         )}
       </div>
     </section>
@@ -4204,60 +4237,82 @@ const GalleryModal = ({ image, onClose, onNext, onPrev }: { image: any, onClose:
   return (
     <AnimatePresence>
       {image && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-10">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center">
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="absolute inset-0 bg-black/95 backdrop-blur-xl"
+            transition={{ duration: 0.4 }}
+            className="absolute inset-0 bg-luxury-dark/95 backdrop-blur-2xl"
           />
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="relative max-w-7xl w-full max-h-full flex flex-col items-center"
+          
+          {/* Background blurred image for atmosphere */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.3 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 overflow-hidden pointer-events-none"
           >
-            <button 
-              onClick={onClose}
-              className="absolute -top-16 right-0 text-white/50 hover:text-white transition-colors p-2 z-10"
-            >
-              <X size={32} />
-            </button>
+            <img src={image.src} alt="" className="w-full h-full object-cover blur-3xl scale-110 opacity-50" />
+          </motion.div>
 
-            <div className="relative group w-full flex items-center justify-center">
+          <button 
+            onClick={onClose}
+            className="absolute top-6 right-6 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 backdrop-blur-md p-4 rounded-full transition-all z-50"
+          >
+            <X size={24} />
+          </button>
+
+          <div className="relative w-full h-full flex flex-col items-center justify-center p-4 md:p-12 z-10">
+            <div className="relative group w-full max-w-6xl flex-1 flex items-center justify-center">
               {onPrev && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); onPrev(); }}
-                  className="absolute left-4 p-4 bg-white/5 hover:bg-white/10 backdrop-blur-md rounded-full text-white opacity-0 group-hover:opacity-100 transition-all duration-300 z-10"
+                  className="absolute left-0 md:-left-12 p-4 md:p-6 bg-white/5 hover:bg-white/20 backdrop-blur-xl rounded-full text-white opacity-0 group-hover:opacity-100 transition-all duration-300 z-50 transform -translate-x-4 group-hover:translate-x-0"
                 >
-                  <ChevronLeft size={24} />
+                  <ChevronLeft size={32} />
                 </button>
               )}
               
-              <img 
-                src={image.src} 
-                alt={image.title} 
-                className="w-full h-auto max-h-[75vh] object-contain rounded-2xl shadow-2xl"
-                referrerPolicy="no-referrer"
-              />
+              <motion.div
+                key={image.src}
+                initial={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+                animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+                transition={{ duration: 0.4, type: "spring", bounce: 0.2 }}
+                className="relative w-full h-full flex items-center justify-center"
+              >
+                <img 
+                  src={image.src} 
+                  alt={image.title} 
+                  className="max-w-full max-h-[70vh] object-contain rounded-xl shadow-2xl"
+                  referrerPolicy="no-referrer"
+                />
+              </motion.div>
 
               {onNext && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); onNext(); }}
-                  className="absolute right-4 p-4 bg-white/5 hover:bg-white/10 backdrop-blur-md rounded-full text-white opacity-0 group-hover:opacity-100 transition-all duration-300 z-10"
+                  className="absolute right-0 md:-right-12 p-4 md:p-6 bg-white/5 hover:bg-white/20 backdrop-blur-xl rounded-full text-white opacity-0 group-hover:opacity-100 transition-all duration-300 z-50 transform translate-x-4 group-hover:translate-x-0"
                 >
-                  <ChevronRight size={24} />
+                  <ChevronRight size={32} />
                 </button>
               )}
             </div>
             
-            <div className="mt-8 text-center text-white max-w-2xl px-6">
-              <span className="text-luxury-gold text-[10px] uppercase tracking-[0.4em] font-bold mb-3 block">{image.category}</span>
-              <h3 className="text-2xl sm:text-4xl font-serif mb-2">{image.title}</h3>
-              {image.description && <p className="text-white/60 text-sm sm:text-base leading-relaxed">{image.description}</p>}
-            </div>
-          </motion.div>
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="mt-8 text-center text-white max-w-3xl px-6"
+            >
+              <span className="inline-block px-4 py-2 rounded-full border border-luxury-gold/30 bg-luxury-gold/10 text-luxury-gold text-[10px] uppercase tracking-[0.4em] font-bold mb-4">
+                {image.category}
+              </span>
+              <h3 className="text-3xl sm:text-5xl font-serif mb-4 tracking-tight">{image.title}</h3>
+              {image.description && <p className="text-white/60 text-base sm:text-lg leading-relaxed font-light">{image.description}</p>}
+            </motion.div>
+          </div>
         </div>
       )}
     </AnimatePresence>
@@ -6074,34 +6129,34 @@ const SEOContent = () => {
           <div id="about-detailed">
             <h3 className="text-2xl font-serif text-luxury-dark mb-4">About Unique Farmhouse Noida</h3>
             <p>
-              Welcome to <strong>Unique Farmhouse Noida</strong>, your premier destination for luxury farm stays and private celebrations in the heart of Uttar Pradesh. Also known as <strong>Unique Farm House</strong>, we provide an unparalleled experience that combines the serenity of nature with the comforts of a high-end villa. Whether you are looking for a <strong>farmhouse in Noida</strong> for a quiet weekend getaway or a <strong>farm house in Noida</strong> to host a grand birthday party, we have the perfect space for you.
+              Welcome to <strong>Unique Farmhouse Noida</strong>, your premier destination for luxury farm stays and private celebrations in the heart of Uttar Pradesh. Also known as <strong>Unique Farm House</strong>, we provide an unparalleled experience that combines the serenity of nature with the comforts of a high-end villa. Whether you are looking for a <strong>Farmhouse in Noida</strong> for a quiet weekend getaway or a <strong>Farm house in Noida</strong> to host a grand birthday party, we have the perfect space for you.
             </p>
             <p>
-              Our property is strategically located in Sector 135, making it easily accessible for residents of Noida, Greater Noida, and Delhi. We pride ourselves on being one of the most sought-after <strong>farmhouses in Delhi NCR</strong>, offering a sanctuary away from the city's hustle while remaining close to major urban hubs.
+              Our property is strategically located in Sector 135, making it easily accessible for residents of Noida, Greater Noida, and Delhi. We pride ourselves on being one of the most sought-after <strong>Farmhouse in Delhi NCR</strong> and <strong>Farm house in Delhi NCR</strong> options, offering a sanctuary away from the city's hustle while remaining close to major urban hubs.
             </p>
           </div>
 
           <div id="amenities-detailed">
             <h3 className="text-2xl font-serif text-luxury-dark mb-4">World-Class Amenities for a Perfect Stay</h3>
             <p>
-              At Unique Farmhouse, we believe that luxury lies in the details. Our <strong>luxury villa in Noida</strong> is equipped with state-of-the-art facilities designed to cater to your every need. 
+              At Unique Farmhouse, we believe that luxury lies in the details. Our <strong>Luxury villa in Noida</strong> is equipped with state-of-the-art facilities designed to cater to your every need. 
             </p>
             <ul>
-              <li><strong>Private Swimming Pool:</strong> Dive into our crystal-clear pool, perfect for summer pool parties or a relaxing morning swim.</li>
-              <li><strong>Lush Green Gardens:</strong> Our expansive party lawn can accommodate large gatherings, making it an ideal <strong>wedding farmhouse in Noida</strong>.</li>
-              <li><strong>Spacious Bedrooms:</strong> Experience comfort in our well-appointed rooms featuring premium bedding and modern decor.</li>
+              <li><strong>Private Swimming Pool:</strong> Dive into our crystal-clear pool, perfect for summer pool parties. We are a top-rated <strong>Farmhouse with pool in Noida</strong> and <strong>Farm house with pool in Noida</strong>.</li>
+              <li><strong>Lush Green Gardens:</strong> Our expansive party lawn can accommodate large gatherings, making it an ideal <strong>Wedding farmhouse in Noida</strong>.</li>
+              <li><strong>Spacious Bedrooms:</strong> Experience comfort in our well-appointed rooms featuring premium bedding and modern decor for a perfect <strong>Weekend getaway near Delhi</strong>.</li>
               <li><strong>Fully Equipped Kitchen:</strong> Cook your favorite meals or hire our professional catering services for your events.</li>
               <li><strong>High-Speed Wi-Fi & Entertainment:</strong> Stay connected and entertained with our high-speed internet and sound systems.</li>
             </ul>
           </div>
 
           <div id="pricing-detailed">
-            <h3 className="text-2xl font-serif text-luxury-dark mb-4">Transparent Pricing for Farmhouse Booking in Noida</h3>
+            <h3 className="text-2xl font-serif text-luxury-dark mb-4">Transparent Pricing for Farm house booking Noida</h3>
             <p>
-              Finding an affordable yet <strong>luxury farmhouse in Noida</strong> can be challenging. At Unique Farmhouse, we offer competitive and transparent pricing models. Our rates vary based on the day of the week, the number of guests, and the type of event. 
+              Finding an affordable yet luxurious <strong>Farm house for party in Noida</strong> can be challenging. At Unique Farmhouse, we offer competitive and transparent pricing models. Our rates vary based on the day of the week, the number of guests, and the type of event. 
             </p>
             <p>
-              Whether you are searching for a <strong>farmhouse for party in Delhi NCR</strong> or a long-term staycation, we provide customized packages. Contact us today for a detailed quote and discover why we are the top choice for <strong>farm house booking near me</strong>.
+              Whether you are searching for a <strong>Party farmhouse in Delhi NCR</strong>, a <strong>Party farmhouse in Noida</strong>, or a <strong>Private villa rental Noida</strong>, we provide customized packages. Contact us today for a detailed quote and discover why we are the top choice for <strong>Farm house booking Noida</strong>.
             </p>
           </div>
 
@@ -6116,6 +6171,22 @@ const SEOContent = () => {
               <li><strong>Location:</strong> Located in Sector 135, we are just a short drive from the Noida-Greater Noida Expressway.</li>
               <li><strong>Exceptional Service:</strong> Our dedicated staff is always on hand to ensure your stay is seamless and memorable.</li>
             </ol>
+          </div>
+
+          <div id="popular-searches">
+            <h3 className="text-2xl font-serif text-luxury-dark mb-4">Perfect For Every Occasion</h3>
+            <p>
+              Are you looking for the <strong>Best farmhouse in Noida for birthday party</strong> or a <strong>Safe farmhouse for girls party in Noida</strong>? Unique Farmhouse is your ideal choice. We offer a <strong>Luxury farm stay near Delhi NCR for families</strong> and an intimate <strong>Private pool villa in Noida for couples</strong> (also known as a <strong>Private pool farmhouse in Noida for couples</strong> or <strong>Private pool farm house in Noida for couples</strong>).
+            </p>
+            <p>
+              Conveniently located, our <strong>Farmhouse in Sector 135 Noida for events</strong> is a top-rated <strong>Farmhouse near Noida Expressway for party</strong> and the perfect <strong>Farmhouse for pool party in Noida Sector 135</strong>. Whether you need a <strong>Budget friendly farmhouse in Noida for stay</strong> or want to know the <strong>Unique farm house Noida booking price</strong>, we offer excellent value.
+            </p>
+            <p>
+              Our property is a <strong>Pet friendly farmhouse in Noida</strong> and a spacious <strong>Farmhouse with 4 bedrooms in Noida</strong>, making it a fantastic <strong>Overnight stay farmhouse in Noida with pool</strong>. Planning a corporate event? Book our <strong>Farmhouse for corporate outing in Noida</strong>. Need a cozier space? We are a great <strong>Small farmhouse for party in Noida</strong>.
+            </p>
+            <p>
+              Capture beautiful memories at our <strong>Farmhouse for pre-wedding shoot in Noida</strong>, or host a grand celebration at our <strong>Farmhouse with lawn for wedding in Noida</strong>. Enjoy a <strong>Luxury farm house in Delhi NCR for weekend</strong> getaways or a romantic <strong>Farmhouse for anniversary celebration in Noida</strong>. If you are searching for the <strong>Best farm house in Noida for 20 people</strong> or simply a <strong>Farmhouse near me for party booking</strong>, look no further!
+            </p>
           </div>
 
           <div id="faqs">
@@ -6158,7 +6229,7 @@ const Footer = () => {
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 sm:gap-12">
           <div className="space-y-6">
-            <a href="#" className="flex items-center gap-3">
+            <Link to="/" className="flex items-center gap-3">
               <img 
                 src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
                 alt="Unique Farmhouse Logo" 
@@ -6169,7 +6240,7 @@ const Footer = () => {
                 <span className="text-2xl sm:text-3xl font-serif font-bold tracking-tighter">UNIQUE</span>
                 <span className="text-[10px] sm:text-xs tracking-[0.4em] uppercase -mt-1 text-luxury-gold">Farmhouse</span>
               </div>
-            </a>
+            </Link>
             <p className="text-white/50 text-sm leading-relaxed">
               Experience the pinnacle of luxury and privacy in Noida. Our farmhouse is the ideal destination for celebrations and serene retreats.
             </p>
@@ -6186,11 +6257,11 @@ const Footer = () => {
           <div>
             <h4 className="text-lg font-serif mb-6">Quick Links</h4>
             <ul className="space-y-4 text-white/50 text-sm">
-              <li><a href="#about" className="hover:text-luxury-gold transition-colors">About Us</a></li>
-              <li><a href="#amenities" className="hover:text-luxury-gold transition-colors">Amenities</a></li>
-              <li><a href="#gallery" className="hover:text-luxury-gold transition-colors">Gallery</a></li>
-              <li><a href="#reviews" className="hover:text-luxury-gold transition-colors">Reviews</a></li>
-              <li><a href="#booking" className="hover:text-luxury-gold transition-colors">Book Now</a></li>
+              <li><Link to="/about" className="hover:text-luxury-gold transition-colors">About Us</Link></li>
+              <li><Link to="/amenities" className="hover:text-luxury-gold transition-colors">Amenities</Link></li>
+              <li><Link to="/gallery" className="hover:text-luxury-gold transition-colors">Gallery</Link></li>
+              <li><Link to="/reviews" className="hover:text-luxury-gold transition-colors">Reviews</Link></li>
+              <li><Link to="/" className="hover:text-luxury-gold transition-colors">Book Now</Link></li>
             </ul>
           </div>
 
@@ -6686,14 +6757,20 @@ export default function App() {
         onMyBookings={() => setIsDashboardOpen(true)}
       />
       <main>
-        <Hero onBookNow={openBookingModal} settings={heroSettings} />
-        <About />
-        <Amenities onAmenityClick={setGalleryCategory} />
-        <Gallery onImageClick={setSelectedImage} images={galleryImages} initialCategory={galleryCategory} />
-        <Reviews />
-        <BookingSection onBookNow={openBookingModal} />
-        <LocationSection />
-        <SEOContent />
+        <Routes>
+          <Route path="/" element={
+            <>
+              <Hero onBookNow={openBookingModal} settings={heroSettings} />
+              <BookingSection onBookNow={openBookingModal} />
+              <SEOContent />
+            </>
+          } />
+          <Route path="/about" element={<div className="pt-24"><About /></div>} />
+          <Route path="/amenities" element={<div className="pt-24"><Amenities onAmenityClick={setGalleryCategory} /></div>} />
+          <Route path="/gallery" element={<div className="pt-24"><Gallery onImageClick={setSelectedImage} images={galleryImages} initialCategory={galleryCategory} /></div>} />
+          <Route path="/reviews" element={<div className="pt-24"><Reviews /></div>} />
+          <Route path="/location" element={<div className="pt-24"><LocationSection /></div>} />
+        </Routes>
       </main>
       <Footer />
       
