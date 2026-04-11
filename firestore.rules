@@ -259,6 +259,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /blogs/{blogId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

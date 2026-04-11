@@ -68,9 +68,12 @@ import {
   Share2,
   Plus,
   Minus,
-  Search
+  Search,
+  BookOpen
 } from 'lucide-react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
+import { Blog, BlogPost } from './Blog';
+import { BlogAdmin } from './BlogAdmin';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   onAuthStateChanged, 
@@ -1526,7 +1529,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance'>(userRole === 'admin' ? 'upcoming' : 'all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance' | 'blogs'>(userRole === 'admin' ? 'upcoming' : 'all');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -2490,7 +2493,8 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
               { id: 'settings', label: 'Settings' },
               { id: 'logs', label: 'Logs' },
               { id: 'sync', label: 'Calendar Sync' },
-              { id: 'notifications', label: 'Notifications' }
+              { id: 'notifications', label: 'Notifications' },
+              { id: 'blogs', label: 'Blogs' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -3131,6 +3135,8 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
           </div>
         ) : activeFilter === 'sync' && userRole === 'admin' ? (
           <CalendarSync showToast={showToast} />
+        ) : activeFilter === 'blogs' && userRole === 'admin' ? (
+          <BlogAdmin showToast={showToast} />
         ) : userRole === 'admin' ? (
           <div className="space-y-8">
             {Object.entries(groupedBookings || {}).map(([date, dateBookings]: [string, any]) => (
@@ -3669,6 +3675,7 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
     { name: 'Gallery', href: '/gallery' },
     { name: 'Reviews', href: '/reviews' },
     { name: 'Location', href: '/location' },
+    { name: 'Blog', href: '/blog' },
   ];
 
   const handleSignOut = () => {
@@ -6261,6 +6268,7 @@ const Footer = () => {
               <li><Link to="/amenities" className="hover:text-luxury-gold transition-colors">Amenities</Link></li>
               <li><Link to="/gallery" className="hover:text-luxury-gold transition-colors">Gallery</Link></li>
               <li><Link to="/reviews" className="hover:text-luxury-gold transition-colors">Reviews</Link></li>
+              <li><Link to="/blog" className="hover:text-luxury-gold transition-colors">Local Guide & Blog</Link></li>
               <li><Link to="/" className="hover:text-luxury-gold transition-colors">Book Now</Link></li>
             </ul>
           </div>
@@ -6770,6 +6778,8 @@ export default function App() {
           <Route path="/gallery" element={<div className="pt-24"><Gallery onImageClick={setSelectedImage} images={galleryImages} initialCategory={galleryCategory} /></div>} />
           <Route path="/reviews" element={<div className="pt-24"><Reviews /></div>} />
           <Route path="/location" element={<div className="pt-24"><LocationSection /></div>} />
+          <Route path="/blog" element={<div className="pt-24"><Blog /></div>} />
+          <Route path="/blog/:id" element={<div className="pt-24"><BlogPost /></div>} />
         </Routes>
       </main>
       <Footer />
