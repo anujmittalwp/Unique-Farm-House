@@ -1,0 +1,444 @@
+{
+  "entities": {
+    "Lead": {
+      "title": "Lead",
+      "description": "A lead or inquiry from a potential customer.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the lead."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The email address of the lead."
+        },
+        "phone": {
+          "type": "string",
+          "description": "The phone number of the lead."
+        },
+        "message": {
+          "type": "string",
+          "description": "The inquiry message."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["new", "contacted", "converted", "lost"],
+          "description": "The status of the lead."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the lead was created."
+        }
+      },
+      "required": ["name", "email", "status", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "A user of the application.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique identifier for the user."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The user's display name."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["client", "admin"],
+          "description": "The user's role in the application."
+        },
+        "isAnonymous": {
+          "type": "boolean",
+          "description": "Whether the user is an anonymous user."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the user was created."
+        }
+      },
+      "required": ["uid", "email", "role", "displayName"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "A farmhouse booking.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The UID of the user who made the booking."
+        },
+        "checkIn": {
+          "type": "string",
+          "format": "date",
+          "description": "The check-in date."
+        },
+        "checkOut": {
+          "type": "string",
+          "format": "date",
+          "description": "The check-out date."
+        },
+        "dayGuestAdults": {
+          "type": "integer",
+          "description": "The number of adult day guests."
+        },
+        "dayGuestChildren": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Ages of child day guests."
+        },
+        "nightGuestAdults": {
+          "type": "integer",
+          "description": "The number of adult night guests."
+        },
+        "nightGuestChildren": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Ages of child night guests."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "confirmed", "cancelled"],
+          "description": "The status of the booking."
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "The total amount for the booking."
+        },
+        "amountPaid": {
+          "type": "number",
+          "description": "The amount paid by the guest."
+        },
+        "securityDeposit": {
+          "type": "number",
+          "description": "The security deposit amount."
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["unpaid", "part-paid", "paid"],
+          "description": "The payment status of the booking."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the booking was created."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the guest."
+        },
+        "mobile": {
+          "type": "string",
+          "description": "The mobile number of the guest."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The email address of the guest."
+        },
+        "occasion": {
+          "type": "string",
+          "description": "The occasion for the booking."
+        },
+        "bookingAmount": {
+          "type": "number",
+          "description": "The booking amount (excluding security deposit)."
+        },
+        "bookedBy": {
+          "type": "string",
+          "description": "Who made the booking (client or admin)."
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["upi", "card", "netbanking"],
+          "description": "The payment method selected for the booking."
+        },
+        "expenses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": { "type": "string" },
+              "amount": { "type": "number" },
+              "note": { "type": "string" },
+              "date": { "type": "string" }
+            },
+            "required": ["category", "amount"]
+          },
+          "description": "Expenses associated with this booking."
+        }
+      },
+      "required": ["uid", "checkIn", "checkOut", "dayGuestAdults", "dayGuestChildren", "nightGuestAdults", "nightGuestChildren", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy", "paymentMethod"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A guest review.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The UID of the user who left the review."
+        },
+        "bookingId": {
+          "type": "string",
+          "description": "The ID of the booking associated with the review."
+        },
+        "rating": {
+          "type": "integer",
+          "description": "The rating (1-5)."
+        },
+        "comment": {
+          "type": "string",
+          "description": "The review text."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"],
+          "description": "The approval status of the review."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["manual", "google"],
+          "description": "The source of the review."
+        },
+        "googleReviewId": {
+          "type": "string",
+          "description": "The ID of the review on Google (if applicable)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the review was created."
+        },
+        "userName": {
+          "type": "string",
+          "description": "The name of the user who left the review."
+        }
+      },
+      "required": ["uid", "bookingId", "rating", "comment", "status", "createdAt", "userName", "source"]
+    },
+    "AdminLog": {
+      "title": "AdminLog",
+      "description": "A log of an administrative action.",
+      "type": "object",
+      "properties": {
+        "adminId": {
+          "type": "string",
+          "description": "The UID of the admin who performed the action."
+        },
+        "adminEmail": {
+          "type": "string",
+          "format": "email",
+          "description": "The email of the admin who performed the action."
+        },
+        "action": {
+          "type": "string",
+          "description": "The action performed (e.g., 'create_booking', 'delete_booking')."
+        },
+        "targetId": {
+          "type": "string",
+          "description": "The ID of the target resource (e.g., bookingId, reviewId)."
+        },
+        "details": {
+          "type": "string",
+          "description": "Additional details about the action."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the action was performed."
+        }
+      },
+      "required": ["adminId", "adminEmail", "action", "targetId", "createdAt"]
+    },
+    "Availability": {
+      "title": "Availability",
+      "description": "Public availability data for the farmhouse.",
+      "type": "object",
+      "properties": {
+        "checkIn": {
+          "type": "string",
+          "format": "date",
+          "description": "The check-in date."
+        },
+        "checkOut": {
+          "type": "string",
+          "format": "date",
+          "description": "The check-out date."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "confirmed"],
+          "description": "The status of the booking."
+        }
+      },
+      "required": ["checkIn", "checkOut", "status"]
+    },
+    "GalleryImage": {
+      "title": "GalleryImage",
+      "description": "An image in the gallery.",
+      "type": "object",
+      "properties": {
+        "src": {
+          "type": "string",
+          "description": "The URL of the image."
+        },
+        "title": {
+          "type": "string",
+          "description": "The title of the image."
+        },
+        "category": {
+          "type": "string",
+          "description": "The category of the image (e.g., 'Exterior', 'Interior')."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the image was added."
+        }
+      },
+      "required": ["src", "title", "category", "createdAt"]
+    },
+    "ExpenseCategory": {
+      "title": "ExpenseCategory",
+      "description": "A category for booking expenses.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the category."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the category was created."
+        }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "AppSetting": {
+      "title": "AppSetting",
+      "description": "Application settings and content.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The setting key (e.g., 'hero_images')."
+        },
+        "value": {
+          "type": "object",
+          "description": "The setting value (can be any object)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The last time the setting was updated."
+        }
+      },
+      "required": ["key", "value", "updatedAt"]
+    },
+    "Blog": {
+      "title": "Blog",
+      "description": "A blog post.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the blog post."
+        },
+        "slug": {
+          "type": "string",
+          "description": "The URL-friendly version of the title."
+        },
+        "excerpt": {
+          "type": "string",
+          "description": "A short summary of the blog post."
+        },
+        "content": {
+          "type": "string",
+          "description": "The full content of the blog post (HTML allowed)."
+        },
+        "image": {
+          "type": "string",
+          "description": "The URL of the featured image."
+        },
+        "category": {
+          "type": "string",
+          "description": "The category of the blog post."
+        },
+        "author": {
+          "type": "string",
+          "description": "The author of the blog post."
+        },
+        "date": {
+          "type": "string",
+          "description": "The display date of the blog post."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the blog post was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the blog post was last updated."
+        }
+      },
+      "required": ["title", "slug", "content", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profile data."
+    },
+    "bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Booking records."
+    },
+    "availability/{bookingId}": {
+      "schema": "Availability",
+      "description": "Public availability records (no PII)."
+    },
+    "reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Guest reviews."
+    },
+    "logs/{logId}": {
+      "schema": "AdminLog",
+      "description": "Administrative action logs."
+    },
+    "gallery/{imageId}": {
+      "schema": "GalleryImage",
+      "description": "Gallery images."
+    },
+    "settings/{settingId}": {
+      "schema": "AppSetting",
+      "description": "App settings and content."
+    },
+    "expense_categories/{categoryId}": {
+      "schema": "ExpenseCategory",
+      "description": "Categories for expenses."
+    },
+    "blogs/{blogId}": {
+      "schema": "Blog",
+      "description": "Blog posts."
+    },
+    "leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Inquiries and leads."
+    }
+  }
+}

@@ -1,0 +1,283 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (matches request.auth.uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string (optional)
+    //   - role: string (required, 'client' or 'admin')
+    //
+    // Collection: bookings
+    // Document ID: auto-generated
+    // Fields:
+    //   - uid: string (required, owner's UID)
+    //   - checkIn: string (required, ISO date)
+    //   - checkOut: string (required, ISO date)
+    //   - guests: number (required, > 0)
+    //   - status: string (required, 'pending', 'confirmed', 'cancelled')
+    //   - totalAmount: number (required, >= 0)
+    //   - paymentStatus: string (required, 'unpaid', 'paid')
+    //   - createdAt: string (required, ISO date-time)
+    //   - name: string (optional)
+    //   - mobile: string (optional)
+    //   - email: string (optional)
+    //   - occasion: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        ((('email' in request.auth.token) && request.auth.token.email.lower() == "anujkumarmittal@gmail.com") ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isOwnerEmail() {
+      return isAuthenticated() && ('email' in request.auth.token) && request.auth.token.email.lower() == "anujkumarmittal@gmail.com";
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{2}/\\d{2}/\\d{4}$");
+    }
+
+    function isValidDateTimeString(dateTimeStr) {
+      return dateTimeStr is string && dateTimeStr.matches("^\\d{1,2}/\\d{1,2}/\\d{4}, \\d{1,2}:\\d{2}:\\d{2}( [ap]m)?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'displayName']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)) &&
+             data.role in ['client', 'admin'] &&
+             (!('isAnonymous' in data) || data.isAnonymous is bool) &&
+             (!('createdAt' in data) || isValidDateTimeString(data.createdAt)) &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 128 &&
+             data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'isAnonymous', 'createdAt']);
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+             isValidDateString(data.checkIn) &&
+             isValidDateString(data.checkOut) &&
+             data.dayGuestAdults is number && data.dayGuestAdults >= 0 &&
+             data.dayGuestChildren is list && (data.dayGuestAdults + data.dayGuestChildren.size()) <= 25 &&
+             data.nightGuestAdults is number && data.nightGuestAdults >= 0 &&
+             data.nightGuestChildren is list && (data.nightGuestAdults + data.nightGuestChildren.size()) <= 12 &&
+             data.status in ['pending', 'confirmed', 'cancelled'] &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.amountPaid is number && data.amountPaid >= 0 &&
+             data.securityDeposit is number && data.securityDeposit >= 0 &&
+             data.bookingAmount is number && data.bookingAmount >= 0 &&
+             data.bookedBy is string && data.bookedBy.size() <= 128 &&
+             data.paymentMethod in ['upi', 'card', 'netbanking'] &&
+             data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
+             isValidDateTimeString(data.createdAt) &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 128)) &&
+             (!('mobile' in data) || (data.mobile is string && data.mobile.size() <= 20)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)))) &&
+             (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 256)) &&
+             (!('expenses' in data) || data.expenses is list) &&
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses']);
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName', 'source']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.bookingId is string && data.bookingId.size() > 0 &&
+             (data.rating is int || data.rating is number) && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() <= 5000 &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             data.source in ['manual', 'google'] &&
+             isValidDateTimeString(data.createdAt) &&
+             data.userName is string && data.userName.size() > 0 &&
+             (!('googleReviewId' in data) || (data.googleReviewId is string && data.googleReviewId.size() > 0)) &&
+             data.keys().hasOnly(['uid', 'bookingId', 'rating', 'comment', 'status', 'createdAt', 'userName', 'source', 'googleReviewId']);
+    }
+
+    function isValidLog(data) {
+      return data.keys().hasAll(['adminId', 'adminEmail', 'action', 'targetId', 'createdAt']) &&
+             data.adminId is string && data.adminId == request.auth.uid &&
+             data.adminEmail is string && 
+             (data.adminEmail == "" || !('email' in request.auth.token) || data.adminEmail == request.auth.token.email) &&
+             data.action is string &&
+             data.targetId is string &&
+             isValidDateTimeString(data.createdAt) &&
+             (!('details' in data) || (data.details is string && data.details.size() <= 1000)) &&
+             data.keys().hasOnly(['adminId', 'adminEmail', 'action', 'targetId', 'details', 'createdAt']);
+    }
+
+    function isValidAvailability(data) {
+      return data.keys().hasAll(['checkIn', 'checkOut', 'status']) &&
+             isValidDateString(data.checkIn) &&
+             isValidDateString(data.checkOut) &&
+             data.status in ['pending', 'confirmed', 'cancelled'] &&
+             data.keys().hasOnly(['checkIn', 'checkOut', 'status']);
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['type', 'bookingId', 'message', 'details', 'read', 'createdAt']) &&
+             data.type in ['create', 'update', 'new_booking'] &&
+             data.bookingId is string &&
+             data.message is string &&
+             data.read is bool &&
+             data.details is map &&
+             data.keys().hasOnly(['type', 'bookingId', 'message', 'details', 'read', 'createdAt']);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'client' || isAdmin());
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || (('email' in resource.data) && resource.data.email == request.auth.token.email.lower()) || isAdmin());
+      allow create: if (
+        // Client can create a pending booking for themselves
+        (isAuthenticated() && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
+        // Guest can create a pending booking
+        (!isAuthenticated() && request.resource.data.uid == 'guest' && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
+        // Admin can create any booking
+        (isAdmin() && isValidBooking(request.resource.data))
+      );
+      allow update: if isAuthenticated() && (
+        // Client can modify their own pending booking
+        (resource.data.uid == request.auth.uid && resource.data.status == 'pending' && 
+         isValidBooking(request.resource.data) && 
+         request.resource.data.uid == resource.data.uid &&
+         request.resource.data.status == 'pending' &&
+         request.resource.data.paymentStatus == resource.data.paymentStatus &&
+         request.resource.data.amountPaid == resource.data.amountPaid &&
+         request.resource.data.createdAt == resource.data.createdAt &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenses'])) ||
+        // Client can cancel their own pending booking
+        (resource.data.uid == request.auth.uid && 
+         request.resource.data.status == 'cancelled' && resource.data.status == 'pending' &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+        // Admin can update anything
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if resource == null || resource.data.status == 'approved' || isAdmin() || isOwnerEmail() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if (
+        // Client can create a pending manual review
+        (isAuthenticated() && 
+         request.resource.data.uid == request.auth.uid && 
+         request.resource.data.status == 'pending' &&
+         request.resource.data.source == 'manual' &&
+         isValidReview(request.resource.data)) ||
+        // Admin can create a synced google review
+        ((isAdmin() || isOwnerEmail()) && 
+         request.resource.data.source == 'google' &&
+         request.resource.data.status == 'approved' &&
+         isValidReview(request.resource.data)) ||
+        // Allow server-side sync (unauthenticated for now due to environment limits)
+        (request.resource.data.source == 'google' &&
+         request.resource.data.status == 'approved' &&
+         isValidReview(request.resource.data))
+      );
+      allow update: if (isAdmin() || isOwnerEmail()) && isValidReview(request.resource.data);
+      allow delete: if isAdmin() || isOwnerEmail();
+    }
+
+    match /logs/{logId} {
+      allow read: if isAdmin() || isOwnerEmail();
+      allow create: if (isAdmin() || isOwnerEmail()) && isValidLog(request.resource.data);
+    }
+
+    match /availability/{bookingId} {
+      allow read: if true; // Publicly readable for "Sold Out" dates
+      allow create: if (isAuthenticated() || request.resource.data.status == 'pending') && isValidAvailability(request.resource.data);
+      allow update: if (isAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/bookings/$(bookingId)) && get(/databases/$(database)/documents/bookings/$(bookingId)).data.uid == request.auth.uid)) && isValidAvailability(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /settings/calendar_sync {
+      allow read, write: if isAdmin();
+    }
+
+    match /public/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /blocked_dates/{dateId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAdmin();
+      allow create: if true; // Allow creation (usually from server, but client can also trigger)
+      allow update: if isAdmin() && isValidNotification(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /gallery/{imageId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /expense_categories/{categoryId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /blogs/{blogId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /leads/{leadId} {
+      allow read: if isAdmin();
+      allow create: if true; // Public can submit leads
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
