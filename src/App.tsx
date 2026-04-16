@@ -1313,7 +1313,6 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         let email = '';
         let phone = '';
         let name = 'Unknown';
-        let message = '';
 
         // Parse field_data array
         if (Array.isArray(fbLead.field_data)) {
@@ -1324,7 +1323,6 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
             if (fieldName.includes('email')) email = val;
             else if (fieldName.includes('phone')) phone = val;
             else if (fieldName.includes('name')) name = val;
-            else message += `${field.name}: ${val}\n`;
           }
         }
 
@@ -1332,7 +1330,6 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
           name,
           email,
           phone,
-          message: message.trim(),
           status: 'new',
           createdAt: fbLead.created_time ? new Date(fbLead.created_time) : serverTimestamp(),
           source: 'meta',
@@ -1410,7 +1407,6 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
             const email = (row.email || '').trim();
             const phone = (row.phone_number || row.phone || '').trim();
             const name = (row.full_name || row.form_name || row.name || 'Unknown').trim();
-            const message = (row.message || '').trim();
             const createdTimeStr = row.created_time || '';
             
             let createdAt: any = serverTimestamp();
@@ -1430,7 +1426,6 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                 name,
                 email,
                 phone,
-                message,
                 status: 'new',
                 createdAt,
                 source: 'google_sheets'
@@ -1533,6 +1528,41 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     }
   };
 
+  const [tagInput, setTagInput] = useState<{ [key: string]: string }>({});
+
+  const handleAddTag = async (leadId: string, currentTags: string[] = []) => {
+    const tag = tagInput[leadId]?.trim();
+    if (!tag) return;
+    
+    if (currentTags.includes(tag)) {
+      showToast('Tag already exists', 'info');
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'leads', leadId), {
+        tags: [...currentTags, tag]
+      });
+      setTagInput(prev => ({ ...prev, [leadId]: '' }));
+      showToast('Tag added', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to add tag', 'error');
+    }
+  };
+
+  const handleRemoveTag = async (leadId: string, tagToRemove: string, currentTags: string[]) => {
+    try {
+      await updateDoc(doc(db, 'leads', leadId), {
+        tags: currentTags.filter(t => t !== tagToRemove)
+      });
+      showToast('Tag removed', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to remove tag', 'error');
+    }
+  };
+
   const confirmDelete = async () => {
     if (!leadToDelete) return;
     try {
@@ -1600,7 +1630,7 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date</th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Name</th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Contact</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Message</th>
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Tags</th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Remarks</th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Status</th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Actions</th>
@@ -1637,8 +1667,43 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                       </div>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-xs text-luxury-dark/60 max-w-xs truncate" title={lead.message}>
-                    {lead.message}
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {(lead.tags || []).map((tag: string) => (
+                        <span 
+                          key={tag} 
+                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-luxury-gold/10 text-luxury-gold rounded-full text-[10px] font-bold uppercase tracking-wider"
+                        >
+                          {tag}
+                          <button 
+                            onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
+                            className="hover:text-red-500 transition-colors"
+                          >
+                            <X size={10} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex gap-1">
+                      <input 
+                        type="text"
+                        value={tagInput[lead.id] || ''}
+                        onChange={(e) => setTagInput(prev => ({ ...prev, [lead.id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleAddTag(lead.id, lead.tags || []);
+                          }
+                        }}
+                        placeholder="Add tag..."
+                        className="text-[10px] border border-luxury-dark/10 rounded-lg px-2 py-1 bg-transparent w-20 focus:border-luxury-gold outline-none transition-colors"
+                      />
+                      <button 
+                        onClick={() => handleAddTag(lead.id, lead.tags || [])}
+                        className="p-1 text-luxury-gold hover:text-luxury-dark transition-colors"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <input 

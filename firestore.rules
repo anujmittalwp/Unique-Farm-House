@@ -30,6 +30,17 @@ service cloud.firestore {
     //   - email: string (optional)
     //   - occasion: string (optional)
     //
+    // Collection: leads
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - email: string (required)
+    //   - phone: string (optional)
+    //   - message: string (optional)
+    //   - status: string (required, 'new', 'contacted', 'converted', 'lost')
+    //   - createdAt: timestamp (required)
+    //   - tags: list (optional, strings)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -152,6 +163,20 @@ service cloud.firestore {
              data.keys().hasOnly(['type', 'bookingId', 'message', 'details', 'read', 'createdAt']);
     }
 
+    function isValidLead(data) {
+      return data.keys().hasAll(['name', 'email', 'status', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.email is string &&
+             data.status in ['new', 'contacted', 'converted', 'lost'] &&
+             (!('phone' in data) || data.phone is string) &&
+             (!('source' in data) || data.source is string) &&
+             (!('metaLeadId' in data) || data.metaLeadId is string) &&
+             (!('remarks' in data) || data.remarks is string) &&
+             (!('statusUpdatedAt' in data) || (data.statusUpdatedAt is timestamp || data.statusUpdatedAt == null)) &&
+             (!('tags' in data) || data.tags is list) &&
+             data.keys().hasAny(['name', 'email', 'status', 'createdAt']);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -270,8 +295,8 @@ service cloud.firestore {
 
     match /leads/{leadId} {
       allow read: if isAdmin();
-      allow create: if true; // Public can submit leads
-      allow update: if isAdmin();
+      allow create: if isValidLead(request.resource.data); // Public can submit leads
+      allow update: if isAdmin() && isValidLead(request.resource.data);
       allow delete: if isAdmin();
     }
 
