@@ -145,7 +145,36 @@ const GALLERY_FALLBACK_IMAGES = [
   { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg", title: "Evening Bonfire Gathering Area", category: "Activities" },
 ];
 
-const APP_VERSION = '1.0.6';
+const APP_VERSION = '1.0.8';
+
+const clearAppCache = (forced = false) => {
+  console.log(`Clearing application cache and cookies (Forced: ${forced})...`);
+  
+  // Save Firebase auth token if not forced (to avoid unnecessary logout)
+  const savedAuth = localStorage.getItem('firebase:authUser');
+  
+  // Clear localStorage and sessionStorage
+  localStorage.clear();
+  sessionStorage.clear();
+  
+  // Clear Cookies
+  document.cookie.split(";").forEach((c) => {
+    document.cookie = c
+      .replace(/^ +/, "")
+      .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+  });
+  
+  // Restore auth if not forced
+  if (!forced && savedAuth) {
+    localStorage.setItem('firebase:authUser', savedAuth);
+  }
+  
+  // Set the current version
+  localStorage.setItem('app_version', APP_VERSION);
+  
+  // Force reload to apply changes
+  window.location.reload();
+};
 
 const useEscapeKey = (onClose: () => void, isOpen: boolean = true) => {
   useEffect(() => {
@@ -424,11 +453,14 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
       onClose();
     } catch (err: any) {
       if (err.code === 'auth/unauthorized-domain') {
-        setError('This domain is not authorized for Google Login. Please add it to the "Authorized domains" in the Firebase Console (Authentication > Settings).');
+        setError(`This domain (${window.location.hostname}) is not authorized for Google Login. Please add it to "Authorized domains" in the Firebase Console.`);
       } else if (err.code === 'auth/popup-closed-by-user') {
-        setError('The login popup was closed before completing the process.');
+        setError('Login popup was closed. Please follow these steps:\n1. Ensure you allow popups for this site.\n2. Check if your browser blocks "Third-party cookies" (common in Incognito/Safari).\n3. Disable any ad-blockers for this session.\n4. If using a custom domain, ensure your Auth configuration is complete.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setError('Network error: This might be due to a strict firewall or ad-blocker blocking Firebase services. Try disabling your ad-blocker.');
       } else if (err.message?.includes('redirect_uri_mismatch')) {
-        setError('Google Login configuration error: redirect_uri_mismatch. Please ensure the redirect URI is added to the Google Cloud Console.');
+      } else if (err.code === 'auth/popup-blocked') {
+        setError('Popup blocked! Please allow popups for this site and try again.');
       } else {
         setError(err.message || 'An error occurred during Google Login');
       }
@@ -476,9 +508,18 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
               </div>
 
               {error && (
-                <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm flex items-center gap-3">
-                  <AlertCircle size={18} />
-                  {error}
+                <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm">
+                  <div className="flex items-center gap-3 mb-2">
+                    <AlertCircle size={18} className="shrink-0" />
+                    <span className="font-bold">Login Problem</span>
+                  </div>
+                  <p className="mb-3 opacity-80 whitespace-pre-line">{error}</p>
+                  <button 
+                    onClick={() => clearAppCache(true)}
+                    className="text-[10px] font-bold uppercase tracking-widest text-luxury-gold hover:text-luxury-dark transition-colors underline"
+                  >
+                    Clear Data & Refresh App
+                  </button>
                 </div>
               )}
 
@@ -2650,6 +2691,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [isAnalyzeConfirmOpen, setIsAnalyzeConfirmOpen] = useState(false);
   const [galleryImageToDelete, setGalleryImageToDelete] = useState<any | null>(null);
   const [isGalleryDeleteConfirmOpen, setIsGalleryDeleteConfirmOpen] = useState(false);
+  const [isClearCacheConfirmOpen, setIsClearCacheConfirmOpen] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number } | null>(null);
   const [editingGalleryImage, setEditingGalleryImage] = useState<any | null>(null);
   const [seedProgress, setSeedProgress] = useState<{ current: number; total: number } | null>(null);
@@ -4298,7 +4340,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                 If you are experiencing issues with outdated content or login problems, you can force clear the application cache and cookies.
               </p>
               <button 
-                onClick={onClearCache}
+                onClick={() => setIsClearCacheConfirmOpen(true)}
                 className="px-8 py-3 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all border border-red-100"
               >
                 Clear Cache & Refresh App
@@ -4894,6 +4936,20 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
           title="Delete Gallery Image"
           message={`Are you sure you want to delete "${galleryImageToDelete?.title}" from the gallery?`}
           confirmText="Delete"
+          type="danger"
+        />
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {isClearCacheConfirmOpen && (
+        <ConfirmationModal 
+          isOpen={isClearCacheConfirmOpen}
+          onClose={() => setIsClearCacheConfirmOpen(false)}
+          onConfirm={() => clearAppCache(true)}
+          title="Clear App Cache & Cookies"
+          message="This will clear all local data, cookies, and your current session. The app will reload and you will need to log in again. Continue?"
+          confirmText="Clear & Refresh"
           type="danger"
         />
       )}
@@ -7802,6 +7858,7 @@ export default function App() {
   const [heroSettings, setHeroSettings] = useState<any>(null);
   const [replyTemplates, setReplyTemplates] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const allGalleryImages = useMemo(() => {
     const firestoreSrcs = new Set(galleryImages.map(img => img.src));
@@ -7822,21 +7879,7 @@ export default function App() {
     // Version check to clear stale cache
     const lastVersion = localStorage.getItem('app_version');
     if (lastVersion !== APP_VERSION) {
-      console.log(`New version detected (${APP_VERSION}). Clearing stale data...`);
-      // Clear specific items that might cause issues, or all if needed
-      // We keep auth-related items if possible, but usually better to clear all for a fresh start
-      const keysToKeep = ['firebase:authUser']; // Example of what to keep
-      const savedAuth = localStorage.getItem('firebase:authUser');
-      
-      localStorage.clear();
-      sessionStorage.clear();
-      
-      if (savedAuth) localStorage.setItem('firebase:authUser', savedAuth);
-      localStorage.setItem('app_version', APP_VERSION);
-      
-      if (lastVersion) {
-        window.location.reload();
-      }
+      clearAppCache(false); // Clean but try to keep auth
     }
 
     const handleBeforeInstallPrompt = (e: any) => {
@@ -7872,10 +7915,9 @@ export default function App() {
   }, []);
 
   const handleClearCache = () => {
-    if (window.confirm('This will clear your local app data and reload the application. You may need to sign in again. Continue?')) {
-      localStorage.clear();
-      sessionStorage.clear();
-      window.location.reload();
+    // Custom modal replacement for window.confirm would be better but let's at least update the logic
+    if (window.confirm('This will clear your local app data, cookies and reload the application. Continue?')) {
+      clearAppCache(true);
     }
   };
 
@@ -7997,31 +8039,39 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setAuthError(null);
       try {
         setUser(currentUser);
         if (currentUser) {
           // Fetch user role
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists()) {
-            setUserRole(userDoc.data().role);
-          } else {
-            // Default for new users if not set during signup
-            const role = currentUser.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client';
-            setUserRole(role);
-            await setDoc(doc(db, 'users', currentUser.uid), {
-              uid: currentUser.uid,
-              email: currentUser.email || '',
-              displayName: currentUser.displayName || 'Guest',
-              role: role,
-              isAnonymous: currentUser.isAnonymous,
-              createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
-            }, { merge: true });
+          try {
+            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+            if (userDoc.exists()) {
+              setUserRole(userDoc.data().role);
+            } else {
+              // Default for new users
+              const role = currentUser.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client';
+              setUserRole(role);
+              await setDoc(doc(db, 'users', currentUser.uid), {
+                uid: currentUser.uid,
+                email: currentUser.email || '',
+                displayName: currentUser.displayName || 'Guest',
+                role: role,
+                isAnonymous: currentUser.isAnonymous,
+                createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
+              }, { merge: true });
+            }
+          } catch (docErr) {
+            console.error("Error fetching user profile:", docErr);
+            // Don't block the whole app if just the profile fetch fails but we have the user
+            setUserRole(currentUser.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client');
           }
         } else {
           setUserRole(null);
         }
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, 'users');
+        console.error("Auth state logic error:", error);
+        setAuthError(error instanceof Error ? error.message : 'Failed to retrieve connection state');
       } finally {
         setLoading(false);
       }
@@ -8035,24 +8085,48 @@ export default function App() {
     signOut(auth);
   };
 
-  if (loading) {
+  if (loading || authError) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-luxury-dark">
-        <div className="flex flex-col items-center gap-6">
+        <div className="flex flex-col items-center gap-6 px-6 text-center">
           <img 
             src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
             alt="Logo" 
             className="h-24 w-auto animate-pulse"
             referrerPolicy="no-referrer"
           />
-          <div className="w-48 h-1 bg-white/10 rounded-full overflow-hidden">
+          {authError ? (
             <motion.div 
-              initial={{ x: '-100%' }}
-              animate={{ x: '100%' }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-              className="w-full h-full bg-luxury-gold"
-            />
-          </div>
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4 max-w-sm"
+            >
+              <p className="text-red-400 text-sm font-medium">Connection Error: {authError}</p>
+              <div className="flex flex-col gap-2">
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-white transition-all"
+                >
+                  Retry Connection
+                </button>
+                <button 
+                  onClick={() => clearAppCache(true)}
+                  className="px-6 py-2 bg-white/10 text-white/60 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:text-white transition-all"
+                >
+                  Hard Reset App
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            <div className="w-48 h-1 bg-white/10 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ x: '-100%' }}
+                animate={{ x: '100%' }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                className="w-full h-full bg-luxury-gold"
+              />
+            </div>
+          )}
         </div>
       </div>
     );
