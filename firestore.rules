@@ -188,7 +188,11 @@ service cloud.firestore {
     }
 
     match /bookings/{bookingId} {
-      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || (('email' in resource.data) && resource.data.email == request.auth.token.email.lower()) || isAdmin());
+      allow read: if isAuthenticated() && (
+        resource.data.uid == request.auth.uid || 
+        (('email' in resource.data) && resource.data.email == request.auth.token.email.lower()) || 
+        isAdmin()
+      );
       allow create: if (
         // Client can create a pending booking for themselves
         (isAuthenticated() && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
@@ -294,10 +298,10 @@ service cloud.firestore {
     }
 
     match /leads/{leadId} {
-      allow read: if isAdmin();
+      allow read: if isAuthenticated() && isAdmin();
       allow create: if isValidLead(request.resource.data); // Public can submit leads
-      allow update: if isAdmin() && isValidLead(request.resource.data);
-      allow delete: if isAdmin();
+      allow update: if isAuthenticated() && isAdmin() && isValidLead(request.resource.data);
+      allow delete: if isAuthenticated() && isAdmin();
     }
 
     // Default deny

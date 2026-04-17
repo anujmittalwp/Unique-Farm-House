@@ -1123,6 +1123,41 @@ const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; show
   );
 };
 
+const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, counts }: any) => {
+  const tabs = [
+    { id: 'settings', filter: 'general', label: 'General' },
+    { id: 'reviews', filter: 'reviews', label: 'Reviews', count: counts.reviews },
+    { id: 'gallery', filter: 'gallery', label: 'Gallery', count: counts.gallery },
+    { id: 'logs', filter: 'logs', label: 'Logs', count: counts.logs },
+    { id: 'sync', filter: 'sync', label: 'Calendar Sync', labelShort: 'iCal' },
+    { id: 'notifications', filter: 'notifications', label: 'Notifications', count: counts.notifications },
+    { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool' }
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-2 mb-8 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          onClick={() => {
+            setActiveFilter(tab.id as any);
+            setSettingsFilter(tab.filter as any);
+          }}
+          className={`px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+            activeFilter === tab.id 
+              ? 'bg-white text-luxury-dark shadow-sm' 
+              : 'text-luxury-dark/40 hover:text-luxury-dark'
+          }`}
+        >
+          {tab.label}
+          {tab.count !== undefined && <span className="ml-2 opacity-50">({tab.count})</span>}
+          {!tab.count && tab.labelShort && <span className="ml-2 opacity-50">({tab.labelShort})</span>}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, userRole: string | null }) => {
   const [filter, setFilter] = useState('new');
   const [leadToDelete, setLeadToDelete] = useState<string | null>(null);
@@ -1178,6 +1213,29 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     };
     
     fetchAndSetTemplate();
+  };
+
+  const handleExportLeads = () => {
+    const dataToExport = leads.filter(l => filter === 'all' || l.status === filter);
+    const csv = Papa.unparse(dataToExport.map(lead => ({
+      Date: lead.createdAt ? formatDate(lead.createdAt) : '',
+      Name: lead.name,
+      Email: lead.email,
+      Phone: lead.phone,
+      Source: lead.source || (lead.metaLeadId ? 'Facebook/Meta' : 'Website'),
+      Tags: (lead.tags || []).join(', '),
+      Remarks: lead.remarks,
+      Status: lead.status
+    })));
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute('download', `leads_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Leads exported successfully', 'success');
   };
 
   const [isSendingReply, setIsSendingReply] = useState(false);
@@ -1606,6 +1664,13 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         </div>
         <div className="flex gap-2">
           <button
+            onClick={handleExportLeads}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 transition-colors whitespace-nowrap"
+          >
+            <Download size={14} />
+            Export
+          </button>
+          <button
             onClick={() => setMetaModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-[#1877F2] text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#1877F2]/90 transition-colors whitespace-nowrap"
           >
@@ -1975,7 +2040,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
   const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
 
   // Filter State
-  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedMonth, setSelectedMonth] = useState<string>(new Date().getMonth().toString());
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
 
   const years = useMemo(() => {
@@ -2558,7 +2623,9 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration'>(userRole === 'admin' ? 'upcoming' : 'all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration'>(userRole === 'admin' ? 'bookings' : 'all');
+  const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
+  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'notifications' | 'migration'>('general');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -2581,6 +2648,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [isFetchingCloudinary, setIsFetchingCloudinary] = useState(false);
   const [isAnalyzingGallery, setIsAnalyzingGallery] = useState(false);
   const [isAnalyzeConfirmOpen, setIsAnalyzeConfirmOpen] = useState(false);
+  const [galleryImageToDelete, setGalleryImageToDelete] = useState<any | null>(null);
+  const [isGalleryDeleteConfirmOpen, setIsGalleryDeleteConfirmOpen] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number } | null>(null);
   const [editingGalleryImage, setEditingGalleryImage] = useState<any | null>(null);
   const [seedProgress, setSeedProgress] = useState<{ current: number; total: number } | null>(null);
@@ -2684,16 +2753,9 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
     }
   };
 
-  const handleDeleteGalleryImage = async (imageId: string, title: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${title}" from the gallery?`)) return;
-    try {
-      await deleteDoc(doc(db, 'gallery', imageId));
-      await logAdminAction('delete_gallery_image', imageId, `Deleted gallery image: ${title}`);
-      showToast('Image removed from gallery', 'success');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `gallery/${imageId}`);
-      showToast('Failed to delete image', 'error');
-    }
+  const handleDeleteGalleryImage = (image: any) => {
+    setGalleryImageToDelete(image);
+    setIsGalleryDeleteConfirmOpen(true);
   };
 
   const handleRemoveDuplicates = async () => {
@@ -2750,7 +2812,12 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
     setAnalyzeProgress({ current: 0, total: galleryImages.length });
     console.log('Starting AI analysis of gallery images...');
 
-    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || "AIzaSyBXEk2AUKlH8m_gCJLF-7Ar-8R71dpC9u8";
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      showToast('Gemini API key is not configured. Please add it in settings.', 'error');
+      setIsAnalyzingGallery(false);
+      return;
+    }
     const ai = new GoogleGenAI({ apiKey });
 
     const getBase64FromUrl = async (url: string): Promise<{ data: string, mimeType: string } | null> => {
@@ -2785,61 +2852,86 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
       setAnalyzeProgress({ current: i + 1, total: galleryImages.length });
       console.log(`Analyzing image ${i + 1}/${galleryImages.length}: ${img.title}`);
 
-      // Add a small delay to avoid hitting rate limits too quickly
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Rate limiting: 4 second delay between requests to avoid free tier limits
+      await new Promise(resolve => setTimeout(resolve, 4000));
 
-      try {
-        const imageData = await getBase64FromUrl(img.src);
-        if (!imageData) {
-          console.warn('Skipping image due to fetch failure:', img.src);
-          failCount++;
-          continue;
-        }
+      let retryCount = 0;
+      const maxRetries = 2;
+      let analyzed = false;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: {
-            parts: [
-              {
-                inlineData: {
-                  data: imageData.data,
-                  mimeType: imageData.mimeType
-                }
-              },
-              {
-                text: `Analyze this image of a luxury farmhouse and provide:
-1. A concise, elegant title (max 5 words).
-2. The most appropriate category from this list: [${galleryCategories.join(', ')}].
-Return the result as a JSON object with keys 'title' and 'category'. Do not include markdown formatting.`
-              }
-            ]
-          },
-          config: {
-            responseMimeType: "application/json"
+      while (retryCount <= maxRetries && !analyzed) {
+        try {
+          const imageData = await getBase64FromUrl(img.src);
+          if (!imageData) {
+            console.warn('Skipping image due to fetch failure:', img.src);
+            failCount++;
+            analyzed = true;
+            continue;
           }
-        });
 
-        const result = JSON.parse(response.text || '{}');
-        console.log('AI Analysis result:', result);
-        if (result.title && result.category) {
-          await updateDoc(doc(db, 'gallery', img.id), {
-            title: result.title,
-            category: result.category,
-            updatedAt: serverTimestamp()
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: {
+              parts: [
+                {
+                  inlineData: {
+                    data: imageData.data,
+                    mimeType: imageData.mimeType
+                  }
+                },
+                {
+                  text: `Analyze this luxury farmhouse image. Provide:
+1. Elegant title (max 5 words).
+2. Category from: [${galleryCategories.join(', ')}].
+Return JSON: {"title": "...", "category": "..."}. No markdown.`
+                }
+              ]
+            },
+            config: {
+              responseMimeType: "application/json"
+            }
           });
-          successCount++;
-        } else {
-          console.warn('AI returned invalid result format:', result);
+
+          const responseText = response.text || '';
+          const result = JSON.parse(responseText.replace(/```json|```/g, '').trim() || '{}');
+          
+          if (result.title && result.category) {
+            await updateDoc(doc(db, 'gallery', img.id), {
+              title: result.title,
+              category: result.category,
+              updatedAt: serverTimestamp()
+            });
+            successCount++;
+          } else {
+            failCount++;
+          }
+          analyzed = true;
+        } catch (err: any) {
+          const errorStr = JSON.stringify(err).toLowerCase() + String(err?.message || '').toLowerCase();
+          const isQuotaError = errorStr.includes('quota') || 
+                               errorStr.includes('429') || 
+                               errorStr.includes('resource_exhausted');
+
+          if (isQuotaError && retryCount < maxRetries) {
+            retryCount++;
+            const backoff = retryCount * 8000;
+            console.warn(`Quota hit. Retrying (${retryCount}/${maxRetries}) in ${backoff/1000}s...`);
+            await new Promise(resolve => setTimeout(resolve, backoff));
+            continue;
+          }
+
+          if (isQuotaError) {
+            localStorage.setItem('last_google_quota_error', new Date().getTime().toString());
+            showToast('Gemini API quota exceeded. Pausing remaining analysis.', 'error');
+            failCount += (galleryImages.length - i);
+            i = galleryImages.length; 
+            break;
+          }
+          
+          console.error('Analysis error:', img.id, err);
           failCount++;
+          analyzed = true; 
         }
-      } catch (err: any) {
-        console.error('Error analyzing image:', img.id, err);
-        if (err?.message?.toLowerCase().includes('quota') || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED')) {
-          localStorage.setItem('last_google_quota_error', new Date().getTime().toString());
-          showToast('Gemini API quota exceeded. Cooldown active for 1 hour.', 'error');
-          break; // Stop the loop if we hit quota
-        }
-        failCount++;
       }
     }
 
@@ -3039,7 +3131,7 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
 
   useEffect(() => {
     if (userRole && !hasSetDefaultFilter) {
-      setActiveFilter(userRole === 'admin' ? 'upcoming' : 'all');
+      setActiveFilter(userRole === 'admin' ? 'bookings' : 'all');
       setHasSetDefaultFilter(true);
     }
   }, [userRole, hasSetDefaultFilter]);
@@ -3090,6 +3182,31 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
     if (reviewFilter === 'all') return reviews;
     return reviews.filter(r => r.status === reviewFilter);
   }, [reviews, reviewFilter]);
+
+  const settingsCounts = {
+    reviews: reviews.length,
+    gallery: galleryImages.length + 17 - galleryImages.filter(img => [
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599338/Unique_Farm_House_Cottage_And_Swimming_Pool10_nbuyma.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599336/Unique_Farm_House_Cottage_And_Swimming_Pool8_ls2pzs.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599323/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn8_z0yfvu.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599319/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn7_edain1.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599317/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn4_j0n7zt.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599315/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn3_mtstvj.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599275/Unique_Farm_House_Swimming_Pool12_lo1abs.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599271/Unique_Farm_House_Swimming_Pool15_khet3t.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599265/Unique_Farm_House_Swimming_Pool11_wzrzyv.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599261/Unique_Farm_House_Swimming_Pool8_acccpc.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599260/Unique_Farm_House_Swimming_Pool7_e5jxkv.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774596185/Unique_Farm_House_High_Tea3_pp6cha.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586829/Unique_Farm_House_Bonfire2_ublmjv.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586828/Unique_Farm_House_Bonfire4_bnrw9y.jpg",
+      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg"
+    ].includes(img.src)).length,
+    logs: adminLogs.length,
+    notifications: notifications.length
+  };
 
   const handleReviewStatus = async (reviewId: string, status: 'approved' | 'rejected' | 'pending') => {
     try {
@@ -3228,10 +3345,12 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    const filterToUse = activeFilter === 'bookings' ? bookingFilter : activeFilter;
+
     return bookings.filter(booking => {
-      if (activeFilter === 'all') return true;
-      if (activeFilter === 'pending') return booking.status === 'pending';
-      if (activeFilter === 'cancelled') return booking.status === 'cancelled';
+      if (filterToUse === 'all') return true;
+      if (filterToUse === 'pending') return booking.status === 'pending';
+      if (filterToUse === 'cancelled') return booking.status === 'cancelled';
       
       if (!booking.checkIn || !booking.checkOut) return false;
       
@@ -3240,10 +3359,10 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
       
       if (!isValid(checkInDate) || !isValid(checkOutDate)) return false;
       
-      if (activeFilter === 'upcoming') {
+      if (filterToUse === 'upcoming') {
         return (booking.status === 'confirmed' || booking.status === 'pending') && checkInDate >= new Date(today.getTime() - 86400000);
       }
-      if (activeFilter === 'completed') {
+      if (filterToUse === 'completed') {
         return booking.status === 'confirmed' && checkOutDate < today;
       }
       return true;
@@ -3254,7 +3373,7 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
       if (!isValid(dateA) || !isValid(dateB)) return 0;
       return dateA.getTime() - dateB.getTime();
     });
-  }, [bookings, activeFilter]);
+  }, [bookings, activeFilter, bookingFilter]);
 
   // Generate and save ICS calendar for external platforms
   useEffect(() => {
@@ -3359,6 +3478,38 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `bookings/${bookingId}`);
     }
+  };
+
+  const handleExportBookings = () => {
+    const csv = Papa.unparse(filteredBookings.map(b => ({
+      'Booking ID': b.id,
+      'Status': b.status,
+      'Guest Name': b.name || 'N/A',
+      'Email': b.email || 'N/A',
+      'Mobile': b.mobile || 'N/A',
+      'Check-In': b.checkIn,
+      'Check-Out': b.checkOut,
+      'Total Amount': b.totalAmount || 0,
+      'Amount Paid': b.amountPaid || 0,
+      'Balance': (b.totalAmount || 0) - (b.amountPaid || 0),
+      'Booking Amount': b.bookingAmount || 0,
+      'Security Deposit': b.securityDeposit || 0,
+      'Payment Status': b.paymentStatus || 'unpaid',
+      'Day Guests': `${b.dayGuestAdults || 0} Adults, ${b.dayGuestChildren?.length || 0} Children`,
+      'Night Guests': `${b.nightGuestAdults || 0} Adults, ${b.nightGuestChildren?.length || 0} Children`,
+      'Special Requests': b.specialRequests || 'None',
+      'Booking Date': b.createdAt ? (b.createdAt.toDate ? format(b.createdAt.toDate(), 'dd/MM/yyyy HH:mm') : b.createdAt) : 'N/A'
+    })));
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute('download', `bookings_export_${bookingFilter}_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Bookings exported successfully', 'success');
   };
 
   return (
@@ -3481,76 +3632,42 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
              {userRole === 'admin' && (
           <div className="flex flex-wrap gap-2 mb-8 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
              {[
-              { id: 'upcoming', label: 'Upcoming' },
-              { id: 'pending', label: 'Pending' },
-              { id: 'leads', label: 'Leads' },
-              { id: 'finance', label: 'Finance' },
-              { id: 'completed', label: 'Completed' },
-              { id: 'all', label: 'All' },
-              { id: 'reviews', label: 'Reviews' },
-              { id: 'gallery', label: 'Gallery' },
-              { id: 'settings', label: 'Settings' },
-              { id: 'logs', label: 'Logs' },
-              { id: 'sync', label: 'Calendar Sync' },
-              { id: 'notifications', label: 'Notifications' },
-              { id: 'blogs', label: 'Blogs' },
-              { id: 'migration', label: 'Import/Export' }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveFilter(tab.id as any)}
-                className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
-                  activeFilter === tab.id 
-                    ? 'bg-luxury-dark text-white shadow-lg shadow-luxury-dark/20' 
-                    : 'text-luxury-dark/40 hover:text-luxury-dark hover:bg-white'
-                }`}
-              >
-                {tab.label}
-                <span className="ml-2 opacity-50">
-                  ({tab.id === 'reviews' ? reviews.length : 
-                    tab.id === 'leads' ? leads.length :
-                    tab.id === 'logs' ? adminLogs.length :
-                    tab.id === 'notifications' ? notifications.length :
-                    tab.id === 'blogs' ? blogs.length :
-                    tab.id === 'gallery' ? (galleryImages.length + 17 - galleryImages.filter(img => [
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599338/Unique_Farm_House_Cottage_And_Swimming_Pool10_nbuyma.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599336/Unique_Farm_House_Cottage_And_Swimming_Pool8_ls2pzs.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599323/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn8_z0yfvu.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599319/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn7_edain1.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599317/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn4_j0n7zt.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599315/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn3_mtstvj.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599275/Unique_Farm_House_Swimming_Pool12_lo1abs.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599271/Unique_Farm_House_Swimming_Pool15_khet3t.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599265/Unique_Farm_House_Swimming_Pool11_wzrzyv.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599261/Unique_Farm_House_Swimming_Pool8_acccpc.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599260/Unique_Farm_House_Swimming_Pool7_e5jxkv.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774596185/Unique_Farm_House_High_Tea3_pp6cha.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586829/Unique_Farm_House_Bonfire2_ublmjv.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586828/Unique_Farm_House_Bonfire4_bnrw9y.jpg",
-                      "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg"
-                    ].includes(img.src)).length) :
-                    tab.id === 'settings' ? 'Edit' :
-                    tab.id === 'sync' ? 'iCal' :
-                    tab.id === 'finance' ? 'Stats' :
-                    tab.id === 'migration' ? 'Tool' :
-                    bookings.filter(b => {
-                    if (tab.id === 'all') return true;
-                    if (tab.id === 'pending') return b.status === 'pending';
-                    if (!b.checkIn || !b.checkOut) return false;
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
-                    const checkOutDate = parse(b.checkOut, 'dd/MM/yyyy', new Date());
-                    if (!isValid(checkInDate) || !isValid(checkOutDate)) return false;
-                    if (tab.id === 'upcoming') return b.status === 'confirmed' && checkInDate >= today;
-                    if (tab.id === 'completed') return b.status === 'confirmed' && checkOutDate < today;
-                    return true;
-                  }).length})
-                </span>
-              </button>
-            ))}
+               { id: 'bookings', label: 'Bookings' },
+               { id: 'leads', label: 'Leads' },
+               { id: 'finance', label: 'Finance' },
+               { id: 'blogs', label: 'Blogs' },
+               { id: 'settings', label: 'Settings' }
+             ].map((tab) => {
+               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'notifications', 'migration'].includes(activeFilter);
+               const isActive = tab.id === 'settings' ? isSettingsTab : activeFilter === tab.id;
+               
+               return (
+               <button
+                 key={tab.id}
+                 onClick={() => {
+                   if (tab.id === 'settings') {
+                     setActiveFilter('settings');
+                     setSettingsFilter('general');
+                   } else {
+                     setActiveFilter(tab.id as any);
+                   }
+                 }}
+                 className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                   isActive 
+                     ? 'bg-luxury-dark text-white shadow-lg shadow-luxury-dark/20' 
+                     : 'text-luxury-dark/40 hover:text-luxury-dark hover:bg-white'
+                 }`}
+               >
+                 {tab.label}
+                 <span className="ml-2 opacity-50">
+                   ({tab.id === 'leads' ? leads.length :
+                     tab.id === 'blogs' ? blogs.length :
+                     tab.id === 'bookings' ? bookings.length :
+                     tab.id === 'finance' ? 'Stats' : 'Tool'})
+                 </span>
+               </button>
+               );
+             })}
           </div>
         )}
       {loading ? (
@@ -3578,6 +3695,7 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
           </div>
         ) : activeFilter === 'reviews' && userRole === 'admin' ? (
           <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <h3 className="text-xl font-serif font-bold text-luxury-dark">Guest Reviews</h3>
@@ -3698,7 +3816,9 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
             showToast={showToast}
           />
         ) : activeFilter === 'logs' && userRole === 'admin' ? (
-          <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm overflow-hidden">
+          <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -3747,8 +3867,11 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
               </table>
             </div>
           </div>
+        </div>
         ) : activeFilter === 'notifications' && userRole === 'admin' ? (
-          <div className="space-y-4">
+          <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <div className="space-y-4">
             {notifications.map(notif => (
               <div key={notif.id} className={`bg-white p-6 rounded-3xl border ${notif.read ? 'border-luxury-dark/5' : 'border-luxury-gold/30 shadow-lg shadow-luxury-gold/5'} transition-all`}>
                 <div className="flex justify-between items-start gap-4">
@@ -3802,8 +3925,10 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
               </div>
             )}
           </div>
+        </div>
         ) : activeFilter === 'gallery' && userRole === 'admin' ? (
           <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <h3 className="text-xl font-serif font-bold text-luxury-dark mb-6">Add New Image to Gallery</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -4039,7 +4164,7 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
                             Edit
                           </button>
                           <button 
-                            onClick={() => handleDeleteGalleryImage(img.id, img.title)}
+                            onClick={() => handleDeleteGalleryImage(img)}
                             className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all"
                           >
                             <Trash2 size={14} />
@@ -4059,6 +4184,7 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
           </div>
         ) : activeFilter === 'settings' && userRole === 'admin' ? (
           <div className="max-w-4xl mx-auto space-y-12">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-serif font-bold text-luxury-dark">Hero Section Settings</h3>
@@ -4180,13 +4306,63 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
             </div>
           </div>
         ) : activeFilter === 'sync' && userRole === 'admin' ? (
-          <CalendarSync showToast={showToast} />
+          <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <CalendarSync showToast={showToast} />
+          </div>
         ) : activeFilter === 'blogs' && userRole === 'admin' ? (
           <BlogAdmin showToast={showToast} />
         ) : activeFilter === 'migration' && userRole === 'admin' ? (
-          <DataMigration showToast={showToast} />
+          <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <DataMigration showToast={showToast} />
+          </div>
         ) : userRole === 'admin' ? (
           <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <div className="flex flex-wrap gap-2 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
+                {[
+                  { id: 'upcoming', label: 'Upcoming' },
+                  { id: 'pending', label: 'Pending' },
+                  { id: 'completed', label: 'Completed' },
+                  { id: 'all', label: 'All Bookings' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setBookingFilter(tab.id as any)}
+                    className={`px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                      bookingFilter === tab.id 
+                        ? 'bg-white text-luxury-dark shadow-sm' 
+                        : 'text-luxury-dark/40 hover:text-luxury-dark'
+                    }`}
+                  >
+                    {tab.label}
+                    <span className="ml-2 opacity-50">
+                      ({bookings.filter(b => {
+                        if (tab.id === 'all') return true;
+                        if (tab.id === 'pending') return b.status === 'pending';
+                        if (!b.checkIn || !b.checkOut) return false;
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+                        const checkOutDate = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+                        if (!isValid(checkInDate) || !isValid(checkOutDate)) return false;
+                        if (tab.id === 'upcoming') return (b.status === 'confirmed' || b.status === 'pending') && checkInDate >= new Date(today.getTime() - 86400000);
+                        if (tab.id === 'completed') return b.status === 'confirmed' && checkOutDate < today;
+                        return true;
+                      }).length})
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <button 
+                onClick={handleExportBookings}
+                className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/10 min-w-fit"
+              >
+                <Download size={14} />
+                Export Bookings
+              </button>
+            </div>
             {Object.entries(groupedBookings || {}).map(([date, dateBookings]: [string, any]) => (
               <div key={date} className="space-y-4">
                 <div className="flex items-center gap-4">
@@ -4686,10 +4862,39 @@ Return the result as a JSON object with keys 'title' and 'category'. Do not incl
     </AnimatePresence>
 
     <AnimatePresence>
-      {isUpdateModalOpen && (
+      {isUpdateModalOpen &&  (
         <PasswordUpdateModal 
           onClose={() => setIsUpdateModalOpen(false)}
           showToast={showToast}
+        />
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {isGalleryDeleteConfirmOpen && (
+        <ConfirmationModal 
+          isOpen={isGalleryDeleteConfirmOpen}
+          onClose={() => {
+            setIsGalleryDeleteConfirmOpen(false);
+            setGalleryImageToDelete(null);
+          }}
+          onConfirm={async () => {
+            if (!galleryImageToDelete) return;
+            try {
+              await deleteDoc(doc(db, 'gallery', galleryImageToDelete.id));
+              await logAdminAction('delete_gallery_image', galleryImageToDelete.id, `Deleted gallery image: ${galleryImageToDelete.title}`);
+              showToast('Image removed from gallery', 'success');
+              setIsGalleryDeleteConfirmOpen(false);
+              setGalleryImageToDelete(null);
+            } catch (error) {
+              handleFirestoreError(error, OperationType.DELETE, `gallery/${galleryImageToDelete.id}`);
+              showToast('Failed to delete image', 'error');
+            }
+          }}
+          title="Delete Gallery Image"
+          message={`Are you sure you want to delete "${galleryImageToDelete?.title}" from the gallery?`}
+          confirmText="Delete"
+          type="danger"
         />
       )}
     </AnimatePresence>
