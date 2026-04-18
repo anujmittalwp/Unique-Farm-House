@@ -146,7 +146,7 @@ const GALLERY_FALLBACK_IMAGES = [
   { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg", title: "Evening Bonfire Gathering Area", category: "Activities" },
 ];
 
-const APP_VERSION = '1.0.9';
+const APP_VERSION = '1.0.10';
 
 const clearAppCache = (forced = false) => {
   console.log(`Clearing application cache and cookies (Forced: ${forced})...`);
