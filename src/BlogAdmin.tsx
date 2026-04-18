@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { Plus, Edit3, Trash2, X, Image as ImageIcon, Save } from 'lucide-react';
+import { Plus, Edit3, Trash2, X, Image as ImageIcon, Save, Sparkles } from 'lucide-react';
 
-export const BlogAdmin = ({ showToast }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
+export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, galleryImages?: any[] }) => {
   const [blogs, setBlogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [currentBlog, setCurrentBlog] = useState<any>(null);
   const [blogToDelete, setBlogToDelete] = useState<string | null>(null);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, 'blogs'), orderBy('createdAt', 'desc'));
@@ -49,6 +50,37 @@ export const BlogAdmin = ({ showToast }: { showToast: (msg: string, type?: 'succ
       date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     });
     setIsEditing(true);
+  };
+
+  const handleGenerateAIPost = async () => {
+    setIsGeneratingAI(true);
+    showToast('Generating AI post... This could take 10-20 seconds.', 'info');
+    try {
+      const res = await fetch('/api/blogs/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ galleryImages })
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to generate');
+      }
+      const data = await res.json();
+      
+      setCurrentBlog({
+        ...data,
+        category: 'Trending',
+        author: 'Unique Farmhouse Team',
+        date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      });
+      setIsEditing(true);
+      showToast('AI Blog generated successfully! You can tweak it before saving.', 'success');
+    } catch (error: any) {
+      console.error(error);
+      showToast(error.message, 'error');
+    } finally {
+      setIsGeneratingAI(false);
+    }
   };
 
   const handleEdit = (blog: any) => {
@@ -250,12 +282,26 @@ export const BlogAdmin = ({ showToast }: { showToast: (msg: string, type?: 'succ
           <h3 className="text-xl font-serif font-bold text-luxury-dark">Blog Manager</h3>
           <p className="text-sm text-luxury-dark/60">Create and manage your blog posts</p>
         </div>
-        <button
-          onClick={handleAddNew}
-          className="flex items-center gap-2 px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all shadow-lg"
-        >
-          <Plus size={18} /> New Post
-        </button>
+        <div className="flex gap-4">
+          <button
+            onClick={handleGenerateAIPost}
+            disabled={isGeneratingAI}
+            className="flex items-center gap-2 px-6 py-3 bg-[linear-gradient(110deg,#000,45%,#4D4D4D,55%,#000)] bg-[length:250%_100%] text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:shadow-lg hover:shadow-black/20 transition-all disabled:opacity-50 animate-shimmer"
+          >
+            {isGeneratingAI ? (
+              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Sparkles size={18} className="text-luxury-gold" />
+            )}
+            {isGeneratingAI ? 'Generating...' : 'Auto Generate Post'}
+          </button>
+          <button
+            onClick={handleAddNew}
+            className="flex items-center gap-2 px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all shadow-lg"
+          >
+            <Plus size={18} /> New Post
+          </button>
+        </div>
       </div>
 
       {loading ? (

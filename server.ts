@@ -278,33 +278,33 @@ async function startServer() {
     }
   });
 
-  async function performReviewSync() {
-    // Prioritize the known working key you just provided
-    const providedKey = "AIzaSyBXEk2AUKlH8m_gCJLF-7Ar-8R71dpC9u8";
-    
-    const getValidKey = () => {
-      // Check environment variables first (user can set these in Settings)
-      const keys = [
-        process.env.GOOGLE_API_KEY,
-        process.env.GEMINI_API_KEY
-      ];
+  // Prioritize the known working key you just provided
+  const providedKey = "AIzaSyBXEk2AUKlH8m_gCJLF-7Ar-8R71dpC9u8";
+  
+  const getValidKey = () => {
+    // Check environment variables first (user can set these in Settings)
+    const keys = [
+      process.env.GOOGLE_API_KEY,
+      process.env.GEMINI_API_KEY
+    ];
 
-      for (const key of keys) {
-        if (key && 
-            key.trim() !== "" && 
-            key !== "undefined" && 
-            !key.includes("TODO") && 
-            key.startsWith("AIza")) {
-          return key.trim();
-        }
+    for (const key of keys) {
+      if (key && 
+          key.trim() !== "" && 
+          key !== "undefined" && 
+          !key.includes("TODO") && 
+          key.startsWith("AIza")) {
+        return key.trim();
       }
+    }
 
-      // Fallback to the hardcoded one if no environment variable is set
-      if (providedKey && providedKey.startsWith("AIza")) return providedKey.trim();
-      
-      return null;
-    };
+    // Fallback to the hardcoded one if no environment variable is set
+    if (providedKey && providedKey.startsWith("AIza")) return providedKey.trim();
+    
+    return null;
+  };
 
+  async function performReviewSync() {
     const apiKey = getValidKey();
     
     if (!apiKey) {
@@ -398,6 +398,121 @@ async function startServer() {
       console.error('Daily sync failed:', err);
     }
   }, 24 * 60 * 60 * 1000);
+
+  // AI Blog Generation API
+  app.post("/api/blogs/generate", async (req, res) => {
+    try {
+      const { galleryImages } = req.body;
+      
+      const apiKey = getValidKey();
+      if (!apiKey) {
+        return res.status(500).json({ error: 'Gemini API Key is missing. Please add GOOGLE_API_KEY in settings.' });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      
+      // Select 10 diverse images as context if there are many
+      const imageSubset = galleryImages && galleryImages.length > 0
+        ? JSON.stringify(galleryImages.slice(0, 50).map((img: any) => ({ src: img.src, title: img.title || 'Farmhouse image' })))
+        : '[]';
+
+      const prompt = `You are a professional luxury estate hospitality blogger.
+Write a brand new, highly engaging blog post about "Unique Farm House Noida". Make the post highly SEO optimized. 
+
+Available gallery images (JSON):
+${imageSubset}
+
+Requirements:
+1. Select the ONE most relevant image URL from the 'Available gallery images' JSON. If it's empty or invalid, return an empty string for the image.
+2. Generate a catchy Title.
+3. Generate a clean URL slug.
+4. Generate a 2-3 sentence excerpt for the blog preview.
+5. Generate the full HTML content exactly matching this specific structural template, replacing the bracketed [ ] content with your fresh, unique copy for the chosen topic.
+
+STRICT HTML TEMPLATE TO FOLLOW:
+<p><em>[Write a short introductory paragraph. Make keywords like <strong>Unique Farm House</strong> and <strong>Delhi NCR</strong> bold.]</em></p>
+
+<hr style="margin: 2rem 0; border: none; border-top: 1px solid #e5e7eb;" />
+
+<h3 style="display: flex; align-items: center; gap: 8px;">[Choose an Emoji] [Write a Section Title, e.g., Experience Premium Living in Nature]</h3>
+<p>[Write a short paragraph for this section]</p>
+<ul style="list-style: none; padding-left: 0; margin-top: 1rem; space-y: 0.5rem;">
+  <li style="margin-bottom: 0.5rem;">[Emoji] [Feature 1]</li>
+  <li style="margin-bottom: 0.5rem;">[Emoji] [Feature 2]</li>
+  <li style="margin-bottom: 0.5rem;">[Emoji] [Feature 3]</li>
+</ul>
+
+<hr style="margin: 2rem 0; border: none; border-top: 1px solid #e5e7eb;" />
+
+<h3 style="display: flex; align-items: center; gap: 8px;">[Choose an Emoji] [Write Section Title 2, e.g., Perfect Venue for Every Occasion]</h3>
+<p>[Write a short paragraph]</p>
+<ul style="list-style: none; padding-left: 0; margin-top: 1rem;">
+  <li style="margin-bottom: 0.5rem;"><strong>[Emoji] [Event Type 1]:</strong> [Short description]</li>
+  <li style="margin-bottom: 0.5rem;"><strong>[Emoji] [Event Type 2]:</strong> [Short description]</li>
+</ul>
+
+<hr style="margin: 2rem 0; border: none; border-top: 1px solid #e5e7eb;" />
+
+<h3 style="display: flex; align-items: center; gap: 8px;">[Choose an Emoji] [Write Section Title 3, e.g., Luxury Amenities]</h3>
+<p>[Write a short paragraph]</p>
+<ul style="list-style: none; padding-left: 0; margin-top: 1rem;">
+  <li style="margin-bottom: 0.5rem;">✔️ [Amenity 1]</li>
+  <li style="margin-bottom: 0.5rem;">✔️ [Amenity 2]</li>
+</ul>
+
+<hr style="margin: 2rem 0; border: none; border-top: 1px solid #e5e7eb;" />
+
+<h3 style="display: flex; align-items: center; gap: 8px;">📍 Prime Location</h3>
+<p>Conveniently located in <strong>Delhi NCR</strong>, our farmhouse is easily accessible from <strong>Noida, Delhi, and Gurgaon</strong>.</p>
+<p>👉 <a href="https://share.google/7n7vF0EX3uErXdQRn" target="_blank" style="color: #2563eb; text-decoration: underline;">View Location on Google Maps</a></p>
+
+<hr style="margin: 2rem 0; border: none; border-top: 1px solid #e5e7eb;" />
+
+<h3 style="display: flex; align-items: center; gap: 8px;">[Choose an Emoji] [Write Final Section Title, e.g., Book Your Experience Today]</h3>
+<p>[Write a final closing paragraph encouraging booking]</p>
+
+<div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;">
+  <a href="tel:7503001001" style="background-color: #000; color: #fff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; display: flex; align-items: center; gap: 8px;">📞 Call Now</a>
+  <a href="https://wa.me/917503001001" style="background-color: #25D366; color: #fff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; display: flex; align-items: center; gap: 8px;">💬 WhatsApp Now</a>
+</div>
+
+<div style="margin-top: 1.5rem; font-size: 0.875rem;">
+  <p><strong>Contact:</strong> 7503001001</p>
+  <p><strong>Website:</strong> <a href="https://www.uniquefarms.in" style="color: #2563eb;">www.uniquefarms.in</a></p>
+</div>
+
+Respond STRICTLY with a valid JSON object in this format (no markdown code blocks, just raw JSON string starting with {):
+{
+  "title": "",
+  "slug": "",
+  "excerpt": "",
+  "content": "",
+  "image": ""
+}
+`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+
+      if (!response.text) {
+        throw new Error("No response text from Gemini API");
+      }
+
+      let jsonStr = response.text.trim();
+      if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
+      if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
+      if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
+      jsonStr = jsonStr.trim();
+
+      const blogData = JSON.parse(jsonStr);
+      res.json(blogData);
+    } catch (err: any) {
+      console.error('Blog generation error:', err);
+      res.status(500).json({ error: 'Failed to generate blog post', details: err.message });
+    }
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
