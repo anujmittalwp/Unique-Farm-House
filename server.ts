@@ -6,9 +6,9 @@ import fs from "fs";
 import nodeIcal from "node-ical";
 import { Resend } from "resend";
 import { v2 as cloudinary } from "cloudinary";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -512,6 +512,183 @@ Respond STRICTLY with a valid JSON object in this format (no markdown code block
       console.error('Blog generation error:', err);
       res.status(500).json({ error: 'Failed to generate blog post', details: err.message });
     }
+  });
+
+  app.post("/api/chat", async (req, res) => {
+    try {
+      const { messages } = req.body;
+      
+      const apiKey = getValidKey();
+      if (!apiKey) {
+        return res.status(500).json({ error: 'Gemini API Key is missing. Please add GOOGLE_API_KEY in settings.' });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const defaultSystemPrompt = `You are the friendly, professional, and helpful virtual receptionist for "Unique Farmhouse Noida".
+
+CRITICAL RULE: Before you answer any detailed questions or provide quotes, you MUST politely ask the guest for their:
+1. Full Name
+2. Mobile Number
+3. Email Address
+4. Total number of guests
+
+Once (and ONLY once) you have collected all 4 of these details, you MUST call the "save_lead" tool immediately. After saving the lead, you can continue to answer all their questions about the farmhouse using the facts below.
+
+If the user provides some but not all details, ask for the remaining ones nicely. Answer very basic greetings (Hi/Hello) briefly, but always pivot to asking for their details first.
+
+Here are the EXACT facts about Unique Farmhouse Noida:
+📍 Location & Contact:
+- Location: Sector 135, Noida (Easily reachable from Noida, Delhi, and Gurgaon).
+- Map link: https://share.google/7n7vF0EX3uErXdQRn
+- Contact / WhatsApp: +91 7503001001
+- Website: www.uniquefarms.in
+
+⏰ Timings:
+- Day Party Booking: 11:30 AM to 6:00 PM
+- Night Stay: Check-in at 2:00 PM, Check-out at 11:00 AM
+
+🛏️ Rooms & Capacity:
+- Property: 4 BHK (4 Bedrooms).
+- Night Stay Capacity: 12 guests can sleep comfortably (3 occupancy per room). 
+- Extra guests: Extra mattresses are available on a chargeable basis.
+
+🍽️ Food & Catering:
+- Food Packages: We do NOT provide in-house food packages.
+- Kitchen: You can bring your own chef and use the complete kitchen for night stays (max 12 people). The kitchen is NOT for cooking for large party gatherings.
+- Food Delivery: Zomato, Swiggy, and all delivery partners reach easily.
+
+🎉 Rules & Entertainment:
+- Pool: Full-time access (24 hours allowed), no timing restrictions.
+- Music/DJ: Allowed FULL NIGHT without any restrictions!
+- Alcohol: Allowed. If setting up a proper bar counter for a gathering of 50+ people, a license might be required.
+- Pets: Pet-friendly! Allowed on a chargeable basis (guests must inform us in advance).
+
+💰 Booking & Payment Terms:
+- Booking Confirmation: 50% advance payment is required to confirm the booking.
+- Final Payment: The remaining 100% balance must be cleared ONE WEEK before the booking date.
+- Security Deposit: ₹5,000 Refundable security deposit is required at check-in.
+
+RULES FOR RESPONDING:
+1. Keep your answers brief (2-3 sentences), friendly, and conversational.
+2. Answer in the same language the user asks (English, Hindi, or Hinglish).
+3. If a user asks to book, tell them to use the "Book Now" button on the website, or WhatsApp +91 7503001001.
+4. Do NOT make up any prices or rules. Stick exactly to the facts above.
+5. Do NOT output markdown formatting like bolding or bullet points unless absolutely necessary.`;
+
+      const finalSystemPrompt = req.body.systemPrompt || defaultSystemPrompt;
+
+      const saveLeadTool = {
+        functionDeclarations: [
+          {
+            name: "save_lead",
+            description: "Save the guest's contact information as a lead in the system.",
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING, description: "The guest's full name" },
+                phone: { type: Type.STRING, description: "The guest's mobile or phone number" },
+                email: { type: Type.STRING, description: "The guest's email address" },
+                guests: { type: Type.STRING, description: "Total number of guests planned" }
+              },
+              required: ["name", "phone", "email", "guests"]
+            }
+          }
+        ]
+      };
+
+      // Format messages for standard Gemini Chat pattern
+      let history = messages.slice(0, -1).map((m: any) => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.content }]
+      }));
+      
+      const lastMessage = messages[messages.length - 1]?.content || '';
+
+      let response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [
+          { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS: ${finalSystemPrompt}` }]},
+          { role: 'model', parts: [{ text: 'Understood. I will ask for guest details (Name, Phone, Email, Guests) first and use the save_lead tool when I have them, then I will answer their questions based on the facts provided.' }]},
+          ...history,
+          { role: 'user', parts: [{ text: lastMessage }] }
+        ],
+        config: {
+          tools: [{ functionDeclarations: saveLeadTool.functionDeclarations }]
+        }
+      });
+
+      // Handle Function Calls
+      if (response.functionCalls && response.functionCalls.length > 0) {
+        const call = response.functionCalls[0];
+        if (call.name === 'save_lead') {
+          const { name, phone, email, guests } = call.args as any;
+          
+          try {
+            // Add to Firestore
+            await addDoc(collection(db, 'leads'), {
+              name,
+              phone,
+              email,
+              guests,
+              status: 'new',
+              createdAt: serverTimestamp(),
+              source: 'AI Chatbot'
+            });
+
+            // Call model again with function result to get final text response
+            const response2 = await ai.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: [
+                { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS: ${finalSystemPrompt}` }]},
+                { role: 'model', parts: [{ text: 'Understood.' }]},
+                ...history,
+                { role: 'user', parts: [{ text: lastMessage }] },
+                response.candidates[0].content, // The function call
+                {
+                  role: 'user',
+                  parts: [{
+                    functionResponse: {
+                      name: "save_lead",
+                      response: { result: "Success. Lead captured." }
+                    }
+                  }]
+                }
+              ],
+              config: {
+                 tools: [saveLeadTool]
+              }
+            });
+            
+            return res.json({ reply: response2.text });
+          } catch (dbErr: any) {
+            console.error('Error saving lead:', dbErr);
+            return res.json({ reply: "I've noted your details, but I'm having a slight technical issue saving them. Don't worry, how can I help you in the meantime?" });
+          }
+        }
+      }
+
+      const reply = response.text || "I'm sorry, I couldn't process that right now. Please call us at +91 7503001001.";
+      res.json({ reply });
+
+    } catch (error: any) {
+      console.error('Chat API Error:', error);
+      res.status(500).json({ error: error.message || 'Failed to process chat' });
+    }
+  });
+
+  // Handle unmatched API routes to ensure they return JSON instead of HTML pages
+  app.use('/api', (req, res, next) => {
+    res.status(404).json({ error: 'API route not found' });
+  });
+
+  // Global Error Handler for API routes
+  app.use('/api', (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Express API Error:', err);
+    res.status(err.status || 500).json({ 
+      error: err.message || 'Internal Developer Error',
+      details: err.stack
+    });
   });
 
   // Vite middleware for development

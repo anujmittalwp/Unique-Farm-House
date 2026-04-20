@@ -169,6 +169,7 @@ service cloud.firestore {
              data.email is string &&
              data.status in ['new', 'contacted', 'converted', 'lost'] &&
              (!('phone' in data) || data.phone is string) &&
+             (!('guests' in data) || (data.guests is string || data.guests is number)) &&
              (!('source' in data) || data.source is string) &&
              (!('metaLeadId' in data) || data.metaLeadId is string) &&
              (!('remarks' in data) || data.remarks is string) &&
@@ -288,6 +289,11 @@ service cloud.firestore {
     }
 
     match /expense_categories/{categoryId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /global_expenses/{expenseId} {
       allow read: if isAdmin();
       allow write: if isAdmin();
     }

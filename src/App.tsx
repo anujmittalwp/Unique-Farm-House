@@ -76,6 +76,8 @@ import {
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 import { Blog, BlogPost } from './Blog';
 import { BlogAdmin } from './BlogAdmin';
+import { Chatbot } from './Chatbot';
+import { ChatbotSettingsAdmin } from './ChatbotSettingsAdmin';
 import PrivacyPolicy from './PrivacyPolicy';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
@@ -747,7 +749,15 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls })
       });
-      const data = await response.json();
+      
+      let data;
+      const textResponse = await response.text();
+      try {
+        data = JSON.parse(textResponse);
+      } catch (e) {
+        throw new Error(`Invalid response from server (Status: ${response.status}). Response may be HTML.`);
+      }
+
       if (response.ok) {
         if (data.events && data.events.length > 0) {
           const batch = writeBatch(db);
@@ -1168,6 +1178,7 @@ const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; show
 const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, counts }: any) => {
   const tabs = [
     { id: 'settings', filter: 'general', label: 'General' },
+    { id: 'chatbot_settings', filter: 'chatbot_settings', label: 'Chatbot AI', labelShort: 'AI Bot' },
     { id: 'reviews', filter: 'reviews', label: 'Reviews', count: counts.reviews },
     { id: 'gallery', filter: 'gallery', label: 'Gallery', count: counts.gallery },
     { id: 'logs', filter: 'logs', label: 'Logs', count: counts.logs },
@@ -1231,7 +1242,8 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     phone: '',
     source: 'direct',
     remarks: '',
-    status: 'new'
+    status: 'new',
+    tag: ''
   });
   const [isAddingLead, setIsAddingLead] = useState(false);
 
@@ -1287,7 +1299,7 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         remarks: manualLead.remarks,
         status: manualLead.status,
         createdAt: serverTimestamp(),
-        tags: [sourceTag]
+        tags: manualLead.tag ? [sourceTag, manualLead.tag] : [sourceTag]
       };
       
       await addDoc(collection(db, 'leads'), leadData);
@@ -1301,7 +1313,8 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         phone: '',
         source: 'direct',
         remarks: '',
-        status: 'new'
+        status: 'new',
+        tag: ''
       });
     } catch (err) {
       console.error(err);
@@ -1443,7 +1456,14 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     try {
       // Fetch leads from Facebook Graph API
       const response = await fetch(`https://graph.facebook.com/v19.0/${pageId}/leads?access_token=${token}&fields=created_time,id,field_data`);
-      const data = await response.json();
+      
+      let data;
+      const textResponse = await response.text();
+      try {
+        data = JSON.parse(textResponse);
+      } catch (e) {
+        throw new Error(`Invalid response from Meta API (Status: ${response.status})`);
+      }
 
       if (data.error) {
         throw new Error(data.error.message || 'Failed to fetch from Meta');
@@ -1682,6 +1702,21 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     }
   };
 
+  const handleUpdateRelevancy = async (leadId: string, value: string, currentTags: string[]) => {
+    const relevancyOptions = ['Relevent', 'Non Relevent'];
+    // Keep other tags (like source tags) and only update the relevancy one
+    const otherTags = (currentTags || []).filter(t => !relevancyOptions.includes(t));
+    const newTags = value ? [...otherTags, value] : otherTags;
+
+    try {
+      await updateDoc(doc(db, 'leads', leadId), { tags: newTags });
+      showToast(value ? `Lead marked as ${value}` : 'Tag cleared', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to update tag', 'error');
+    }
+  };
+
   const [tagInput, setTagInput] = useState<{ [key: string]: string }>({});
 
   const handleAddTag = async (leadId: string, currentTags: string[] = []) => {
@@ -1849,41 +1884,31 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                     </div>
                   </td>
                   <td className="px-6 py-5">
-                    <div className="flex flex-wrap gap-1.5 mb-2 max-w-[200px]">
-                      {(lead.tags || []).map((tag: string) => (
-                        <span 
-                          key={tag} 
-                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#141414]/5 text-[#141414] rounded-lg text-[10px] font-bold uppercase tracking-wider"
-                        >
-                          {tag}
-                          <button 
-                            onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
-                            className="hover:text-red-500 ml-0.5 hover:bg-white rounded-full transition-all"
-                          >
-                            <X size={10} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        value={tagInput[lead.id] || ''}
-                        onChange={(e) => setTagInput(prev => ({ ...prev, [lead.id]: e.target.value }))}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleAddTag(lead.id, lead.tags || []);
-                          }
-                        }}
-                        placeholder="Add tag..."
-                        className="text-[10px] border-none bg-[#FAFAFA] rounded-lg px-3 py-1.5 w-24 focus:ring-1 focus:ring-luxury-gold outline-none transition-colors"
-                      />
-                      <button 
-                        onClick={() => handleAddTag(lead.id, lead.tags || [])}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg bg-[#FAFAFA] text-luxury-dark/40 hover:bg-[#141414] hover:text-white transition-all"
+                    <div className="flex flex-col gap-2">
+                      <select 
+                        value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
+                        onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
+                        className={`text-[10px] font-bold uppercase tracking-widest border border-luxury-dark/10 rounded-xl px-3 py-2 appearance-none cursor-pointer outline-none transition-all ${
+                          (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                          (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-100' :
+                          'bg-[#FAFAFA] text-luxury-dark/40 hover:border-luxury-gold'
+                        }`}
                       >
-                        <Plus size={12} />
-                      </button>
+                        <option value="">Select Tag...</option>
+                        <option value="Relevent">Relevent</option>
+                        <option value="Non Relevent">Non Relevent</option>
+                      </select>
+                      
+                      <div className="flex flex-wrap gap-1">
+                        {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
+                          <span 
+                            key={tag} 
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-luxury-dark/5 text-luxury-dark/40 rounded-md text-[9px] font-bold uppercase tracking-wider"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </td>
                   <td className="px-6 py-5">
@@ -2000,40 +2025,31 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
 
              <div>
                <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mb-2">Tags</p>
-               <div className="flex flex-wrap gap-2">
-                  {(lead.tags || []).map((tag: string) => (
-                    <span 
-                      key={tag} 
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#141414]/5 text-[#141414] rounded-xl text-[10px] font-bold uppercase tracking-wider"
-                    >
-                      {tag}
-                      <button 
-                        onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
-                        className="hover:text-red-500 bg-white rounded-full p-0.5 transition-all"
-                      >
-                        <X size={10} />
-                      </button>
-                    </span>
-                  ))}
-                  <div className="flex bg-[#FAFAFA] rounded-xl overflow-hidden p-0.5 border border-black/5">
-                    <input 
-                      type="text"
-                      value={tagInput[lead.id] || ''}
-                      onChange={(e) => setTagInput(prev => ({ ...prev, [lead.id]: e.target.value }))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleAddTag(lead.id, lead.tags || []);
-                        }
-                      }}
-                      placeholder="Add tag..."
-                      className="text-[10px] border-none bg-transparent px-3 py-1 w-20 outline-none"
-                    />
-                    <button 
-                      onClick={() => handleAddTag(lead.id, lead.tags || [])}
-                      className="w-6 h-6 flex items-center justify-center rounded-lg bg-white shadow-sm text-luxury-dark hover:bg-luxury-gold transition-all"
-                    >
-                      <Plus size={12} />
-                    </button>
+               <div className="flex flex-col gap-3">
+                  <select 
+                     value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
+                     onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
+                     className={`w-full text-[10px] font-bold uppercase tracking-widest border border-luxury-dark/10 rounded-2xl px-4 py-3 appearance-none cursor-pointer outline-none transition-all ${
+                       (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+                       (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-200' :
+                       'bg-[#FAFAFA] text-luxury-dark/40'
+                     }`}
+                   >
+                     <option value="">No Tag Set</option>
+                     <option value="Relevent">Relevent</option>
+                     <option value="Non Relevent">Non Relevent</option>
+                  </select>
+
+                  {/* Display other tags in mobile too */}
+                  <div className="flex flex-wrap gap-2">
+                     {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
+                       <span 
+                         key={tag} 
+                         className="px-2 py-1 bg-luxury-dark/5 text-luxury-dark/30 rounded-lg text-[9px] font-bold uppercase tracking-wider"
+                       >
+                         {tag}
+                       </span>
+                     ))}
                   </div>
                </div>
              </div>
@@ -2350,6 +2366,18 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                     <option value="other">Other</option>
                   </select>
                 </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">Relevancy Tag</label>
+                  <select
+                    value={manualLead.tag}
+                    onChange={(e) => setManualLead({...manualLead, tag: e.target.value})}
+                    className="w-full px-5 py-4 bg-luxury-dark/5 border-none rounded-2xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all appearance-none"
+                  >
+                    <option value="">No Tag</option>
+                    <option value="Relevent">Relevent</option>
+                    <option value="Non Relevent">Non Relevent</option>
+                  </select>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -2387,9 +2415,10 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
   );
 };
 
-const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showToast }: { 
+const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], onAssignExpense, showToast }: { 
   bookings: any[], 
   expenseCategories: any[], 
+  globalExpenses?: any[],
   onAssignExpense: (b: any) => void,
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
 }) => {
@@ -2400,6 +2429,51 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
   // Filter State
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().getMonth().toString());
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+
+  // Global Expense State
+  const [isAddingGlobalExpense, setIsAddingGlobalExpense] = useState(false);
+  const [newGlobalExpense, setNewGlobalExpense] = useState({
+    amount: '',
+    category: expenseCategories.length > 0 ? expenseCategories[0].name : 'Other',
+    note: '',
+    date: format(new Date(), 'yyyy-MM-dd')
+  });
+
+  const handleAddGlobalExpense = async () => {
+    if (!newGlobalExpense.amount || !newGlobalExpense.category || !newGlobalExpense.date) {
+      showToast('Please fill all required fields', 'error');
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'global_expenses'), {
+        amount: Number(newGlobalExpense.amount),
+        category: newGlobalExpense.category,
+        note: newGlobalExpense.note,
+        date: newGlobalExpense.date,
+        createdAt: serverTimestamp()
+      });
+      showToast('Global expense added', 'success');
+      setNewGlobalExpense({
+        amount: '',
+        category: expenseCategories.length > 0 ? expenseCategories[0].name : 'Other',
+        note: '',
+        date: format(new Date(), 'yyyy-MM-dd')
+      });
+      setIsAddingGlobalExpense(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'global_expenses');
+    }
+  };
+
+  const handleDeleteGlobalExpense = async (id: string) => {
+    if (!window.confirm('Delete this global expense?')) return;
+    try {
+      await deleteDoc(doc(db, 'global_expenses', id));
+      showToast('Global expense deleted', 'success');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `global_expenses/${id}`);
+    }
+  };
 
   const years = useMemo(() => {
     const yearsSet = new Set<string>();
@@ -2510,9 +2584,19 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
         
         if (booking.expenses && Array.isArray(booking.expenses)) {
           booking.expenses.forEach((exp: any) => {
-            monthsData[monthKey].expenses += (exp.amount || 0);
+            monthsData[monthKey].expenses += (Number(exp.amount) || 0);
           });
         }
+      }
+    });
+
+    globalExpenses.forEach(exp => {
+      const expDate = parse(exp.date, 'yyyy-MM-dd', new Date());
+      if (!isValid(expDate)) return;
+      
+      const monthKey = format(expDate, 'MMM yyyy');
+      if (monthsData[monthKey]) {
+        monthsData[monthKey].expenses += (Number(exp.amount) || 0);
       }
     });
 
@@ -2522,27 +2606,58 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
 
   const stats = useMemo(() => {
     const totalIncome = filteredBookings.reduce((sum, b) => sum + (b.bookingAmount || 0), 0);
-    const totalExpenses = filteredBookings.reduce((sum, b) => {
+    
+    // Booking-specific expenses
+    const bookingExpenses = filteredBookings.reduce((sum, b) => {
       const expSum = (b.expenses || []).reduce((s: number, e: any) => s + (e.amount || 0), 0);
       return sum + expSum;
     }, 0);
+
+    // Global expenses (filtered by selected month/year)
+    const filteredGlobalExpenses = globalExpenses.filter(e => {
+      const d = parse(e.date, 'yyyy-MM-dd', new Date());
+      if (!isValid(d)) return false;
+      const yearMatch = d.getFullYear().toString() === selectedYear;
+      const monthMatch = selectedMonth === 'all' || d.getMonth().toString() === selectedMonth;
+      return yearMatch && monthMatch;
+    });
+
+    const totalGlobalExp = filteredGlobalExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const totalExpenses = bookingExpenses + totalGlobalExp;
+    
     const totalBookings = filteredBookings.length;
     const netProfit = totalIncome - totalExpenses;
+    const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : '0.0';
     
-    return { totalIncome, totalExpenses, totalBookings, netProfit };
-  }, [filteredBookings]);
+    return { totalIncome, totalExpenses, totalBookings, netProfit, profitMargin, bookingExpenses, totalGlobalExp };
+  }, [filteredBookings, globalExpenses, selectedMonth, selectedYear]);
 
   const expenseByCategory = useMemo(() => {
     const categories: { [key: string]: number } = {};
+    
+    // Booking expanses
     filteredBookings.forEach(booking => {
       if (booking.expenses && Array.isArray(booking.expenses)) {
         booking.expenses.forEach((exp: any) => {
-          categories[exp.category] = (categories[exp.category] || 0) + exp.amount;
+          categories[exp.category] = (categories[exp.category] || 0) + (Number(exp.amount) || 0);
         });
       }
     });
+
+    // Global expenses
+    globalExpenses.forEach(exp => {
+      const d = parse(exp.date, 'yyyy-MM-dd', new Date());
+      if (!isValid(d)) return;
+      const yearMatch = d.getFullYear().toString() === selectedYear;
+      const monthMatch = selectedMonth === 'all' || d.getMonth().toString() === selectedMonth;
+      
+      if (yearMatch && monthMatch) {
+        categories[exp.category] = (categories[exp.category] || 0) + (Number(exp.amount) || 0);
+      }
+    });
+
     return Object.entries(categories).map(([name, value]) => ({ name, value }));
-  }, [filteredBookings]);
+  }, [filteredBookings, globalExpenses, selectedMonth, selectedYear]);
 
   const COLORS = ['#C8A45D', '#141414', '#4B5563', '#9CA3AF', '#D1D5DB', '#F3F4F6'];
 
@@ -2608,7 +2723,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
               <h3 className="text-2xl font-serif font-bold text-luxury-dark">₹{stats.totalExpenses.toLocaleString()}</h3>
             </div>
           </div>
-          <p className="text-[10px] text-luxury-dark/30 font-medium italic">All recorded booking costs</p>
+          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Bookings & Global costs</p>
         </div>
 
         <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
@@ -2621,20 +2736,20 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
               <h3 className="text-2xl font-serif font-bold text-luxury-dark">₹{stats.netProfit.toLocaleString()}</h3>
             </div>
           </div>
-          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Income minus expenses</p>
+          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Income minus ALL expenses</p>
         </div>
 
         <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
           <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-luxury-dark/5 text-luxury-dark flex items-center justify-center">
-              <Calendar size={24} />
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+              <PieChart size={24} />
             </div>
             <div>
-              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Total Bookings</p>
-              <h3 className="text-2xl font-serif font-bold text-luxury-dark">{stats.totalBookings}</h3>
+              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">True ROI Margin</p>
+              <h3 className="text-2xl font-serif font-bold text-luxury-dark">{stats.profitMargin}%</h3>
             </div>
           </div>
-          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Confirmed bookings count</p>
+          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Profit as % of income</p>
         </div>
       </div>
 
@@ -2820,6 +2935,124 @@ const FinanceDashboard = ({ bookings, expenseCategories, onAssignExpense, showTo
           )}
         </div>
       </div>
+
+      {/* Global Expenses Section */}
+      <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h3 className="text-xl font-serif font-bold text-luxury-dark">Global Property Expenses</h3>
+            <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest mt-1">Marketing, Maintenance, Salaries</p>
+          </div>
+          <button 
+            onClick={() => setIsAddingGlobalExpense(!isAddingGlobalExpense)}
+            className="flex items-center gap-2 px-4 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all uppercase tracking-widest"
+          >
+            {isAddingGlobalExpense ? <X size={14} /> : <Plus size={14} />}
+            {isAddingGlobalExpense ? 'Cancel' : 'Add Expense'}
+          </button>
+        </div>
+
+        <AnimatePresence>
+          {isAddingGlobalExpense && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden mb-6"
+            >
+              <div className="bg-luxury-cream p-6 rounded-2xl border border-black/5 flex flex-col md:flex-row gap-4 mb-4">
+                <div className="flex-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={newGlobalExpense.amount}
+                    onChange={(e) => setNewGlobalExpense({ ...newGlobalExpense, amount: e.target.value })}
+                    className="w-full px-4 py-3 border border-black/5 rounded-xl font-bold text-sm bg-white focus:outline-none focus:border-luxury-gold"
+                    placeholder="e.g. 5000"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Category</label>
+                  <select
+                    value={newGlobalExpense.category}
+                    onChange={(e) => setNewGlobalExpense({ ...newGlobalExpense, category: e.target.value })}
+                    className="w-full px-4 py-3 border border-black/5 rounded-xl font-bold text-sm bg-white focus:outline-none focus:border-luxury-gold"
+                  >
+                    {expenseCategories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div className="flex-1 md:flex-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Note (Optional)</label>
+                  <input
+                    type="text"
+                    value={newGlobalExpense.note}
+                    onChange={(e) => setNewGlobalExpense({ ...newGlobalExpense, note: e.target.value })}
+                    className="w-full px-4 py-3 border border-black/5 rounded-xl font-bold text-sm bg-white focus:outline-none focus:border-luxury-gold"
+                    placeholder="e.g. FB Ads / Repair"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Date</label>
+                  <input
+                    type="date"
+                    value={newGlobalExpense.date}
+                    onChange={(e) => setNewGlobalExpense({ ...newGlobalExpense, date: e.target.value })}
+                    className="w-full px-4 py-3 border border-black/5 rounded-xl font-bold text-sm bg-white focus:outline-none focus:border-luxury-gold"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={handleAddGlobalExpense}
+                    className="w-full px-6 py-3 bg-luxury-dark text-white text-xs font-bold uppercase tracking-widest rounded-xl hover:bg-luxury-gold transition-all"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-luxury-dark/5">
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Category</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Amount</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Note</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-luxury-dark/5">
+              {globalExpenses.map(expense => (
+                <tr key={expense.id} className="hover:bg-luxury-cream/30 transition-colors group">
+                  <td className="px-4 py-4 text-xs font-medium text-luxury-dark/60">{format(parse(expense.date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}</td>
+                  <td className="px-4 py-4 text-xs font-bold text-luxury-dark">{expense.category}</td>
+                  <td className="px-4 py-4 text-xs font-bold text-red-500">₹{(expense.amount || 0).toLocaleString()}</td>
+                  <td className="px-4 py-4 text-xs text-luxury-dark/60">{expense.note || '-'}</td>
+                  <td className="px-4 py-4 text-right">
+                    <button 
+                      onClick={() => handleDeleteGlobalExpense(expense.id)}
+                      className="p-2 bg-luxury-dark/5 text-luxury-dark/40 rounded-xl hover:bg-red-500 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {globalExpenses.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-luxury-dark/40 italic">
+                    No global expenses recorded yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };
@@ -2981,9 +3214,9 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration'>(userRole === 'admin' ? 'bookings' : 'all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings'>(userRole === 'admin' ? 'bookings' : 'all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
-  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'notifications' | 'migration'>('general');
+  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'notifications' | 'migration' | 'chatbot_settings'>('general');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -2996,6 +3229,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [syncingReviews, setSyncingReviews] = useState(false);
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
+  const [globalExpenses, setGlobalExpenses] = useState<any[]>([]);
   const [assigningExpenseBooking, setAssigningExpenseBooking] = useState<any | null>(null);
   const [blogs, setBlogs] = useState<any[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
@@ -3451,13 +3685,24 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       if (!response.ok) {
         let errorDetails = '';
         try {
-          const errData = await response.json();
-          errorDetails = errData.details || errData.error || '';
+          const errText = await response.text();
+          try {
+            const errData = JSON.parse(errText);
+            errorDetails = errData.details || errData.error || '';
+          } catch(e) {
+            errorDetails = `Server returned an invalid format (Status ${response.status})`;
+          }
         } catch (e) {}
         throw new Error(`Failed to sync reviews via server${errorDetails ? ': ' + errorDetails : ''}`);
       }
 
-      const result = await response.json();
+      const rawText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(rawText);
+      } catch (e) {
+        throw new Error(`Invalid response from server. Response may be HTML or malformed.`);
+      }
       
       if (result.success) {
         localStorage.setItem('last_google_review_sync', now.toString());
@@ -3522,11 +3767,16 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       return () => unsubscribe();
     }
     if (userRole === 'admin' && activeFilter === 'finance') {
-      const q = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      const qCat = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
+      const unCat = onSnapshot(qCat, (snapshot) => {
         setExpenseCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'expense_categories'));
-      return () => unsubscribe();
+
+      const qExp = query(collection(db, 'global_expenses'), orderBy('createdAt', 'desc'));
+      const unExp = onSnapshot(qExp, (snapshot) => {
+        setGlobalExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'global_expenses'));
+      return () => { unCat(); unExp(); };
     }
     if (userRole === 'admin' && activeFilter === 'leads') {
       const q = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
@@ -4172,6 +4422,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
           <FinanceDashboard 
             bookings={bookings} 
             expenseCategories={expenseCategories}
+            globalExpenses={globalExpenses}
             onAssignExpense={setAssigningExpenseBooking}
             showToast={showToast}
           />
@@ -4676,6 +4927,11 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
             <DataMigration showToast={showToast} />
+          </div>
+        ) : activeFilter === 'chatbot_settings' && userRole === 'admin' ? (
+          <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <ChatbotSettingsAdmin showToast={showToast} />
           </div>
         ) : userRole === 'admin' ? (
           <div className="space-y-8">
@@ -8591,6 +8847,9 @@ export default function App() {
         onClose={() => setIsWelcomeModalOpen(false)} 
         onBookNow={openBookingModal}
       />
+
+      {/* AI Chatbot */}
+      <Chatbot />
     </div>
     </ErrorBoundary>
   );

@@ -18,6 +18,10 @@
           "type": "string",
           "description": "The phone number of the lead."
         },
+        "guests": {
+          "type": "string",
+          "description": "The number of guests expected."
+        },
         "status": {
           "type": "string",
           "enum": ["new", "contacted", "converted", "lost"],
@@ -398,6 +402,19 @@
         }
       },
       "required": ["title", "slug", "content", "createdAt"]
+    },
+    "GlobalExpense": {
+      "title": "GlobalExpense",
+      "description": "An expense not tied to a specific booking.",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number", "description": "The amount spent." },
+        "category": { "type": "string", "description": "The category of the expense." },
+        "note": { "type": "string", "description": "Optional notes." },
+        "date": { "type": "string", "description": "The date of the expense." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "category", "date", "createdAt"]
     }
   },
   "firestore": {
@@ -440,6 +457,10 @@
     "leads/{leadId}": {
       "schema": "Lead",
       "description": "Inquiries and leads."
+    },
+    "global_expenses/{expenseId}": {
+      "schema": "GlobalExpense",
+      "description": "Global property expenses."
     }
   }
 }
