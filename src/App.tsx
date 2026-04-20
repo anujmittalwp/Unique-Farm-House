@@ -71,7 +71,9 @@ import {
   Minus,
   Search,
   BookOpen,
-  Settings
+  Settings,
+  Bell,
+  BellRing
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 import { Blog, BlogPost } from './Blog';
@@ -1549,7 +1551,14 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         }
       }
 
-      const response = await fetch(fetchUrl);
+      const response = await fetch('/api/proxy/fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: fetchUrl })
+      });
+      if (!response.ok) {
+        throw new Error(`Proxy fetch failed: ${response.statusText}`);
+      }
       const csvText = await response.text();
       
       if (csvText.trim().toLowerCase().startsWith('<!doctype') || csvText.trim().toLowerCase().startsWith('<html')) {
@@ -3222,6 +3231,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [adminLogs, setAdminLogs] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [notificationFilter, setNotificationFilter] = useState<'all' | 'unread' | 'read'>('all');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<any | null>(null);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -3248,6 +3258,78 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [seedProgress, setSeedProgress] = useState<{ current: number; total: number } | null>(null);
 
   const galleryCategories = ['Villa', 'Pool', 'Interiors', 'Dining', 'Activities', 'Amenities'];
+
+  // Push Notification States
+  const [isPushSupported] = useState('serviceWorker' in navigator && 'PushManager' in window);
+  const [pushPermission, setPushPermission] = useState(Notification.permission);
+  const [isSubscribingPush, setIsSubscribingPush] = useState(false);
+
+  const urlBase64ToUint8Array = (base64String: string) => {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  };
+
+  const subscribeToPushNotifications = async () => {
+    if (!isPushSupported) {
+      showToast('Push notifications are not supported in this browser.', 'error');
+      return;
+    }
+    
+    setIsSubscribingPush(true);
+    try {
+      let permission = Notification.permission;
+      if (permission === 'default') {
+        permission = await Notification.requestPermission();
+        setPushPermission(permission);
+      }
+      
+      if (permission !== 'granted') {
+        if (permission === 'denied') {
+          showToast('Notification permission denied. Please click the site icon/lock icon in your address bar and reset permission to "Allow".', 'error');
+        } else {
+          showToast('Notification permission denied.', 'error');
+        }
+        setIsSubscribingPush(false);
+        return;
+      }
+
+      const swRegistration = await navigator.serviceWorker.ready;
+      
+      const response = await fetch('/api/push/public-key');
+      const vapidPublicKey = await response.text();
+      const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+
+      const subscription = await swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedVapidKey
+      });
+
+      const res = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        body: JSON.stringify(subscription),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (res.ok) {
+        showToast('Subscribed to Push Notifications successfully!', 'success');
+      } else {
+        throw new Error('Failed to save subscription');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast('Error subscribing to notifications.', 'error');
+    } finally {
+      setIsSubscribingPush(false);
+    }
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
     const file = e.target.files?.[0];
@@ -4063,6 +4145,31 @@ RULES FOR RESPONDING:
     });
   }, [bookings, activeFilter, bookingFilter]);
 
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter(notif => {
+      if (notificationFilter === 'unread') return !notif.read;
+      if (notificationFilter === 'read') return notif.read;
+      return true;
+    });
+  }, [notifications, notificationFilter]);
+
+  const handleMarkAllRead = async () => {
+    if (notifications.length === 0) return;
+    try {
+      const batch = writeBatch(db);
+      const unreadNotifications = notifications.filter(n => !n.read);
+      if (unreadNotifications.length === 0) return;
+      
+      unreadNotifications.forEach(notif => {
+        batch.update(doc(db, 'notifications', notif.id), { read: true });
+      });
+      await batch.commit();
+      showToast('All notifications marked as read', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'notifications');
+    }
+  };
+
   // Generate and save ICS calendar for external platforms
   useEffect(() => {
     if (userRole === 'admin' && bookings.length > 0) {
@@ -4293,6 +4400,16 @@ RULES FOR RESPONDING:
                       <h3 className="text-lg sm:text-xl font-bold text-luxury-dark truncate">
                         {user.displayName || 'Guest'}
                       </h3>
+                      {userRole === 'admin' && (
+                        <button 
+                          onClick={subscribeToPushNotifications}
+                          disabled={isSubscribingPush || !isPushSupported || pushPermission === 'granted'}
+                          title={pushPermission === 'granted' ? "Push Enabled" : "Enable Push Notifications"}
+                          className={`shrink-0 transition-colors ${pushPermission === 'granted' ? 'text-emerald-500' : 'text-luxury-dark/30 hover:text-emerald-500'} ${isSubscribingPush ? 'animate-pulse' : ''}`}
+                        >
+                          {pushPermission === 'granted' ? <BellRing size={16} /> : <Bell size={16} />}
+                        </button>
+                      )}
                       <button 
                         onClick={onLogout}
                         title="Logout"
@@ -4561,8 +4678,41 @@ RULES FOR RESPONDING:
         ) : activeFilter === 'notifications' && userRole === 'admin' ? (
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="flex p-1 bg-luxury-dark/5 rounded-2xl w-full md:w-auto">
+                {(['all', 'unread', 'read'] as const).map(filter => (
+                  <button
+                    key={filter}
+                    onClick={() => setNotificationFilter(filter)}
+                    className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                      notificationFilter === filter 
+                        ? 'bg-white text-luxury-gold shadow-sm shadow-black/5' 
+                        : 'text-luxury-dark/40 hover:text-luxury-gold'
+                    }`}
+                  >
+                    {filter}
+                    {filter === 'unread' && notifications.filter(n => !n.read).length > 0 && (
+                      <span className="ml-2 px-1.5 py-0.5 bg-luxury-gold text-white rounded-full text-[8px]">
+                        {notifications.filter(n => !n.read).length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              <button 
+                onClick={handleMarkAllRead}
+                disabled={notifications.filter(n => !n.read).length === 0}
+                className="w-full md:w-auto px-6 py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 size={16} />
+                Mark All as Read
+              </button>
+            </div>
+
             <div className="space-y-4">
-            {notifications.map(notif => (
+            {filteredNotifications.map(notif => (
               <div key={notif.id} className={`bg-white p-6 rounded-3xl border ${notif.read ? 'border-luxury-dark/5' : 'border-luxury-gold/30 shadow-lg shadow-luxury-gold/5'} transition-all`}>
                 <div className="flex justify-between items-start gap-4">
                   <div className="flex gap-4">
@@ -4609,9 +4759,9 @@ RULES FOR RESPONDING:
                 </div>
               </div>
             ))}
-            {notifications.length === 0 && (
+            {filteredNotifications.length === 0 && (
               <div className="py-24 text-center bg-luxury-dark/5 rounded-3xl border border-dashed border-luxury-dark/10">
-                <p className="text-luxury-dark/40 font-medium italic">No notifications found.</p>
+                <p className="text-luxury-dark/40 font-medium italic">No {notificationFilter !== 'all' ? notificationFilter : ''} notifications found.</p>
               </div>
             )}
           </div>
@@ -8524,6 +8674,7 @@ export default function App() {
     return allGalleryImages.filter(img => img.category === galleryCategory);
   }, [allGalleryImages, galleryCategory]);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [isIOS, setIsIOS] = useState(false);

@@ -283,9 +283,17 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /settings/vapid_keys {
+      allow read, write: if true;
+    }
+
     match /settings/{settingId} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /push_subscriptions/{subId} {
+      allow read, write: if true;
     }
 
     match /expense_categories/{categoryId} {

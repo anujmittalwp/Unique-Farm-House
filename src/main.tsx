@@ -29,10 +29,14 @@ createRoot(document.getElementById('root')!).render(
 );
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(function(registrations) {
-    for(let registration of registrations) {
-      registration.unregister();
-      console.log('ServiceWorker unregistered to clear stale cache');
-    }
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then(
+      function (registration) {
+        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+      },
+      function (err) {
+        console.log('ServiceWorker registration failed: ', err);
+      }
+    );
   });
 }
