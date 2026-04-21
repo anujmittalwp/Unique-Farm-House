@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { Plus, Edit3, Trash2, X, Image as ImageIcon, Save, Sparkles } from 'lucide-react';
+import { getAI, safeAiCall } from './lib/ai';
 
 export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, galleryImages?: any[] }) => {
   const [blogs, setBlogs] = useState<any[]>([]);
@@ -53,19 +54,43 @@ export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: strin
   };
 
   const handleGenerateAIPost = async () => {
+    if (!galleryImages || galleryImages.length === 0) {
+      showToast('No gallery images available to help AI generate a post.', 'error');
+      return;
+    }
+
     setIsGeneratingAI(true);
     showToast('Generating AI post... This could take 10-20 seconds.', 'info');
     try {
-      const res = await fetch('/api/blogs/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ galleryImages })
-      });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Failed to generate');
+      const ai: any = getAI();
+      
+      const imageInfo = galleryImages.slice(0, 5).map(img => `Title: ${img.title}, Category: ${img.category}`).join('\n');
+      
+      const prompt = `Create a high-quality, SEO-optimized blog post for 'Unique Farmhouse Noida'.
+      The blog should be written in a luxury, hospitable tone.
+      Use these real property features to guide you:
+      ${imageInfo}
+
+      Return the response in JSON format:
+      {
+        "title": "Stunning Catchy Title",
+        "slug": "url-friendly-slug",
+        "excerpt": "A short 2-sentence meta description/summary",
+        "content": "Full HTML content with <p>, <h4>, and <strong> tags. Minimum 300 words.",
+        "image": "${galleryImages[0]?.src || ''}"
       }
-      const data = await res.json();
+      
+      Ensure the content is engaging and highlights the pool, lush lawn, and 4BHK luxury villa. No markdown, just clean JSON.`;
+
+      const result = await safeAiCall(() => ai.models.generateContent({
+        model: "models/gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json"
+        }
+      }));
+
+      const data = JSON.parse(result.text || '{}');
       
       setCurrentBlog({
         ...data,
@@ -77,7 +102,10 @@ export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: strin
       showToast('AI Blog generated successfully! You can tweak it before saving.', 'success');
     } catch (error: any) {
       console.error(error);
-      showToast(error.message, 'error');
+      const errorMsg = error.message?.includes("Quota exceeded") 
+        ? "AI Quota exceeded. Please try again later or provide a custom key."
+        : error.message || 'Failed to generate';
+      showToast(errorMsg, 'error');
     } finally {
       setIsGeneratingAI(false);
     }

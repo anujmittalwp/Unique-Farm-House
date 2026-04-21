@@ -57,13 +57,13 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((('email' in request.auth.token) && request.auth.token.email.lower() == "anujkumarmittal@gmail.com") ||
+        ((('email' in request.auth.token) && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com" || request.auth.token.email == "anujkumarmittal@gmail.com")) ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isOwnerEmail() {
-      return isAuthenticated() && ('email' in request.auth.token) && request.auth.token.email.lower() == "anujkumarmittal@gmail.com";
+      return isAuthenticated() && ('email' in request.auth.token) && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com" || request.auth.token.email == "anujkumarmittal@gmail.com");
     }
 
     function isValidEmail(email) {

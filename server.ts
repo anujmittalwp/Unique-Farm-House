@@ -131,13 +131,25 @@ async function startServer() {
     try {
       const { url } = req.body;
       if (!url) return res.status(400).json({ error: 'URL required' });
-      const response = await fetch(url);
+      
+      console.log(`[Proxy] Fetching: ${url}`);
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+      
       if (!response.ok) {
-        return res.status(response.status).send(`Error: ${response.statusText}`);
+        const errorBody = await response.text();
+        console.error(`[Proxy] Target failed with ${response.status}: ${errorBody.substring(0, 500)}`);
+        return res.status(response.status).send(errorBody || `Error: ${response.statusText}`);
       }
+      
       const text = await response.text();
       res.send(text);
     } catch (e: any) {
+      console.error(`[Proxy] Critical error fetching ${req.body.url}:`, e);
       res.status(500).json({ error: e.message });
     }
   });
@@ -305,7 +317,11 @@ async function startServer() {
       const apiKey = firebaseConfig.apiKey;
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/public/calendar?key=${apiKey}`;
       
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
       if (!response.ok) {
         if (response.status === 404) {
           return res.setHeader('Content-Type', 'text/calendar').send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR'));

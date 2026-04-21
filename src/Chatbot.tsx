@@ -1,13 +1,103 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MessageCircle, X, Send, User, Sparkles, Loader2 } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { getAI, safeAiCall } from './lib/ai';
 
 interface Msg {
   role: 'user' | 'assistant';
   content: string;
+  type?: 'text' | 'form';
+  formSubmitted?: boolean;
 }
+
+const LeadForm = ({ onSubmit }: { onSubmit: (data: any) => void }) => {
+  const [formData, setFormData] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    guests: ''
+  });
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.phone) return;
+    
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'leads'), {
+        ...formData,
+        tags: formData.guests ? [`${formData.guests} Guests`] : [],
+        status: 'new',
+        source: 'chatbot_form',
+        createdAt: serverTimestamp()
+      });
+      onSubmit(formData);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-white p-4 rounded-xl border border-luxury-gold/20 shadow-inner mt-2 space-y-3">
+      <div className="grid grid-cols-1 gap-3">
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Full Name</label>
+          <input 
+            type="text" 
+            required
+            value={formData.name}
+            onChange={(e) => setFormData({...formData, name: e.target.value})}
+            className="w-full px-3 py-2 bg-luxury-dark/5 border-none rounded-lg text-sm focus:ring-1 focus:ring-luxury-gold outline-none transition-all"
+            placeholder="Your Name"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Mobile Number</label>
+          <input 
+            type="tel" 
+            required
+            value={formData.phone}
+            onChange={(e) => setFormData({...formData, phone: e.target.value})}
+            className="w-full px-3 py-2 bg-luxury-dark/5 border-none rounded-lg text-sm focus:ring-1 focus:ring-luxury-gold outline-none transition-all"
+            placeholder="+91 ..."
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Email Address</label>
+          <input 
+            type="email" 
+            value={formData.email}
+            onChange={(e) => setFormData({...formData, email: e.target.value})}
+            className="w-full px-3 py-2 bg-luxury-dark/5 border-none rounded-lg text-sm focus:ring-1 focus:ring-luxury-gold outline-none transition-all"
+            placeholder="email@example.com"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Total Guests</label>
+          <input 
+            type="number" 
+            value={formData.guests}
+            onChange={(e) => setFormData({...formData, guests: e.target.value})}
+            className="w-full px-3 py-2 bg-luxury-dark/5 border-none rounded-lg text-sm focus:ring-1 focus:ring-luxury-gold outline-none transition-all"
+            placeholder="Number of guests"
+          />
+        </div>
+      </div>
+      <button 
+        onClick={handleSubmit}
+        disabled={loading || !formData.name || !formData.phone}
+        className="w-full py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {loading ? <Loader2 size={12} className="animate-spin" /> : 'Request Quote'}
+      </button>
+    </div>
+  );
+};
 
 export const Chatbot = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -22,13 +112,34 @@ export const Chatbot = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isOpen]);
 
+  const handleFormSubmit = (data: any) => {
+    setMessages(prev => {
+      // 1. Mark the form as submitted in the last message
+      const updatedMessages = [...prev];
+      const lastIdx = updatedMessages.length - 1;
+      if (updatedMessages[lastIdx].role === 'assistant' && updatedMessages[lastIdx].type === 'form') {
+        updatedMessages[lastIdx] = { ...updatedMessages[lastIdx], formSubmitted: true };
+      }
+      
+      // 2. Add the user's submission "event" and assistant's acknowledgment
+      return [
+        ...updatedMessages,
+        { role: 'user', content: `Submitted my details: Name: ${data.name}, Mobile: ${data.phone}, Email: ${data.email}, Guests: ${data.guests}` },
+        { role: 'assistant', content: `Thank you, ${data.name}! I have received your details. Our team will contact you shortly to plan your stay at Unique Farmhouse. Is there anything else I can help you with in the meantime?` }
+      ];
+    });
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const userMessage = input.trim();
     setInput('');
-    const newMessages: Msg[] = [...messages, { role: 'user', content: userMessage }];
-    setMessages(newMessages);
+    
+    // Create new messages array including the one just sent
+    const updatedMessages: Msg[] = [...messages, { role: 'user', content: userMessage }];
+    setMessages(updatedMessages);
+
     setIsLoading(true);
 
     try {
@@ -43,19 +154,81 @@ export const Chatbot = () => {
         console.warn("Could not fetch custom prompt, falling back to default");
       }
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages, systemPrompt })
-      });
-
-      if (!res.ok) throw new Error('Network response was not ok');
-      const data = await res.json();
+      // Initialize Gemini Model
+      const ai: any = getAI();
       
-      setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
-    } catch (error) {
-      console.error(error);
-      setMessages([...newMessages, { role: 'assistant', content: 'Oops! I am having trouble connecting right now. Please tap the WhatsApp button to chat with our human team!' }]);
+      // Property Knowledge Base
+      const propertyInfo = `Unique Farmhouse Noida (Sector 135).
+- Luxury 4 BHK Villa with 4 private rooms.
+- Private swimming pool.
+- Huge lawn for parties/events.
+- Amenities: AC, Wi-Fi, Kitchen, Modern Interiors.
+- Rules: Follow concise instruction.`;
+
+      const systemInstruction = systemPrompt || `You are the Unique Farmhouse assistant. 
+Answer ONLY what is asked. 
+Be extremely short (STRICTLY 1 sentence). 
+NO greetings, NO extra details, NO pleasantries.
+Answer the question directly.
+
+${propertyInfo}
+
+If booking/quote: "Please share your Name, Mobile, Email, and Total Guests."`;
+
+      // Construct a valid conversation starting with user
+      const apiContents = updatedMessages
+        .filter((m, i) => !(i === 0 && m.role === 'assistant'))
+        .map(m => ({
+          role: (m.role === 'assistant' ? 'model' : 'user') as "model" | "user",
+          parts: [{ text: m.content }]
+        }));
+
+      // Use allowed model alias
+      const modelId = "gemini-flash-latest";
+
+      const response = await safeAiCall(() => ai.models.generateContent({
+        model: modelId,
+        contents: apiContents,
+        config: {
+          systemInstruction: systemInstruction,
+          temperature: 0.2,
+        }
+      }));
+      
+      let finalReply = "";
+      try {
+        finalReply = response.text || "";
+      } catch (err) {
+        // Handle cases where response.text might throw (e.g. safety blocks)
+        finalReply = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      }
+      
+      if (!finalReply) {
+        console.warn("AI returned empty reply, using fallback.");
+        finalReply = "I am a bit busy right now. Please message us on WhatsApp (+91 7503001001) for the best price!";
+      }
+
+      // Detection of lead collection request
+      const needsForm = finalReply.toLowerCase().includes('name') && 
+                        finalReply.toLowerCase().includes('mobile') && 
+                        finalReply.toLowerCase().includes('email') && 
+                        finalReply.toLowerCase().includes('guests');
+
+      setMessages(prev => {
+        const nextMsgs: Msg[] = [...prev];
+        if (needsForm) {
+          nextMsgs.push({ role: 'assistant', content: finalReply, type: 'form' });
+        } else {
+          nextMsgs.push({ role: 'assistant', content: finalReply });
+        }
+        return nextMsgs;
+      });
+    } catch (error: any) {
+      console.error("Chatbot Error:", error);
+      const errorMsg = error.message?.includes("Quota exceeded") 
+        ? "I'm currently resting (Quota Exceeded). Please click the WhatsApp button to chat with our team!" 
+        : 'Oops! I am having trouble connecting right now. Please tap the WhatsApp button to chat with our human team!';
+      setMessages(prev => [...prev, { role: 'assistant', content: errorMsg }]);
     } finally {
       setIsLoading(false);
     }
@@ -122,6 +295,14 @@ export const Chatbot = () => {
                     </div>
                     <div className={`p-3 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-luxury-dark text-white rounded-tr-sm' : 'bg-white border border-luxury-dark/5 text-luxury-dark shadow-sm rounded-tl-sm'}`}>
                       {msg.content}
+                      {msg.role === 'assistant' && msg.type === 'form' && !msg.formSubmitted && (
+                        <LeadForm onSubmit={handleFormSubmit} />
+                      )}
+                      {msg.role === 'assistant' && msg.type === 'form' && msg.formSubmitted && (
+                        <div className="mt-3 py-2 px-3 bg-emerald-50 text-emerald-700 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2 border border-emerald-100">
+                          Form Submitted ✓
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

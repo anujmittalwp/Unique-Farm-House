@@ -73,7 +73,8 @@ import {
   BookOpen,
   Settings,
   Bell,
-  BellRing
+  BellRing,
+  BellOff
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 import { Blog, BlogPost } from './Blog';
@@ -81,6 +82,7 @@ import { BlogAdmin } from './BlogAdmin';
 import { Chatbot } from './Chatbot';
 import { ChatbotSettingsAdmin } from './ChatbotSettingsAdmin';
 import PrivacyPolicy from './PrivacyPolicy';
+import { getAI, safeAiCall } from './lib/ai';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   onAuthStateChanged, 
@@ -1542,13 +1544,22 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     if (!url) return;
     setIsSyncing(true);
     try {
-      let fetchUrl = url;
+      let fetchUrl = url.trim();
       // Auto-convert standard Google Sheets URLs to CSV export URLs
-      if (url.includes('docs.google.com/spreadsheets') && !url.includes('format=csv') && !url.includes('output=csv')) {
-        const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-        if (match && match[1]) {
-          fetchUrl = `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv`;
+      if (fetchUrl.includes('docs.google.com/spreadsheets') && !fetchUrl.includes('format=csv') && !fetchUrl.includes('output=csv')) {
+        // Clearer separation of "Published to web" vs "Editor sharing" links
+        if (fetchUrl.includes('/d/e/')) {
+          const match = fetchUrl.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+          if (match && match[1]) {
+            fetchUrl = `https://docs.google.com/spreadsheets/d/e/${match[1]}/pub?output=csv`;
+          }
+        } else {
+          const match = fetchUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+          if (match && match[1]) {
+            fetchUrl = `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv`;
+          }
         }
+        console.log(`[Sync] Converted URL for syncing: ${fetchUrl}`);
       }
 
       const response = await fetch('/api/proxy/fetch', {
@@ -1556,8 +1567,32 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: fetchUrl })
       });
+
       if (!response.ok) {
-        throw new Error(`Proxy fetch failed: ${response.statusText}`);
+        let errorMsg = response.statusText;
+        try {
+          const clone = response.clone();
+          const contentType = clone.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorJson = await clone.json();
+            errorMsg = errorJson.error || errorJson.message || errorMsg;
+          } else {
+            const errorText = await clone.text();
+            // Truncate long error text and try to find a relevant snippet
+            if (errorText.length > 200) {
+              errorMsg = errorText.substring(0, 200) + '...';
+            } else {
+              errorMsg = errorText || errorMsg;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to parse error response:", e);
+        }
+        
+        // Detailed log for debugging
+        console.error(`Proxy Sync Error (${response.status}):`, errorMsg);
+        
+        throw new Error(`Proxy sync failed: ${errorMsg}`);
       }
       const csvText = await response.text();
       
@@ -1878,16 +1913,16 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                           <span className="truncate max-w-[150px]">{lead.email}</span>
                         </div>
                       )}
-                      {lead.phone && (
+                      {(lead.phone || lead.mobile) && (
                         <div 
-                          onClick={() => openReplyModal('whatsapp', lead.phone, lead.name)}
+                          onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name)}
                           className="cursor-pointer hover:text-green-600 transition-colors flex items-center gap-2 group/contact"
                           title="Send WhatsApp"
                         >
                           <div className="w-5 h-5 rounded-full bg-green-50 text-green-500 flex items-center justify-center shrink-0 group-hover/contact:bg-green-100 transition-colors">
                             <Phone size={10} />
                           </div>
-                          <span>{lead.phone}</span>
+                          <span>{lead.phone || lead.mobile}</span>
                         </div>
                       )}
                     </div>
@@ -2016,18 +2051,18 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                     <span className="truncate font-medium">{lead.email}</span>
                   </div>
                 )}
-                {lead.phone && (
+                {(lead.phone || lead.mobile) && (
                   <div 
-                    onClick={() => openReplyModal('whatsapp', lead.phone, lead.name)}
+                    onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name)}
                     className="flex items-center gap-3 text-sm text-luxury-dark/80 cursor-pointer"
                   >
                     <div className="w-8 h-8 rounded-full bg-green-50 text-green-500 flex items-center justify-center shrink-0">
                       <Phone size={14} />
                     </div>
-                    <span className="font-medium">{lead.phone}</span>
+                    <span className="font-medium">{lead.phone || lead.mobile}</span>
                   </div>
                 )}
-                {!lead.email && !lead.phone && (
+                {!lead.email && !lead.phone && !lead.mobile && (
                   <p className="text-xs text-luxury-dark/40 italic">No contact info provided</p>
                 )}
              </div>
@@ -3278,6 +3313,10 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   };
 
   const subscribeToPushNotifications = async () => {
+    // Sync with browser permission before starting
+    const currentPermission = Notification.permission;
+    setPushPermission(currentPermission);
+
     if (!isPushSupported) {
       showToast('Push notifications are not supported in this browser.', 'error');
       return;
@@ -3487,13 +3526,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
     setAnalyzeProgress({ current: 0, total: galleryImages.length });
     console.log('Starting AI analysis of gallery images...');
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      showToast('Gemini API key is not configured. Please add it in settings.', 'error');
-      setIsAnalyzingGallery(false);
-      return;
-    }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai: any = getAI();
 
     const getBase64FromUrl = async (url: string): Promise<{ data: string, mimeType: string } | null> => {
       try {
@@ -3544,8 +3577,8 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
             continue;
           }
 
-          const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
+          const resultData = await safeAiCall(() => ai.models.generateContent({
+            model: "models/gemini-3-flash-preview",
             contents: {
               parts: [
                 {
@@ -3565,9 +3598,9 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             config: {
               responseMimeType: "application/json"
             }
-          });
+          }));
 
-          const responseText = response.text || '';
+          const responseText = resultData.text || '';
           const result = JSON.parse(responseText.replace(/```json|```/g, '').trim() || '{}');
           
           if (result.title && result.category) {
@@ -3906,6 +3939,19 @@ RULES FOR RESPONDING:
   };
 
   useEffect(() => {
+    if (userRole === 'admin') {
+      const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => {
+        console.warn('Notifications fetch error (likely permission related):', error);
+        // We don't throw here to avoid crashing the whole admin panel if notifications fail
+      });
+      return () => unsubscribe();
+    }
+  }, [userRole]);
+
+  useEffect(() => {
     if (userRole === 'admin' && activeFilter === 'reviews') {
       const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -3918,13 +3964,6 @@ RULES FOR RESPONDING:
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setAdminLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'logs'));
-      return () => unsubscribe();
-    }
-    if (userRole === 'admin' && activeFilter === 'notifications') {
-      const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      }, (error) => handleFirestoreError(error, OperationType.GET, 'notifications'));
       return () => unsubscribe();
     }
     if (userRole === 'admin' && activeFilter === 'finance') {
@@ -4403,11 +4442,21 @@ RULES FOR RESPONDING:
                       {userRole === 'admin' && (
                         <button 
                           onClick={subscribeToPushNotifications}
-                          disabled={isSubscribingPush || !isPushSupported || pushPermission === 'granted'}
-                          title={pushPermission === 'granted' ? "Push Enabled" : "Enable Push Notifications"}
-                          className={`shrink-0 transition-colors ${pushPermission === 'granted' ? 'text-emerald-500' : 'text-luxury-dark/30 hover:text-emerald-500'} ${isSubscribingPush ? 'animate-pulse' : ''}`}
+                          disabled={isSubscribingPush || !isPushSupported}
+                          title={
+                            pushPermission === 'granted' ? "Push Notifications Enabled" : 
+                            pushPermission === 'denied' ? "Notifications Blocked - Click to see how to enable" : 
+                            "Enable Push Notifications"
+                          }
+                          className={`shrink-0 transition-colors ${
+                            pushPermission === 'granted' ? 'text-emerald-500' : 
+                            pushPermission === 'denied' ? 'text-red-500 animate-pulse' : 
+                            'text-luxury-dark/30 hover:text-emerald-500'
+                          } ${isSubscribingPush ? 'animate-pulse' : ''}`}
                         >
-                          {pushPermission === 'granted' ? <BellRing size={16} /> : <Bell size={16} />}
+                          {pushPermission === 'granted' ? <BellRing size={16} /> : 
+                           pushPermission === 'denied' ? <BellOff size={16} /> : 
+                           <Bell size={16} />}
                         </button>
                       )}
                       <button 

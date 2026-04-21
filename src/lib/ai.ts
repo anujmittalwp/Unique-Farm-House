@@ -46,7 +46,7 @@ export const handleAIError = (error: any) => {
 /**
  * Executes a Gemini request with built-in retry and quota management.
  */
-export async function safeAiCall<T = GenerateContentResponse>(
+export async function safeAiCall<T = any>(
   call: () => Promise<T>,
   retries = 2,
   delay = 2000
