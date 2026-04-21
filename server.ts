@@ -422,7 +422,19 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(__dirname, 'dist');
+    const distPath = path.resolve(__dirname, 'dist');
+    console.log(`[Production] Static assets path: ${distPath}`);
+    if (fs.existsSync(path.join(distPath, 'index.html'))) {
+      console.log(`[Production] index.html IS present.`);
+    } else {
+      console.error(`[Production] index.html IS MISSING at ${path.join(distPath, 'index.html')}`);
+    }
+
+    app.use((req, res, next) => {
+      console.log(`[Production Request] ${req.method} ${req.url}`);
+      next();
+    });
+
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

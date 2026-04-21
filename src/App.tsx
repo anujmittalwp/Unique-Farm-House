@@ -1545,21 +1545,41 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     setIsSyncing(true);
     try {
       let fetchUrl = url.trim();
+      
       // Auto-convert standard Google Sheets URLs to CSV export URLs
-      if (fetchUrl.includes('docs.google.com/spreadsheets') && !fetchUrl.includes('format=csv') && !fetchUrl.includes('output=csv')) {
-        // Clearer separation of "Published to web" vs "Editor sharing" links
-        if (fetchUrl.includes('/d/e/')) {
-          const match = fetchUrl.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
-          if (match && match[1]) {
-            fetchUrl = `https://docs.google.com/spreadsheets/d/e/${match[1]}/pub?output=csv`;
+      if (fetchUrl.includes('docs.google.com/spreadsheets')) {
+        let sheetId = "";
+        let isPublished = false;
+
+        // Pattern 1: Published to web links (/d/e/...)
+        if (fetchUrl.includes("/d/e/")) {
+          const eMatch = fetchUrl.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+          if (eMatch && eMatch[1]) {
+            sheetId = eMatch[1];
+            isPublished = true;
           }
-        } else {
-          const match = fetchUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-          if (match && match[1]) {
-            fetchUrl = `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv`;
+        } 
+        // Pattern 2: Standard sharing/editor links (/d/...)
+        else if (fetchUrl.includes("/d/")) {
+          const dMatch = fetchUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+          if (dMatch && dMatch[1]) {
+            sheetId = dMatch[1];
           }
         }
-        console.log(`[Sync] Converted URL for syncing: ${fetchUrl}`);
+
+        if (sheetId) {
+          // If it's not already a CSV link, convert it to the clean export format
+          const hasCsvParam = fetchUrl.includes('format=csv') || fetchUrl.includes('output=csv');
+          
+          if (!hasCsvParam) {
+            if (isPublished) {
+              fetchUrl = `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`;
+            } else {
+              fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+            }
+          }
+        }
+        console.log(`[Sync] Requesting URL: ${fetchUrl}`);
       }
 
       const response = await fetch('/api/proxy/fetch', {
@@ -3341,8 +3361,14 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
       }
 
       const swRegistration = await navigator.serviceWorker.ready;
+      if (!swRegistration) {
+        throw new Error('Service worker not ready. Please try refreshing the page.');
+      }
       
       const response = await fetch('/api/push/public-key');
+      if (!response.ok) {
+        throw new Error('Failed to fetch public key from server.');
+      }
       const vapidPublicKey = await response.text();
       const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
 
@@ -3360,11 +3386,13 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
       if (res.ok) {
         showToast('Subscribed to Push Notifications successfully!', 'success');
       } else {
-        throw new Error('Failed to save subscription');
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(`Server Error: ${errorData.error || 'Failed to save subscription'}`);
       }
     } catch (err: any) {
-      console.error(err);
-      showToast('Error subscribing to notifications.', 'error');
+      console.error('Push Subscription Error:', err);
+      const errorMessage = err instanceof Error ? `${err.name}: ${err.message}` : 'Unknown error';
+      showToast(`Subscription failed: ${errorMessage}`, 'error');
     } finally {
       setIsSubscribingPush(false);
     }
