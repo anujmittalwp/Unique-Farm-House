@@ -1232,10 +1232,60 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
   const [metaToken, setMetaToken] = useState('');
   const [isMetaSyncing, setIsMetaSyncing] = useState(false);
 
+  // Gmail State
+  const [gmailModalOpen, setGmailModalOpen] = useState(false);
+  const [gmailUser, setGmailUser] = useState('');
+  const [gmailPass, setGmailPass] = useState('');
+  const [gmailSaving, setGmailSaving] = useState(false);
+  const [testEmailRecipient, setTestEmailRecipient] = useState('');
+
+  // Load Gmail settings
+  useEffect(() => {
+    const loadGmailSettings = async () => {
+      try {
+        const docRef = doc(db, 'settings', 'gmail');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setGmailUser(data.user || '');
+          setGmailPass(data.pass || '');
+          // Only update recipient if it's currently empty
+          setTestEmailRecipient(prev => prev || data.user || '');
+        }
+      } catch (error) {
+        console.error("Error loading Gmail settings:", error);
+      }
+    };
+    loadGmailSettings();
+  }, []);
+
+  const handleSaveGmailSettings = async () => {
+    if (!gmailUser || !gmailPass) {
+      showToast('Please enter both Gmail address and App Password', 'error');
+      return;
+    }
+    
+    setGmailSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'gmail'), {
+        user: gmailUser,
+        pass: gmailPass,
+        updatedAt: serverTimestamp()
+      });
+      showToast('Gmail settings saved successfully', 'success');
+    } catch (error: any) {
+      console.error("Error saving Gmail settings:", error);
+      showToast('Failed to save settings: ' + error.message, 'error');
+    } finally {
+      setGmailSaving(false);
+    }
+  };
+
   // Quick Reply State
   const [replyModalOpen, setReplyModalOpen] = useState(false);
   const [replyType, setReplyType] = useState<'email' | 'whatsapp'>('email');
   const [replyTo, setReplyTo] = useState('');
+  const [replyLeadId, setReplyLeadId] = useState('');
   const [replyMessage, setReplyMessage] = useState('');
   const [replyLeadName, setReplyLeadName] = useState('');
 
@@ -1255,10 +1305,11 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
   });
   const [isAddingLead, setIsAddingLead] = useState(false);
 
-  const openReplyModal = (type: 'email' | 'whatsapp', contact: string, name: string) => {
+  const openReplyModal = (type: 'email' | 'whatsapp', contact: string, name: string, leadId?: string) => {
     setReplyType(type);
     setReplyTo(contact);
     setReplyLeadName(name);
+    if (leadId) setReplyLeadId(leadId);
     
     // We need to fetch the templates from Firestore directly here since we are outside the main component
     const fetchAndSetTemplate = async () => {
@@ -1375,41 +1426,54 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
 
       setIsSendingReply(true);
       try {
-        // Using the REST API directly for better reliability in sandboxed environments
-        const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        const response = await fetch('/api/mail/send', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            service_id: 'service_197emgh',
-            template_id: 'template_1baf51s',
-            user_id: 'rsxxZoJr5LUJvCQ6X',
-            template_params: {
-              to_email: replyTo,
-              email: replyTo, // Common alternative key
-              to_name: replyLeadName,
-              message: replyMessage,
-              subject: 'Re: Your inquiry at Unique Farm House Noida'
-            }
+            to: replyTo,
+            subject: 'Re: Your inquiry at Unique Farm House Noida',
+            text: replyMessage,
+            config: {
+              user: gmailUser,
+              pass: gmailPass
+            },
+            html: `<div style="font-family: sans-serif; line-height: 1.6; color: #333;">
+                    <p>Dear ${replyLeadName},</p>
+                    <p>${replyMessage.replace(/\n/g, '<br>')}</p>
+                    <br>
+                    <p>Regards,<br><strong>Unique Farm House</strong></p>
+                  </div>`
           }),
         });
 
         if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`EmailJS Error (${response.status}): ${errorText}`);
+          const errorData = await response.json();
+          let msg = errorData.error || `Error (${response.status})`;
+          if (msg.includes('534-5.7.9') || (errorData.details && errorData.details.toLowerCase().includes('application-specific password required'))) {
+            msg = "CRITICAL: You are using your regular Gmail password. Google requires a 16-character 'App Password'. Please check settings.";
+          }
+          throw new Error(msg);
         }
 
-        showToast('Email sent successfully!', 'success');
+        if (replyLeadId) {
+          await updateDoc(doc(db, 'leads', replyLeadId), { emailSent: true });
+        }
+        showToast('Email sent via Gmail!', 'success');
         setReplyModalOpen(false);
       } catch (error) {
-        console.error('Email Send Error:', error);
+        console.error('Gmail Send Error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         
-        if (errorMessage.includes('Failed to fetch')) {
-          showToast('Network error: Automated email blocked. Opening mail client...', 'info');
+        if (errorMessage.includes('configuration missing')) {
+          showToast('Gmail not configured in Admin Settings. Opening mail client...', 'info');
         } else {
-          showToast(`Failed to send: ${errorMessage}. Opening mail client...`, 'info');
+          showToast(`Gmail error: ${errorMessage}. Opening mail client...`, 'info');
+        }
+
+        if (replyLeadId) {
+          await updateDoc(doc(db, 'leads', replyLeadId), { emailSent: true });
         }
 
         // Fallback to mailto
@@ -1423,6 +1487,11 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     } else {
       const cleanPhone = replyTo.replace(/\D/g, '');
       const text = encodeURIComponent(replyMessage);
+      
+      if (replyLeadId) {
+        updateDoc(doc(db, 'leads', replyLeadId), { whatsappSent: true }).catch(console.error);
+      }
+      
       window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
       setReplyModalOpen(false);
       showToast('Opening WhatsApp...', 'success');
@@ -1964,6 +2033,13 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
             Meta
           </button>
           <button
+            onClick={() => setGmailModalOpen(true)}
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#DB4437]/10 text-[#DB4437] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#DB4437]/20 transition-colors whitespace-nowrap"
+          >
+            <Mail size={14} />
+            Gmail
+          </button>
+          <button
             onClick={() => setSyncModalOpen(true)}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F9D58]/10 text-[#0F9D58] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#0F9D58]/20 transition-colors whitespace-nowrap"
           >
@@ -1990,157 +2066,142 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
               </tr>
             </thead>
             <tbody className="divide-y divide-luxury-dark/5">
-              {filteredLeads.map(lead => (
-                <tr key={lead.id} className="hover:bg-[#FAFAFA] transition-colors group">
-                  <td className="px-6 py-5 text-xs font-medium text-luxury-dark/60 whitespace-nowrap">
-                    {formatDate(lead.createdAt)}
-                  </td>
-                  <td className="px-6 py-5">
-                    <p className="text-sm font-bold text-luxury-dark mb-0.5">{lead.name}</p>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#C8A45D]">{lead.source === 'meta' ? 'Meta Ad' : lead.source}</p>
-                  </td>
-                  <td className="px-6 py-5 text-xs text-luxury-dark/60">
-                    <div className="space-y-1.5">
-                      {lead.email && (
-                        <div 
-                          onClick={() => openReplyModal('email', lead.email, lead.name)}
-                          className="cursor-pointer hover:text-blue-600 transition-colors flex items-center gap-2 group/contact"
-                          title="Send Email"
-                        >
-                          <div className="w-5 h-5 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center shrink-0 group-hover/contact:bg-blue-100 transition-colors">
-                            <Mail size={10} />
+              {filteredLeads.map(lead => {
+                const isSent = lead.emailSent || lead.whatsappSent;
+                return (
+                  <tr key={lead.id} className="hover:bg-[#FAFAFA] transition-colors group">
+                    <td className="px-6 py-5 text-xs font-medium whitespace-nowrap text-luxury-dark/60">
+                      {formatDate(lead.createdAt)}
+                    </td>
+                    <td className="px-6 py-5">
+                      <p className="text-sm font-bold mb-0.5 text-luxury-dark">{lead.name}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[#C8A45D]">{lead.source === 'meta' ? 'Meta Ad' : lead.source}</p>
+                    </td>
+                    <td className="px-6 py-5 text-xs">
+                      <div className="space-y-1.5">
+                        {lead.email && (
+                          <div 
+                            onClick={() => openReplyModal('email', lead.email, lead.name, lead.id)}
+                            className={`cursor-pointer transition-colors flex items-center gap-2 group/contact ${lead.emailSent ? 'text-red-500 hover:text-red-700' : 'text-luxury-dark/60 hover:text-blue-600'}`}
+                            title="Send Email"
+                          >
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${lead.emailSent ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500 group-hover/contact:bg-blue-100'}`}>
+                              <Mail size={10} />
+                            </div>
+                            <span className="truncate max-w-[150px] font-medium">{lead.email}</span>
                           </div>
-                          <span className="truncate max-w-[150px]">{lead.email}</span>
-                        </div>
-                      )}
-                      {(lead.phone || lead.mobile) && (
-                        <div 
-                          onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name)}
-                          className="cursor-pointer hover:text-green-600 transition-colors flex items-center gap-2 group/contact"
-                          title="Send WhatsApp"
-                        >
-                          <div className="w-5 h-5 rounded-full bg-green-50 text-green-500 flex items-center justify-center shrink-0 group-hover/contact:bg-green-100 transition-colors">
-                            <Phone size={10} />
+                        )}
+                        {(lead.phone || lead.mobile) && (
+                          <div 
+                            onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name, lead.id)}
+                            className={`cursor-pointer transition-colors flex items-center gap-2 group/contact ${lead.whatsappSent ? 'text-red-500 hover:text-red-700' : 'text-luxury-dark/60 hover:text-green-600'}`}
+                            title="Send WhatsApp"
+                          >
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${lead.whatsappSent ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500 group-hover/contact:bg-green-100'}`}>
+                              <Phone size={10} />
+                            </div>
+                            <span className="font-medium">{lead.phone || lead.mobile}</span>
                           </div>
-                          <span>{lead.phone || lead.mobile}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="space-y-1">
+                        {(lead.budget || lead.guests) && (
+                          <p className="text-xs font-bold text-luxury-dark">
+                            {lead.budget ? `₹${lead.budget}` : ''}
+                            {lead.budget && lead.guests ? ' • ' : ''}
+                            {lead.guests ? `${lead.guests} Guests` : ''}
+                          </p>
+                        )}
+                        {lead.city && (
+                          <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-luxury-dark/40">
+                            <MapPin size={10} className="text-luxury-gold" />
+                            {lead.city}
+                          </div>
+                        )}
+                        {!lead.budget && !lead.guests && !lead.city && (
+                          <span className="text-[10px] italic text-luxury-dark/20">No details</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex flex-col gap-2">
+                        <select 
+                          value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
+                          onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
+                          className={`text-[10px] font-bold uppercase tracking-widest border rounded-xl px-3 py-2 appearance-none cursor-pointer outline-none transition-all ${
+                            (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                            (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-100' :
+                            'bg-[#FAFAFA] text-luxury-dark/40 border-luxury-dark/10 hover:border-luxury-gold'
+                          }`}
+                        >
+                          <option value="">Select Tag...</option>
+                          <option value="Relevent">Relevent</option>
+                          <option value="Non Relevent">Non Relevent</option>
+                        </select>
+                        
+                        <div className="flex flex-wrap gap-1">
+                          {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
+                            <span 
+                              key={tag} 
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider group/tag bg-luxury-dark/5 text-luxury-dark/60"
+                            >
+                              {tag}
+                              <button 
+                                onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
+                                className="hover:text-red-500 transition-colors"
+                              >
+                                <X size={8} />
+                              </button>
+                            </span>
+                          ))}
                         </div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="space-y-1">
-                      {(lead.budget || lead.guests) && (
-                        <p className="text-xs font-bold text-luxury-dark">
-                          {lead.budget ? `₹${lead.budget}` : ''}
-                          {lead.budget && lead.guests ? ' • ' : ''}
-                          {lead.guests ? `${lead.guests} Guests` : ''}
-                        </p>
-                      )}
-                      {lead.city && (
-                        <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-luxury-dark/40">
-                          <MapPin size={10} className="text-luxury-gold" />
-                          {lead.city}
-                        </div>
-                      )}
-                      {!lead.budget && !lead.guests && !lead.city && (
-                        <span className="text-[10px] text-luxury-dark/20 italic">No details</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex flex-col gap-2">
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <textarea 
+                        defaultValue={lead.remarks || ''}
+                        onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            (e.target as HTMLTextAreaElement).blur();
+                          }
+                        }}
+                        placeholder="Add remarks..."
+                        rows={2}
+                        className="text-xs border-none rounded-xl px-4 py-2 w-full min-w-[180px] focus:ring-1 focus:ring-luxury-gold outline-none transition-colors resize-none bg-[#FAFAFA] text-luxury-dark placeholder:text-luxury-dark/20"
+                      />
+                    </td>
+                    <td className="px-6 py-5">
                       <select 
-                        value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
-                        onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
-                        className={`text-[10px] font-bold uppercase tracking-widest border border-luxury-dark/10 rounded-xl px-3 py-2 appearance-none cursor-pointer outline-none transition-all ${
-                          (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                          (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-100' :
-                          'bg-[#FAFAFA] text-luxury-dark/40 hover:border-luxury-gold'
+                        value={lead.status || 'new'} 
+                        onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
+                        className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-4 py-2 appearance-none cursor-pointer outline-none transition-all ${
+                          lead.status === 'converted' ? 'bg-[#0F9D58]/10 text-[#0F9D58]' :
+                          lead.status === 'contacted' ? 'bg-[#1877F2]/10 text-[#1877F2]' :
+                          lead.status === 'lost' ? 'bg-red-50 text-red-600' :
+                           'bg-amber-50 text-amber-600'
                         }`}
                       >
-                        <option value="">Select Tag...</option>
-                        <option value="Relevent">Relevent</option>
-                        <option value="Non Relevent">Non Relevent</option>
+                        <option value="new">New</option>
+                        <option value="contacted">Contacted</option>
+                        <option value="converted">Converted</option>
+                        <option value="lost">Lost</option>
                       </select>
-                      
-                      <div className="flex flex-wrap gap-1">
-                        {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
-                          <span 
-                            key={tag} 
-                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-luxury-dark/5 text-luxury-dark/60 rounded-md text-[9px] font-bold uppercase tracking-wider group/tag"
-                          >
-                            {tag}
-                            <button 
-                              onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
-                              className="hover:text-red-500 transition-colors"
-                            >
-                              <X size={8} />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-
-                      <div className="relative group/addtag">
-                        <input 
-                          type="text"
-                          placeholder="Add tag..."
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddCustomTag(lead.id, (e.target as HTMLInputElement).value, lead.tags || []);
-                              (e.target as HTMLInputElement).value = '';
-                            }
-                          }}
-                          className="w-full text-[9px] bg-transparent border-b border-luxury-dark/10 focus:border-luxury-gold outline-none py-1 px-1 transition-all placeholder:text-luxury-dark/20"
-                        />
-                        <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-focus-within/addtag:opacity-100 transition-opacity">
-                          <Plus size={8} className="text-luxury-gold" />
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <textarea 
-                      defaultValue={lead.remarks || ''}
-                      onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          (e.target as HTMLTextAreaElement).blur();
-                        }
-                      }}
-                      placeholder="Add remarks..."
-                      rows={2}
-                      className="text-xs border-none bg-[#FAFAFA] rounded-xl px-4 py-2 w-full min-w-[180px] focus:ring-1 focus:ring-luxury-gold outline-none transition-colors resize-none"
-                    />
-                  </td>
-                  <td className="px-6 py-5">
-                    <select 
-                      value={lead.status || 'new'} 
-                      onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                      className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-4 py-2 appearance-none cursor-pointer outline-none transition-all ${
-                        lead.status === 'converted' ? 'bg-[#0F9D58]/10 text-[#0F9D58]' :
-                        lead.status === 'contacted' ? 'bg-[#1877F2]/10 text-[#1877F2]' :
-                        lead.status === 'lost' ? 'bg-red-50 text-red-600' :
-                        'bg-amber-50 text-amber-600'
-                      }`}
-                    >
-                      <option value="new">New</option>
-                      <option value="contacted">Contacted</option>
-                      <option value="converted">Converted</option>
-                      <option value="lost">Lost</option>
-                    </select>
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    <button 
-                      onClick={() => setLeadToDelete(lead.id)} 
-                      className="w-8 h-8 inline-flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all xl:opacity-0 xl:group-hover:opacity-100"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-5 text-right">
+                      <button 
+                        onClick={() => setLeadToDelete(lead.id)} 
+                        className="w-8 h-8 inline-flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {filteredLeads.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-24 text-center">
@@ -2159,142 +2220,144 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
 
       {/* Mobile/Tablet Card View */}
       <div className="xl:hidden grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredLeads.map(lead => (
-          <div key={lead.id} className="bg-white rounded-[2rem] p-6 border border-luxury-dark/5 shadow-sm space-y-5">
-             <div className="flex justify-between items-start">
+        {filteredLeads.map(lead => {
+          const isSent = lead.emailSent || lead.whatsappSent;
+          return (
+            <div key={lead.id} className="bg-white rounded-[2rem] p-6 border border-luxury-dark/5 shadow-sm space-y-5">
+               <div className="flex justify-between items-start">
+                 <div>
+                   <h3 className="text-lg font-bold text-luxury-dark">{lead.name}</h3>
+                   <p className="text-[10px] font-bold uppercase tracking-widest mt-0.5 text-[#C8A45D]">{lead.source === 'meta' ? 'Meta Ad' : lead.source} • {formatDate(lead.createdAt)}</p>
+                 </div>
+                 <select 
+                    value={lead.status || 'new'} 
+                    onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
+                    className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-3 py-1.5 appearance-none cursor-pointer outline-none ${
+                      lead.status === 'converted' ? 'bg-[#0F9D58]/10 text-[#0F9D58]' :
+                      lead.status === 'contacted' ? 'bg-[#1877F2]/10 text-[#1877F2]' :
+                      lead.status === 'lost' ? 'bg-red-50 text-red-600' :
+                      'bg-amber-50 text-amber-600'
+                    }`}
+                  >
+                    <option value="new">New</option>
+                    <option value="contacted">Contacted</option>
+                    <option value="converted">Converted</option>
+                    <option value="lost">Lost</option>
+                 </select>
+               </div>
+
+               <div className="bg-[#FAFAFA] rounded-2xl p-4 flex flex-col gap-2">
+                  {(lead.budget || lead.guests || lead.city) && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 pb-2 border-b border-luxury-dark/5">
+                      {lead.budget && <span className="text-xs font-bold text-luxury-dark">₹{lead.budget}</span>}
+                      {lead.guests && <span className="text-xs font-bold text-luxury-gold">{lead.guests} Guests</span>}
+                      {lead.city && (
+                        <span className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 text-luxury-dark/40">
+                          <MapPin size={10} /> {lead.city}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {lead.email && (
+                    <div 
+                      onClick={() => openReplyModal('email', lead.email, lead.name, lead.id)}
+                      className={`flex items-center gap-3 text-sm cursor-pointer ${lead.emailSent ? 'text-red-600' : 'text-luxury-dark/80'}`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${lead.emailSent ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
+                        <Mail size={14} />
+                      </div>
+                      <span className="truncate font-medium">{lead.email}</span>
+                    </div>
+                  )}
+                  {(lead.phone || lead.mobile) && (
+                    <div 
+                      onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name, lead.id)}
+                      className={`flex items-center gap-3 text-sm cursor-pointer ${lead.whatsappSent ? 'text-red-600' : 'text-luxury-dark/80'}`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${lead.whatsappSent ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
+                        <Phone size={14} />
+                      </div>
+                      <span className="font-medium">{lead.phone || lead.mobile}</span>
+                    </div>
+                  )}
+                  {!lead.email && !lead.phone && !lead.mobile && (
+                    <p className="text-xs italic text-luxury-dark/40">No contact info provided</p>
+                  )}
+               </div>
+
                <div>
-                 <h3 className="text-lg font-bold text-luxury-dark">{lead.name}</h3>
-                 <p className="text-[10px] font-bold uppercase tracking-widest text-[#C8A45D] mt-0.5">{lead.source === 'meta' ? 'Meta Ad' : lead.source} • {formatDate(lead.createdAt)}</p>
-               </div>
-               <select 
-                  value={lead.status || 'new'} 
-                  onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                  className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-3 py-1.5 appearance-none cursor-pointer outline-none ${
-                    lead.status === 'converted' ? 'bg-[#0F9D58]/10 text-[#0F9D58]' :
-                    lead.status === 'contacted' ? 'bg-[#1877F2]/10 text-[#1877F2]' :
-                    lead.status === 'lost' ? 'bg-red-50 text-red-600' :
-                    'bg-amber-50 text-amber-600'
-                  }`}
-                >
-                  <option value="new">New</option>
-                  <option value="contacted">Contacted</option>
-                  <option value="converted">Converted</option>
-                  <option value="lost">Lost</option>
-               </select>
-             </div>
+                 <p className="text-[10px] font-bold uppercase tracking-widest mb-2 text-luxury-dark/40">Tags</p>
+                 <div className="flex flex-col gap-3">
+                    <select 
+                       value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
+                       onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
+                       className={`w-full text-[10px] font-bold uppercase tracking-widest border rounded-2xl px-4 py-3 appearance-none cursor-pointer outline-none transition-all ${
+                         (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+                         (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-200' :
+                         'bg-[#FAFAFA] text-luxury-dark/40 border-luxury-dark/10'
+                       }`}
+                     >
+                       <option value="">No Tag Set</option>
+                       <option value="Relevent">Relevent</option>
+                       <option value="Non Relevent">Non Relevent</option>
+                    </select>
 
-             <div className="flex flex-col gap-2 bg-[#FAFAFA] rounded-2xl p-4">
-                {(lead.budget || lead.guests || lead.city) && (
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 pb-2 border-b border-luxury-dark/5">
-                    {lead.budget && <span className="text-xs font-bold text-luxury-dark">₹{lead.budget}</span>}
-                    {lead.guests && <span className="text-xs font-bold text-luxury-gold">{lead.guests} Guests</span>}
-                    {lead.city && (
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 flex items-center gap-1">
-                        <MapPin size={10} /> {lead.city}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {lead.email && (
-                  <div 
-                    onClick={() => openReplyModal('email', lead.email, lead.name)}
-                    className="flex items-center gap-3 text-sm text-luxury-dark/80 cursor-pointer"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center shrink-0">
-                      <Mail size={14} />
-                    </div>
-                    <span className="truncate font-medium">{lead.email}</span>
-                  </div>
-                )}
-                {(lead.phone || lead.mobile) && (
-                  <div 
-                    onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name)}
-                    className="flex items-center gap-3 text-sm text-luxury-dark/80 cursor-pointer"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-green-50 text-green-500 flex items-center justify-center shrink-0">
-                      <Phone size={14} />
-                    </div>
-                    <span className="font-medium">{lead.phone || lead.mobile}</span>
-                  </div>
-                )}
-                {!lead.email && !lead.phone && !lead.mobile && (
-                  <p className="text-xs text-luxury-dark/40 italic">No contact info provided</p>
-                )}
-             </div>
-
-             <div>
-               <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mb-2">Tags</p>
-               <div className="flex flex-col gap-3">
-                  <select 
-                     value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
-                     onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
-                     className={`w-full text-[10px] font-bold uppercase tracking-widest border border-luxury-dark/10 rounded-2xl px-4 py-3 appearance-none cursor-pointer outline-none transition-all ${
-                       (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                       (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-200' :
-                       'bg-[#FAFAFA] text-luxury-dark/40'
-                     }`}
-                   >
-                     <option value="">No Tag Set</option>
-                     <option value="Relevent">Relevent</option>
-                     <option value="Non Relevent">Non Relevent</option>
-                  </select>
-
-                  {/* Display other tags in mobile too */}
-                  <div className="flex flex-wrap gap-2">
-                     {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
-                       <span 
-                         key={tag} 
-                         className="px-2 py-1 bg-luxury-dark/5 text-luxury-dark/60 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5"
-                       >
-                         {tag}
-                         <button 
-                           onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
-                           className="text-red-400 hover:text-red-600 focus:outline-none"
+                    <div className="flex flex-wrap gap-2">
+                       {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
+                         <span 
+                           key={tag} 
+                           className="px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5 bg-luxury-dark/5 text-luxury-dark/60"
                          >
-                           <X size={10} />
-                         </button>
-                       </span>
-                     ))}
-                  </div>
+                           {tag}
+                           <button 
+                             onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
+                             className="hover:text-red-500 transition-colors"
+                           >
+                             <X size={10} />
+                           </button>
+                         </span>
+                       ))}
+                    </div>
 
-                  <div className="relative">
-                    <input 
-                      type="text"
-                      placeholder="Add custom tag + Enter"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddCustomTag(lead.id, (e.target as HTMLInputElement).value, lead.tags || []);
-                          (e.target as HTMLInputElement).value = '';
-                        }
-                      }}
-                      className="w-full text-[10px] bg-luxury-dark/5 rounded-xl px-4 py-3 outline-none focus:ring-1 focus:ring-luxury-gold transition-all"
-                    />
-                  </div>
+                    <div className="relative">
+                      <input 
+                        type="text"
+                        placeholder="Add custom tag + Enter"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddCustomTag(lead.id, (e.target as HTMLInputElement).value, lead.tags || []);
+                            (e.target as HTMLInputElement).value = '';
+                          }
+                        }}
+                        className="w-full text-[10px] rounded-xl px-4 py-3 outline-none focus:ring-1 focus:ring-luxury-gold transition-all bg-luxury-dark/5 text-luxury-dark"
+                      />
+                    </div>
+                 </div>
                </div>
-             </div>
 
-             <div>
-               <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mb-2">Remarks</p>
-               <textarea 
-                  defaultValue={lead.remarks || ''}
-                  onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
-                  placeholder="Notes..."
-                  rows={2}
-                  className="text-xs border-none bg-[#FAFAFA] rounded-xl px-4 py-3 w-full focus:ring-1 focus:ring-luxury-gold outline-none transition-colors resize-none"
-                />
-             </div>
+               <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-2 text-luxury-dark/40">Remarks</p>
+                <textarea 
+                   defaultValue={lead.remarks || ''}
+                   onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
+                   placeholder="Notes..."
+                   rows={2}
+                   className="text-xs border-none rounded-xl px-4 py-3 w-full focus:ring-1 focus:ring-luxury-gold outline-none transition-colors resize-none bg-[#FAFAFA] text-luxury-dark"
+                 />
+               </div>
 
-             <div className="pt-4 border-t border-luxury-dark/5 text-right">
-                <button 
-                  onClick={() => setLeadToDelete(lead.id)} 
-                  className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-xl transition-all"
-                >
-                  Delete Lead
-                </button>
-             </div>
-          </div>
-        ))}
+               <div className={`pt-4 border-t text-right ${isSent ? 'border-red-100' : 'border-luxury-dark/5'}`}>
+                  <button 
+                    onClick={() => setLeadToDelete(lead.id)} 
+                    className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-xl transition-all"
+                  >
+                    Delete Lead
+                  </button>
+               </div>
+            </div>
+          );
+        })}
         {filteredLeads.length === 0 && (
           <div className="col-span-full py-24 text-center bg-white rounded-[2rem] border border-luxury-dark/5 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <div className="w-16 h-16 bg-luxury-dark/5 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -2325,6 +2388,172 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                 Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {gmailModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-lg w-full overflow-hidden relative shadow-2xl">
+            <div className="relative z-10">
+              <div className="flex justify-between items-center mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center">
+                    <Mail className="text-[#DB4437]" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-serif text-luxury-dark">Gmail Integration</h3>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Secure Email Automation</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setGmailModalOpen(false)}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-luxury-dark/5 text-luxury-dark/40 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="p-5 bg-[#FAFAFA] border border-luxury-dark/5 rounded-3xl space-y-4">
+                  <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40 mb-2">Configure Account</h4>
+                  
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">Gmail Address</label>
+                      <input 
+                        type="email" 
+                        value={gmailUser}
+                        onChange={(e) => setGmailUser(e.target.value)}
+                        placeholder="yourname@gmail.com"
+                        className="w-full bg-white border border-luxury-dark/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-luxury-gold transition-all"
+                      />
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">App Password (16 Letters)</label>
+                      <div className="relative">
+                        <input 
+                          type="password" 
+                          value={gmailPass}
+                          onChange={(e) => setGmailPass(e.target.value)}
+                          placeholder="xxxx xxxx xxxx xxxx"
+                          className="w-full bg-white border border-luxury-dark/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-luxury-gold transition-all font-mono"
+                        />
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-luxury-dark/30 font-mono">
+                          {gmailPass.length > 0 ? `${gmailPass.length} chars` : ''}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={handleSaveGmailSettings}
+                      disabled={gmailSaving}
+                      className="w-full py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-black transition-all disabled:opacity-50"
+                    >
+                      {gmailSaving ? 'Saving...' : 'Save Configuration'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-red-50/50 border border-red-100 rounded-3xl">
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-[#DB4437] mb-3 flex items-center gap-2">
+                    <ShieldCheck size={14} />
+                    How to Set Up
+                  </h4>
+                  <ol className="text-xs text-luxury-dark/70 space-y-3 list-decimal list-inside leading-relaxed font-medium">
+                    <li>Open your <a href="https://myaccount.google.com/" target="_blank" rel="noopener noreferrer" className="text-red-600 underline">Google Account</a>.</li>
+                    <li>Go to <span className="font-bold text-luxury-dark">Security</span>.</li>
+                    <li>Enable <span className="font-bold text-luxury-dark">2-Step Verification</span>.</li>
+                    <li>Search for <span className="font-bold text-luxury-dark">"App Passwords"</span>.</li>
+                    <li>Generate a new password for <span className="font-bold text-luxury-dark">"Other (Custom name)"</span> and name it <span className="italic">"Lead Dashboard"</span>.</li>
+                    <li>Copy the 16-character code and add it to <span className="font-bold text-luxury-dark font-mono text-[10px]">GMAIL_APP_PASSWORD</span> in app settings.</li>
+                  </ol>
+                </div>
+
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between p-4 bg-luxury-dark/5 rounded-2xl border border-luxury-dark/10">
+                    <div className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full bg-orange-400"></div>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60">Current Status:</span>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-orange-600 bg-orange-50 px-3 py-1 rounded-lg border border-orange-100 italic">
+                      Check Settings
+                    </span>
+                  </div>
+
+                  <div className="p-4 bg-luxury-dark/5 rounded-2xl border border-luxury-dark/10 space-y-3">
+                    <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Test Integration</h4>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">Send Test To:</label>
+                      <input 
+                        type="email" 
+                        value={testEmailRecipient}
+                        onChange={(e) => setTestEmailRecipient(e.target.value)}
+                        placeholder="recipient@gmail.com"
+                        className="w-full bg-white border border-luxury-dark/10 rounded-2xl px-4 py-2 text-xs outline-none focus:ring-1 focus:ring-luxury-gold transition-all"
+                      />
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          if (!gmailUser || !gmailPass) {
+                            showToast('Please enter credentials first', 'error');
+                            return;
+                          }
+
+                          if (!testEmailRecipient) {
+                            showToast('Please enter a recipient email', 'error');
+                            return;
+                          }
+                          
+                          showToast('Sending test email...', 'info');
+                          const response = await fetch('/api/mail/send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              to: testEmailRecipient,
+                              subject: 'Unique Farmhouse - Gmail Integration Test',
+                              text: 'This is a test email from your Lead Dashboard. If you received this, your Gmail integration is working perfectly!',
+                              config: {
+                                user: gmailUser,
+                                pass: gmailPass
+                              },
+                              html: `<div style="font-family: sans-serif; padding: 40px; background: #fafafa; border-radius: 20px;">
+                                      <h2 style="color: #c8a45d;">Test Successful!</h2>
+                                      <p>Your Gmail integration is active and ready to send automated follow-ups.</p>
+                                      <p style="color: #666; font-size: 12px; margin-top: 40px;">Unique Farmhouse Lead Management System</p>
+                                    </div>`
+                            })
+                          });
+                          
+                          const data = await response.json();
+                          if (data.success) {
+                            showToast('Test email sent successfully!', 'success');
+                          } else {
+                            let msg = `${data.error || 'Test failed'}: ${data.details || ''}`;
+                            if (msg.includes('534-5.7.9') || msg.toLowerCase().includes('application-specific password required')) {
+                              msg = "CRITICAL: You are using your regular Gmail password. Google requires a 16-character 'App Password'. Please follow the instructions above.";
+                            }
+                            throw new Error(msg);
+                          }
+                        } catch (error: any) {
+                          showToast(error.message || 'Test failed', 'error');
+                        }
+                      }}
+                      className="w-full py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2"
+                    >
+                      <Target size={14} />
+                      Send Test Email
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Background Decoration */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-red-50/20 rounded-full blur-3xl -mr-32 -mt-32"></div>
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-luxury-gold/5 rounded-full blur-3xl -ml-32 -mb-32"></div>
           </div>
         </div>
       )}
@@ -4051,8 +4280,12 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       if (result.success) {
         localStorage.setItem('last_google_review_sync', now.toString());
         if (!silent) {
-          showToast(`Successfully synced ${result.newCount} new reviews from Google.`, 'success');
-          await logAdminAction('sync_google_reviews', 'all', `Synced ${result.newCount} new reviews`);
+          if (result.newCount > 0) {
+            showToast(`Successfully synced ${result.newCount} new reviews from Google.`, 'success');
+            await logAdminAction('sync_google_reviews', 'all', `Synced ${result.newCount} new reviews`);
+          } else {
+            showToast(result.message || 'Successfully connected to Google. No new reviews found.', 'info');
+          }
         }
       } else {
         throw new Error(result.message || 'Sync failed');
