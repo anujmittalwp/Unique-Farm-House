@@ -1217,6 +1217,7 @@ const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, coun
 
 const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, userRole: string | null }) => {
   const [filter, setFilter] = useState('new');
+  const [selectedTag, setSelectedTag] = useState('');
   const [leadToDelete, setLeadToDelete] = useState<string | null>(null);
   const syncAttempted = useRef(false);
   
@@ -1247,7 +1248,10 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     source: 'direct',
     remarks: '',
     status: 'new',
-    tag: ''
+    tag: '',
+    budget: '',
+    guests: '',
+    city: ''
   });
   const [isAddingLead, setIsAddingLead] = useState(false);
 
@@ -1302,6 +1306,9 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         source: manualLead.source,
         remarks: manualLead.remarks,
         status: manualLead.status,
+        budget: manualLead.budget,
+        guests: manualLead.guests,
+        city: manualLead.city,
         createdAt: serverTimestamp(),
         tags: manualLead.tag ? [sourceTag, manualLead.tag] : [sourceTag]
       };
@@ -1318,7 +1325,10 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         source: 'direct',
         remarks: '',
         status: 'new',
-        tag: ''
+        tag: '',
+        budget: '',
+        guests: '',
+        city: ''
       });
     } catch (err) {
       console.error(err);
@@ -1335,6 +1345,9 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
       Name: lead.name,
       Email: lead.email,
       Phone: lead.phone,
+      Budget: lead.budget || '',
+      Guests: lead.guests || '',
+      City: lead.city || '',
       Source: lead.source || (lead.metaLeadId ? 'Facebook/Meta' : 'Website'),
       Tags: (lead.tags || []).join(', '),
       Remarks: lead.remarks,
@@ -1612,12 +1625,12 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         // Detailed log for debugging
         console.error(`Proxy Sync Error (${response.status}):`, errorMsg);
         
-        throw new Error(`Proxy sync failed: ${errorMsg}`);
+        throw new Error('Invalid Link');
       }
       const csvText = await response.text();
       
       if (csvText.trim().toLowerCase().startsWith('<!doctype') || csvText.trim().toLowerCase().startsWith('<html')) {
-        throw new Error('The URL returned a web page instead of a CSV. Please ensure the Google Sheet is published to the web as a CSV, or that the link is correct.');
+        throw new Error('Invalid Link');
       }
       
       Papa.parse(csvText, {
@@ -1645,6 +1658,9 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
             const email = (row.email || '').trim();
             const phone = (row.phone_number || row.phone || '').trim();
             const name = (row.full_name || row.form_name || row.name || 'Unknown').trim();
+            const budget = (row.budget || row.est_budget || row.max_budget || '').trim();
+            const guests = (row.guests || row.no_of_guests || row.number_of_guests || row.guest_count || '').trim();
+            const city = (row.city || row.location || row.area || '').trim();
             const createdTimeStr = row.created_time || '';
             
             let createdAt: any = serverTimestamp();
@@ -1664,6 +1680,9 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                 name,
                 email,
                 phone,
+                budget,
+                guests,
+                city,
                 status: 'new',
                 createdAt,
                 source: 'google_sheets'
@@ -1781,6 +1800,35 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     }
   };
 
+  const handleAddCustomTag = async (leadId: string, tag: string, currentTags: string[]) => {
+    if (!tag.trim()) return;
+    const cleanTag = tag.trim();
+    if ((currentTags || []).includes(cleanTag)) {
+      showToast('Tag already exists', 'info');
+      return;
+    }
+    
+    const newTags = [...(currentTags || []), cleanTag];
+    try {
+      await updateDoc(doc(db, 'leads', leadId), { tags: newTags });
+      showToast('Tag added', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to add tag', 'error');
+    }
+  };
+
+  const handleRemoveTag = async (leadId: string, tagToRemove: string, currentTags: string[]) => {
+    const newTags = (currentTags || []).filter(t => t !== tagToRemove);
+    try {
+      await updateDoc(doc(db, 'leads', leadId), { tags: newTags });
+      showToast('Tag removed', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to remove tag', 'error');
+    }
+  };
+
   const [tagInput, setTagInput] = useState<{ [key: string]: string }>({});
 
   const handleAddTag = async (leadId: string, currentTags: string[] = []) => {
@@ -1801,18 +1849,6 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     } catch (err) {
       console.error(err);
       showToast('Failed to add tag', 'error');
-    }
-  };
-
-  const handleRemoveTag = async (leadId: string, tagToRemove: string, currentTags: string[]) => {
-    try {
-      await updateDoc(doc(db, 'leads', leadId), {
-        tags: currentTags.filter(t => t !== tagToRemove)
-      });
-      showToast('Tag removed', 'success');
-    } catch (err) {
-      console.error(err);
-      showToast('Failed to remove tag', 'error');
     }
   };
 
@@ -1839,7 +1875,16 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
     return `${d}/${m}/${y}`;
   };
 
-  const filteredLeads = leads.filter(l => filter === 'all' || l.status === filter);
+  const uniqueTags = Array.from(new Set(leads.flatMap(l => (l.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t))))).sort();
+
+  const filteredLeads = leads
+    .filter(l => filter === 'all' || l.status === filter)
+    .filter(l => !selectedTag || (l.tags || []).includes(selectedTag))
+    .sort((a, b) => {
+      const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+      const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+      return dateB.getTime() - dateA.getTime();
+    });
 
   return (
     <div className="space-y-6 relative">
@@ -1848,7 +1893,10 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
           {['all', 'new', 'contacted', 'converted', 'lost'].map(f => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => {
+                setFilter(f);
+                setSelectedTag(''); // Reset tag filter when changing status
+              }}
               className={`px-5 py-2.5 rounded-[1rem] text-[10px] font-bold uppercase tracking-[0.15em] transition-all whitespace-nowrap shrink-0 flex items-center gap-2 ${
                 filter === f 
                   ? 'bg-luxury-dark text-white shadow-md' 
@@ -1862,6 +1910,37 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
             </button>
           ))}
         </div>
+
+        {/* Tag Filter */}
+        {uniqueTags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 px-2 py-1 bg-white/50 backdrop-blur-sm rounded-2xl border border-luxury-dark/5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-luxury-dark/30 ml-2">Filter by Tag:</span>
+            <button
+              onClick={() => setSelectedTag('')}
+              className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                selectedTag === '' 
+                  ? 'bg-luxury-gold text-luxury-dark shadow-sm' 
+                  : 'text-luxury-dark/40 hover:bg-luxury-dark/5'
+              }`}
+            >
+              All
+            </button>
+            {uniqueTags.map(tag => (
+              <button
+                key={tag}
+                onClick={() => setSelectedTag(tag)}
+                className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  selectedTag === tag 
+                    ? 'bg-luxury-gold text-luxury-dark shadow-sm' 
+                    : 'text-luxury-dark/40 hover:bg-luxury-dark/5'
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
           <button
             onClick={() => setManualModalOpen(true)}
@@ -1903,6 +1982,7 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Date</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Name</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Contact</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Details</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Tags</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Remarks</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Status</th>
@@ -1948,6 +2028,26 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                     </div>
                   </td>
                   <td className="px-6 py-5">
+                    <div className="space-y-1">
+                      {(lead.budget || lead.guests) && (
+                        <p className="text-xs font-bold text-luxury-dark">
+                          {lead.budget ? `₹${lead.budget}` : ''}
+                          {lead.budget && lead.guests ? ' • ' : ''}
+                          {lead.guests ? `${lead.guests} Guests` : ''}
+                        </p>
+                      )}
+                      {lead.city && (
+                        <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-luxury-dark/40">
+                          <MapPin size={10} className="text-luxury-gold" />
+                          {lead.city}
+                        </div>
+                      )}
+                      {!lead.budget && !lead.guests && !lead.city && (
+                        <span className="text-[10px] text-luxury-dark/20 italic">No details</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
                     <div className="flex flex-col gap-2">
                       <select 
                         value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
@@ -1967,11 +2067,35 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                         {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
                           <span 
                             key={tag} 
-                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-luxury-dark/5 text-luxury-dark/40 rounded-md text-[9px] font-bold uppercase tracking-wider"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-luxury-dark/5 text-luxury-dark/60 rounded-md text-[9px] font-bold uppercase tracking-wider group/tag"
                           >
                             {tag}
+                            <button 
+                              onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
+                              className="hover:text-red-500 transition-colors"
+                            >
+                              <X size={8} />
+                            </button>
                           </span>
                         ))}
+                      </div>
+
+                      <div className="relative group/addtag">
+                        <input 
+                          type="text"
+                          placeholder="Add tag..."
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddCustomTag(lead.id, (e.target as HTMLInputElement).value, lead.tags || []);
+                              (e.target as HTMLInputElement).value = '';
+                            }
+                          }}
+                          className="w-full text-[9px] bg-transparent border-b border-luxury-dark/10 focus:border-luxury-gold outline-none py-1 px-1 transition-all placeholder:text-luxury-dark/20"
+                        />
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-focus-within/addtag:opacity-100 transition-opacity">
+                          <Plus size={8} className="text-luxury-gold" />
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -2060,6 +2184,17 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
              </div>
 
              <div className="flex flex-col gap-2 bg-[#FAFAFA] rounded-2xl p-4">
+                {(lead.budget || lead.guests || lead.city) && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 pb-2 border-b border-luxury-dark/5">
+                    {lead.budget && <span className="text-xs font-bold text-luxury-dark">₹{lead.budget}</span>}
+                    {lead.guests && <span className="text-xs font-bold text-luxury-gold">{lead.guests} Guests</span>}
+                    {lead.city && (
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 flex items-center gap-1">
+                        <MapPin size={10} /> {lead.city}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {lead.email && (
                   <div 
                     onClick={() => openReplyModal('email', lead.email, lead.name)}
@@ -2109,11 +2244,32 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                      {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
                        <span 
                          key={tag} 
-                         className="px-2 py-1 bg-luxury-dark/5 text-luxury-dark/30 rounded-lg text-[9px] font-bold uppercase tracking-wider"
+                         className="px-2 py-1 bg-luxury-dark/5 text-luxury-dark/60 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5"
                        >
                          {tag}
+                         <button 
+                           onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
+                           className="text-red-400 hover:text-red-600 focus:outline-none"
+                         >
+                           <X size={10} />
+                         </button>
                        </span>
                      ))}
+                  </div>
+
+                  <div className="relative">
+                    <input 
+                      type="text"
+                      placeholder="Add custom tag + Enter"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomTag(lead.id, (e.target as HTMLInputElement).value, lead.tags || []);
+                          (e.target as HTMLInputElement).value = '';
+                        }
+                      }}
+                      className="w-full text-[10px] bg-luxury-dark/5 rounded-xl px-4 py-3 outline-none focus:ring-1 focus:ring-luxury-gold transition-all"
+                    />
                   </div>
                </div>
              </div>
@@ -2416,6 +2572,42 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                     className="w-full px-5 py-4 bg-luxury-dark/5 border-none rounded-2xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">City / Location</label>
+                  <input
+                    type="text"
+                    value={manualLead.city}
+                    onChange={(e) => setManualLead({...manualLead, city: e.target.value})}
+                    placeholder="e.g. Noida, Sector 150"
+                    className="w-full px-5 py-4 bg-luxury-dark/5 border-none rounded-2xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">Budget (Approx)</label>
+                  <input
+                    type="text"
+                    value={manualLead.budget}
+                    onChange={(e) => setManualLead({...manualLead, budget: e.target.value})}
+                    placeholder="e.g. 50000"
+                    className="w-full px-5 py-4 bg-luxury-dark/5 border-none rounded-2xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">No. of Guests</label>
+                  <input
+                    type="text"
+                    value={manualLead.guests}
+                    onChange={(e) => setManualLead({...manualLead, guests: e.target.value})}
+                    placeholder="e.g. 100"
+                    className="w-full px-5 py-4 bg-luxury-dark/5 border-none rounded-2xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">Source</label>
                   <select
@@ -3320,16 +3512,25 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [isSubscribingPush, setIsSubscribingPush] = useState(false);
 
   const urlBase64ToUint8Array = (base64String: string) => {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding)
+    const trimmed = base64String.trim();
+    // Keep only characters valid in URL-safe base64 or standard base64 plus padding
+    const sanitized = trimmed.replace(/[^A-Za-z0-9\-_=]/g, '');
+    const padding = '='.repeat((4 - sanitized.length % 4) % 4);
+    const base64 = (sanitized + padding)
       .replace(/-/g, '+')
       .replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
+    
+    try {
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    } catch (e) {
+      console.error('Failed to decode base64 string:', base64);
+      throw e;
     }
-    return outputArray;
   };
 
   const subscribeToPushNotifications = async () => {

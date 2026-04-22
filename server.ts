@@ -64,7 +64,8 @@ async function startServer() {
 
   // Push Auth Endpoints
   app.get('/api/push/public-key', (req, res) => {
-    res.send(vapidKeys.publicKey);
+    res.set('Content-Type', 'text/plain');
+    res.send(vapidKeys.publicKey.trim());
   });
 
   app.post('/api/push/subscribe', async (req, res) => {
