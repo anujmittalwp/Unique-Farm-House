@@ -1664,23 +1664,30 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         console.log(`[Sync] Requesting URL: ${fetchUrl}`);
       }
 
-      const response = await fetch('/api/proxy/fetch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: fetchUrl })
-      });
+      let response;
+      try {
+        console.log(`[Sync] Attempting direct fetch: ${fetchUrl}`);
+        // Try direct fetch first (works for most Google Sheets CSV exports due to CORS)
+        response = await fetch(fetchUrl);
+      } catch (directErr) {
+        console.warn("[Sync] Direct fetch failed (likely CORS), falling back to proxy:", directErr);
+        // Fallback to proxy if direct fetch fails (e.g. due to CORS or network issues)
+        response = await fetch('/api/proxy/fetch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: fetchUrl })
+        });
+      }
 
       if (!response.ok) {
         let errorMsg = response.statusText;
         try {
-          const clone = response.clone();
-          const contentType = clone.headers.get('content-type');
+          const contentType = response.headers.get('content-type');
           if (contentType && contentType.includes('application/json')) {
-            const errorJson = await clone.json();
+            const errorJson = await response.json();
             errorMsg = errorJson.error || errorJson.message || errorMsg;
           } else {
-            const errorText = await clone.text();
-            // Truncate long error text and try to find a relevant snippet
+            const errorText = await response.text();
             if (errorText.length > 200) {
               errorMsg = errorText.substring(0, 200) + '...';
             } else {
@@ -1691,10 +1698,8 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
           console.error("Failed to parse error response:", e);
         }
         
-        // Detailed log for debugging
-        console.error(`Proxy Sync Error (${response.status}):`, errorMsg);
-        
-        throw new Error('Invalid Link');
+        console.error(`Sync Error (${response.status}):`, errorMsg);
+        throw new Error(`Failed to fetch Sheet (Status ${response.status}). Ensure it is "Published to web" as CSV.`);
       }
       const csvText = await response.text();
       
