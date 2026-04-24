@@ -250,7 +250,11 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  if (errInfo.error.includes('Missing or insufficient permissions')) {
+    throw JSON.stringify(errInfo);
+  } else {
+    throw new Error(JSON.stringify(errInfo));
+  }
 }
 
 async function logAdminAction(action: string, targetId: string, details?: string) {
@@ -691,7 +695,8 @@ const UserManagement = ({
   onUpdateUser,
   onDeleteUser,
   onAddUser,
-  showToast 
+  showToast,
+  currentUserEmail
 }: { 
   users: any[], 
   onUpdateRole: (userId: string, role: string) => Promise<void>,
@@ -699,7 +704,8 @@ const UserManagement = ({
   onUpdateUser: (userId: string, data: any) => Promise<void>,
   onDeleteUser: (userId: string) => Promise<void>,
   onAddUser: (email: string, name: string) => Promise<void>,
-  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
+  currentUserEmail?: string | null
 }) => {
   const [editingPermissions, setEditingPermissions] = useState<any | null>(null);
   const [editingUser, setEditingUser] = useState<any | null>(null);
@@ -815,7 +821,7 @@ const UserManagement = ({
                     <select 
                       value={user.role || 'client'}
                       onChange={(e) => onUpdateRole(user.id, e.target.value)}
-                      disabled={user.role === 'admin' && users.filter(u => u.role === 'admin').length <= 1}
+                      disabled={(user.role === 'admin' && users.filter(u => u.role === 'admin').length <= 1) && currentUserEmail !== 'anujkumarmittal@gmail.com'}
                       className={`text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl outline-none transition-all cursor-pointer ${
                         user.role === 'admin' ? 'bg-luxury-dark text-white' :
                         user.role === 'agent' ? 'bg-luxury-gold text-luxury-dark' :
@@ -865,7 +871,7 @@ const UserManagement = ({
                       )}
                       <button 
                         onClick={() => setDeletingUser(user)}
-                        disabled={user.role === 'admin' && users.filter(u => u.role === 'admin').length <= 1}
+                        disabled={(user.role === 'admin' && users.filter(u => u.role === 'admin').length <= 1) && currentUserEmail !== 'anujkumarmittal@gmail.com'}
                         className="p-2 text-red-500/40 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all disabled:opacity-0"
                         title="Delete User"
                       >
@@ -5801,6 +5807,7 @@ RULES FOR RESPONDING:
               onDeleteUser={handleDeleteUser}
               onAddUser={handleAddFieldAgent}
               showToast={showToast}
+              currentUserEmail={user?.email}
             />
           </div>
         ) : (activeFilter === 'finance' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewFinance))) ? (
@@ -7007,7 +7014,8 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
   ];
 
   const handleSignOut = () => {
-    signOut(auth);
+    // Delay sign out to allow restricted components to unmount
+    setTimeout(() => signOut(auth), 100);
   };
 
   const isNavSolid = isScrolled || !isHomePage;
@@ -10069,13 +10077,15 @@ export default function App() {
             const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
             if (userDoc.exists()) {
               const userData = userDoc.data();
-              setUserRole(userData.role);
+              const isSuperAdmin = currentUser.email && currentUser.email.toLowerCase() === 'anujkumarmittal@gmail.com';
+              setUserRole(isSuperAdmin ? 'admin' : userData.role);
               setUserPermissions(userData.permissions || null);
             } else {
               let role = 'client';
               let permissions = null;
 
               if (currentUser.email) {
+                const isSuperAdmin = currentUser.email.toLowerCase() === 'anujkumarmittal@gmail.com';
                 // Check if pre-authorized by email
                 const q = query(collection(db, 'users'), where('email', '==', currentUser.email.toLowerCase()));
                 const querySnapshot = await getDocs(q);
@@ -10083,10 +10093,12 @@ export default function App() {
                 if (!querySnapshot.empty) {
                   const placeholderDoc = querySnapshot.docs[0];
                   const placeholderData = placeholderDoc.data();
-                  role = placeholderData.role || role;
+                  role = isSuperAdmin ? 'admin' : (placeholderData.role || role);
                   permissions = placeholderData.permissions || permissions;
                   // Cleanup placeholder
                   await deleteDoc(doc(db, 'users', placeholderDoc.id));
+                } else if (isSuperAdmin) {
+                  role = 'admin';
                 }
               }
               
@@ -10124,7 +10136,9 @@ export default function App() {
   const openBookingModal = () => setIsBookingModalOpen(true);
   const closeBookingModal = () => setIsBookingModalOpen(false);
   const handleSignOut = () => {
-    signOut(auth);
+    setUserRole(null);
+    setUser(null);
+    setTimeout(() => signOut(auth).catch(e => console.error(e)), 100);
   };
 
   if (loading || authError) {
