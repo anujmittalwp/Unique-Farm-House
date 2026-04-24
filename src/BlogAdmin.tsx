@@ -4,13 +4,17 @@ import { db } from './firebase';
 import { Plus, Edit3, Trash2, X, Image as ImageIcon, Save, Sparkles } from 'lucide-react';
 import { getAI, safeAiCall } from './lib/ai';
 
-export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, galleryImages?: any[] }) => {
+export const BlogAdmin = ({ showToast, galleryImages, userRole, userPermissions }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, galleryImages?: any[], userRole?: string | null, userPermissions?: any }) => {
   const [blogs, setBlogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [currentBlog, setCurrentBlog] = useState<any>(null);
   const [blogToDelete, setBlogToDelete] = useState<string | null>(null);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+
+  const canAdd = userRole === 'admin' || (userRole === 'agent' && userPermissions?.addBlogs);
+  const canEdit = userRole === 'admin' || (userRole === 'agent' && userPermissions?.editBlogs);
+  const canDelete = userRole === 'admin' || (userRole === 'agent' && userPermissions?.deleteBlogs);
 
   useEffect(() => {
     const q = query(collection(db, 'blogs'), orderBy('createdAt', 'desc'));
@@ -311,24 +315,28 @@ export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: strin
           <p className="text-sm text-luxury-dark/60">Create and manage your blog posts</p>
         </div>
         <div className="flex gap-4">
-          <button
-            onClick={handleGenerateAIPost}
-            disabled={isGeneratingAI}
-            className="flex items-center gap-2 px-6 py-3 bg-[linear-gradient(110deg,#000,45%,#4D4D4D,55%,#000)] bg-[length:250%_100%] text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:shadow-lg hover:shadow-black/20 transition-all disabled:opacity-50 animate-shimmer"
-          >
-            {isGeneratingAI ? (
-              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-            ) : (
-              <Sparkles size={18} className="text-luxury-gold" />
-            )}
-            {isGeneratingAI ? 'Generating...' : 'Auto Generate Post'}
-          </button>
-          <button
-            onClick={handleAddNew}
-            className="flex items-center gap-2 px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all shadow-lg"
-          >
-            <Plus size={18} /> New Post
-          </button>
+          {canAdd && (
+            <button
+              onClick={handleGenerateAIPost}
+              disabled={isGeneratingAI}
+              className="flex items-center gap-2 px-6 py-3 bg-[linear-gradient(110deg,#000,45%,#4D4D4D,55%,#000)] bg-[length:250%_100%] text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:shadow-lg hover:shadow-black/20 transition-all disabled:opacity-50 animate-shimmer"
+            >
+              {isGeneratingAI ? (
+                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Sparkles size={18} className="text-luxury-gold" />
+              )}
+              {isGeneratingAI ? 'Generating...' : 'Auto Generate Post'}
+            </button>
+          )}
+          {canAdd && (
+            <button
+              onClick={handleAddNew}
+              className="flex items-center gap-2 px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all shadow-lg"
+            >
+              <Plus size={18} /> New Post
+            </button>
+          )}
         </div>
       </div>
 
@@ -344,14 +352,17 @@ export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: strin
           <h4 className="text-lg font-serif font-bold text-luxury-dark mb-2">No Blog Posts Yet</h4>
           <p className="text-luxury-dark/60 mb-6">Create your first blog post to start engaging with your audience.</p>
           <div className="flex flex-wrap justify-center gap-4">
-            <button
-              onClick={handleAddNew}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-luxury-dark text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg"
-            >
-              <Plus size={18} /> Create First Post
-            </button>
-            <button
-              onClick={async () => {
+            {canAdd && (
+              <button
+                onClick={handleAddNew}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-luxury-dark text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg"
+              >
+                <Plus size={18} /> Create First Post
+              </button>
+            )}
+            {canAdd && (
+              <button
+                onClick={async () => {
                 try {
                   const samplePost = {
                     title: 'Why Farmhouse Weddings are Trending in Delhi NCR: Unique Farmhouse Noida',
@@ -402,6 +413,7 @@ export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: strin
             >
               <ImageIcon size={18} /> Seed Sample Post
             </button>
+            )}
           </div>
         </div>
       ) : (
@@ -417,18 +429,22 @@ export const BlogAdmin = ({ showToast, galleryImages }: { showToast: (msg: strin
                   </div>
                 )}
                 <div className="absolute top-2 right-2 flex gap-2">
-                  <button 
-                    onClick={() => handleEdit(blog)}
-                    className="w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center text-luxury-dark hover:bg-luxury-gold hover:text-white transition-colors shadow-sm"
-                  >
-                    <Edit3 size={14} />
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteClick(blog.id)}
-                    className="w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-colors shadow-sm"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {canEdit && (
+                    <button 
+                      onClick={() => handleEdit(blog)}
+                      className="w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center text-luxury-dark hover:bg-luxury-gold hover:text-white transition-colors shadow-sm"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button 
+                      onClick={() => handleDeleteClick(blog.id)}
+                      className="w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-colors shadow-sm"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="p-5">

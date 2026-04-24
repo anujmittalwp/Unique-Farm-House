@@ -1,0 +1,138 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 0.1 Context-Aware Helpers
+    function isSignedIn() { return request.auth != null; }
+    function getUserData() { 
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; 
+    }
+    function isAdmin() { 
+      return isSignedIn() && getUserData().role == 'admin'; 
+    }
+    function isAgent() { 
+      return isSignedIn() && getUserData().role == 'agent'; 
+    }
+    function isOwner(userId) { 
+      return isSignedIn() && request.auth.uid == userId; 
+    }
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Collection Patterns ---
+
+    // 1. Users Collection
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.uid == userId &&
+               data.email is string && data.email.size() <= 200 &&
+               data.displayName is string && data.displayName.size() <= 100 &&
+               data.role in ['client', 'admin', 'agent'] &&
+               (data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'createdAt', 'isAnonymous'])) &&
+               data.keys().size() >= 6;
+      }
+
+      allow get: if isSignedIn() && (isOwner(userId) || isAdmin() || isAgent());
+      allow list: if isAdmin(); // Only admins can list all users for management
+      
+      allow create: if isSignedIn() && isOwner(userId) && 
+                      isValidUser(incoming()) && 
+                      incoming().role == 'client'; // Default role is client
+
+      allow update: if isSignedIn() && (
+        // Admin can change roles and permissions
+        (isAdmin() && isValidUser(incoming())) ||
+        // User can only update their own profile (name, avatar etc) but NOT role
+        (isOwner(userId) && 
+         incoming().role == existing().role && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']))
+      );
+    }
+
+    // 2. Bookings Collection
+    match /bookings/{bookingId} {
+      function isValidBooking(data) {
+        return data.uid is string && data.uid.size() <= 128 &&
+               data.checkIn is string &&
+               data.checkOut is string &&
+               data.status in ['pending', 'confirmed', 'cancelled'] &&
+               data.totalAmount is number &&
+               data.createdAt != null;
+      }
+
+      allow get: if isSignedIn() && (isOwner(existing().uid) || isAdmin() || isAgent());
+      allow list: if isSignedIn() && (isAdmin() || isAgent() || resource.data.uid == request.auth.uid);
+      
+      allow create: if isSignedIn() && isValidBooking(incoming()) && 
+                      (isOwner(incoming().uid) || isAdmin() || isAgent());
+
+      allow update: if isSignedIn() && (
+        (isAdmin() || (isAgent() && getUserData().permissions.manageBookings == true)) ||
+        (isOwner(existing().uid) && 
+         existing().status == 'pending' &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+         incoming().status == 'cancelled')
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    // 3. Leads Collection
+    match /leads/{leadId} {
+      function isValidLead(data) {
+        return data.name is string && data.name.size() <= 100 &&
+               data.email is string && data.email.size() <= 200 &&
+               data.status in ['new', 'contacted', 'converted', 'lost'] &&
+               data.createdAt != null;
+      }
+
+      allow list, get: if isAdmin() || (isAgent() && getUserData().permissions.viewLeads == true);
+      allow create: if true; // Chatbot/public can create leads
+      allow update: if isAdmin() || (isAgent() && getUserData().permissions.viewLeads == true); // Assuming agents who view can also update status
+      allow delete: if isAdmin() || (isAgent() && getUserData().permissions.deleteLead == true);
+    }
+
+    // 4. Logs Collection
+    match /logs/{logId} {
+      allow list, get: if isAdmin();
+      allow create: if isAdmin() || isAgent(); // Logging actions
+    }
+
+    // 5. Settings Collection
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 6. Gallery Collection
+    match /gallery/{imageId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 7. Reviews Collection
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    // 8. Blogs Collection
+    match /blogs/{blogId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // 9. Other Collections
+    match /availability/{id} { allow read: if true; allow write: if isAdmin() || isAgent(); }
+    match /expense_categories/{id} { allow read: if isAdmin() || isAgent(); allow write: if isAdmin(); }
+    match /global_expenses/{id} { allow read, write: if isAdmin(); }
+  }
+}

@@ -60,8 +60,18 @@
         },
         "role": {
           "type": "string",
-          "enum": ["client", "admin"],
+          "enum": ["client", "admin", "agent"],
           "description": "The user's role in the application."
+        },
+        "permissions": {
+          "type": "object",
+          "properties": {
+            "deleteLead": { "type": "boolean" },
+            "exportData": { "type": "boolean" },
+            "editSettings": { "type": "boolean" },
+            "manageUsers": { "type": "boolean" }
+          },
+          "description": "Granular permissions for the user."
         },
         "isAnonymous": {
           "type": "boolean",

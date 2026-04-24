@@ -57,13 +57,25 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((('email' in request.auth.token) && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com" || request.auth.token.email == "anujkumarmittal@gmail.com")) ||
+        ((('email' in request.auth.token) && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com")) ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'client') == 'admin'));
+    }
+
+    function isAgent() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'client') == 'agent';
+    }
+
+    function getPermissions() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('permissions', {});
     }
 
     function isOwnerEmail() {
-      return isAuthenticated() && ('email' in request.auth.token) && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com" || request.auth.token.email == "anujkumarmittal@gmail.com");
+      return isAuthenticated() && 
+        ('email' in request.auth.token) && 
+        (request.auth.token.email.lower() == "anujkumarmittal@gmail.com");
     }
 
     function isValidEmail(email) {
@@ -83,14 +95,15 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'email', 'role', 'displayName']) &&
-             data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+      return data.keys().hasAll(['email', 'role', 'displayName']) &&
+             (!('uid' in data) || (data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128)) &&
              data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)) &&
-             data.role in ['client', 'admin'] &&
+             data.role in ['client', 'admin', 'agent'] &&
              (!('isAnonymous' in data) || data.isAnonymous is bool) &&
              (!('createdAt' in data) || isValidDateTimeString(data.createdAt)) &&
              data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 128 &&
-             data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'isAnonymous', 'createdAt']);
+             (!('permissions' in data) || data.permissions is map) &&
+             data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'isAnonymous', 'createdAt', 'permissions']);
     }
 
     function isValidBooking(data) {
@@ -183,24 +196,32 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'client' || isAdmin());
-      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+      allow read: if isOwner(userId) || isAdmin() || isAgent();
+      allow list: if isAdmin() || isAgent() || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email == request.auth.token.email.lower());
+      allow create: if isAuthenticated() && (
+        // Self-creation during login
+        (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.uid == userId) ||
+        // Admin pre-authorizing an agent
+        (isAdmin() && isValidUser(request.resource.data))
+      );
+      allow update: if isAuthenticated() && (isAdmin() || (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role));
+      allow delete: if isAdmin() || isOwner(userId) || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email.lower() == request.auth.token.email.lower());
     }
 
     match /bookings/{bookingId} {
       allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isAgent() && getPermissions().get('viewBookings', false) == true) ||
         resource.data.uid == request.auth.uid || 
-        (('email' in resource.data) && resource.data.email == request.auth.token.email.lower()) || 
-        isAdmin()
+        (('email' in request.auth.token) && resource.data.email == request.auth.token.email.lower())
       );
       allow create: if (
         // Client can create a pending booking for themselves
         (isAuthenticated() && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
         // Guest can create a pending booking
         (!isAuthenticated() && request.resource.data.uid == 'guest' && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||
-        // Admin can create any booking
-        (isAdmin() && isValidBooking(request.resource.data))
+        // Admin or Agent with permissions can create
+        ((isAdmin() || (isAgent() && getPermissions().get('addBookings', false) == true)) && isValidBooking(request.resource.data))
       );
       allow update: if isAuthenticated() && (
         // Client can modify their own pending booking
@@ -216,14 +237,16 @@ service cloud.firestore {
         (resource.data.uid == request.auth.uid && 
          request.resource.data.status == 'cancelled' && resource.data.status == 'pending' &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
-        // Admin can update anything
-        isAdmin()
+        // Admin or Agent with permissions can update anything
+        (isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true)) ||
+        // Agent with viewFinance can assign expenses
+        (isAgent() && getPermissions().get('viewFinance', false) == true && isValidBooking(request.resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expenses']))
       );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isAgent() && getPermissions().get('deleteBookings', false) == true);
     }
 
     match /reviews/{reviewId} {
-      allow read: if resource == null || resource.data.status == 'approved' || isAdmin() || isOwnerEmail() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow read: if isAdmin() || isOwnerEmail() || resource == null || resource.data.status == 'approved' || (isAuthenticated() && resource.data.uid == request.auth.uid);
       allow create: if (
         // Client can create a pending manual review
         (isAuthenticated() && 
@@ -247,75 +270,81 @@ service cloud.firestore {
 
     match /logs/{logId} {
       allow read: if isAdmin() || isOwnerEmail();
-      allow create: if (isAdmin() || isOwnerEmail()) && isValidLog(request.resource.data);
+      allow create: if isAdmin() || isOwnerEmail() || isAgent();
     }
 
     match /availability/{bookingId} {
       allow read: if true; // Publicly readable for "Sold Out" dates
       allow create: if (isAuthenticated() || request.resource.data.status == 'pending') && isValidAvailability(request.resource.data);
-      allow update: if (isAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/bookings/$(bookingId)) && get(/databases/$(database)/documents/bookings/$(bookingId)).data.uid == request.auth.uid)) && isValidAvailability(request.resource.data);
-      allow delete: if isAdmin();
+      allow update: if (isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true) || (isAuthenticated() && exists(/databases/$(database)/documents/bookings/$(bookingId)) && get(/databases/$(database)/documents/bookings/$(bookingId)).data.uid == request.auth.uid)) && isValidAvailability(request.resource.data);
+      allow delete: if isAdmin() || (isAgent() && getPermissions().get('deleteBookings', false) == true);
     }
 
     match /settings/calendar_sync {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || (isAgent() && getPermissions().get('viewSettings', false) == true);
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
     match /public/{docId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
     match /blocked_dates/{dateId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true);
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isAgent();
       allow create: if true; // Allow creation (usually from server, but client can also trigger)
-      allow update: if isAdmin() && isValidNotification(request.resource.data);
-      allow delete: if isAdmin();
+      allow update: if (isAdmin() || isAgent()) && isValidNotification(request.resource.data);
+      allow delete: if isAdmin() || isAgent();
     }
 
     match /gallery/{imageId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
     match /settings/vapid_keys {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
     match /push_subscriptions/{subId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
     match /expense_categories/{categoryId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read: if isAdmin() || (isAgent() && (getPermissions().get('viewFinance', false) == true || getPermissions().get('viewBookings', false) == true));
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
     }
 
     match /global_expenses/{expenseId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
     }
 
     match /blogs/{blogId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isAdmin() || (isAgent() && getPermissions().get('addBlogs', false) == true);
+      allow update: if isAdmin() || (isAgent() && getPermissions().get('editBlogs', false) == true);
+      allow delete: if isAdmin() || (isAgent() && getPermissions().get('deleteBlogs', false) == true);
     }
 
     match /leads/{leadId} {
-      allow read: if isAuthenticated() && isAdmin();
+      allow read: if isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('viewLeads', false) == true));
       allow create: if isValidLead(request.resource.data); // Public can submit leads
-      allow update: if isAuthenticated() && isAdmin() && isValidLead(request.resource.data);
-      allow delete: if isAuthenticated() && isAdmin();
+      allow update: if isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('editLeads', false) == true)) && isValidLead(request.resource.data);
+      allow delete: if isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('deleteLeads', false) == true));
     }
 
     // Default deny

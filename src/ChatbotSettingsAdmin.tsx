@@ -5,6 +5,7 @@ import { Bot, Save, Loader2, RefreshCw } from 'lucide-react';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  canEditSettingsAdmin?: boolean;
 }
 
 const DEFAULT_PROMPT = `You are the exclusive Guest Experience Concierge for "Unique Farmhouse Noida", a premium luxury getaway.
@@ -64,7 +65,7 @@ RULES FOR RESPONDING:
 4. Do NOT invent prices or policies. You represent the exact facts above.
 5. Limit markdown formatting (bullet points, bolding) to keep conversation flowing naturally.`;
 
-export const ChatbotSettingsAdmin: React.FC<Props> = ({ showToast }) => {
+export const ChatbotSettingsAdmin: React.FC<Props> = ({ showToast, canEditSettingsAdmin }) => {
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -132,14 +133,15 @@ export const ChatbotSettingsAdmin: React.FC<Props> = ({ showToast }) => {
         <div className="flex gap-3 w-full sm:w-auto">
           <button 
             onClick={handleReset}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-red-100 transition-all shadow-sm whitespace-nowrap"
+            disabled={!canEditSettingsAdmin}
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-red-100 transition-all shadow-sm whitespace-nowrap disabled:opacity-50"
           >
             <RefreshCw size={14} />
             Reset
           </button>
           <button 
             onClick={handleSave}
-            disabled={isSaving || !prompt.trim()}
+            disabled={isSaving || !prompt.trim() || !canEditSettingsAdmin}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20 whitespace-nowrap"
           >
             {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
@@ -160,8 +162,9 @@ export const ChatbotSettingsAdmin: React.FC<Props> = ({ showToast }) => {
         
         <textarea
           value={prompt}
+          disabled={!canEditSettingsAdmin}
           onChange={(e) => setPrompt(e.target.value)}
-          className="w-full h-[500px] p-6 bg-luxury-cream/50 border border-luxury-dark/10 rounded-2xl font-mono text-sm leading-relaxed focus:outline-none focus:border-luxury-gold focus:ring-1 focus:ring-luxury-gold transition-colors resize-y shadow-inner"
+          className="w-full h-[500px] p-6 bg-luxury-cream/50 border border-luxury-dark/10 rounded-2xl font-mono text-sm leading-relaxed focus:outline-none focus:border-luxury-gold focus:ring-1 focus:ring-luxury-gold transition-colors resize-y shadow-inner disabled:opacity-70 disabled:cursor-not-allowed"
           spellCheck="false"
         />
       </div>

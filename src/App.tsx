@@ -47,12 +47,15 @@ import {
   ChevronRight,
   LayoutGrid,
   Images,
+  Edit2,
+  Trash2,
   CreditCard,
   LogOut,
   History,
   TrendingUp,
   TrendingDown,
   PieChart,
+  BarChart3,
   LayoutDashboard,
   Eye,
   Moon,
@@ -63,7 +66,6 @@ import {
   IndianRupee,
   Copy,
   MessageSquare,
-  Trash2,
   RefreshCw,
   Download,
   Share2,
@@ -71,6 +73,7 @@ import {
   Minus,
   Search,
   BookOpen,
+  Image as GalleryIcon,
   Settings,
   Bell,
   BellRing,
@@ -422,13 +425,6 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         // Update profile with name
         await updateProfile(userCredential.user, { displayName: name.trim() });
-        // Create user document
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          uid: userCredential.user.uid,
-          email: userCredential.user.email,
-          displayName: name.trim(),
-          role: 'client'
-        });
         onClose();
       }
     } catch (err: any) {
@@ -449,14 +445,7 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
     setLoading(true);
     const provider = new GoogleAuthProvider();
     try {
-      const result = await signInWithPopup(auth, provider);
-      // Check if user document exists, if not create it
-      await setDoc(doc(db, 'users', result.user.uid), {
-        uid: result.user.uid,
-        email: result.user.email,
-        displayName: result.user.displayName || result.user.email?.split('@')[0] || 'User',
-        role: result.user.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client'
-      }, { merge: true });
+      await signInWithPopup(auth, provider);
       onClose();
     } catch (err: any) {
       if (err.code === 'auth/unauthorized-domain') {
@@ -695,7 +684,487 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
   );
 };
 
-const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void }) => {
+const UserManagement = ({ 
+  users, 
+  onUpdateRole, 
+  onUpdatePermissions,
+  onUpdateUser,
+  onDeleteUser,
+  onAddUser,
+  showToast 
+}: { 
+  users: any[], 
+  onUpdateRole: (userId: string, role: string) => Promise<void>,
+  onUpdatePermissions: (userId: string, permissions: any) => Promise<void>,
+  onUpdateUser: (userId: string, data: any) => Promise<void>,
+  onDeleteUser: (userId: string) => Promise<void>,
+  onAddUser: (email: string, name: string) => Promise<void>,
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
+}) => {
+  const [editingPermissions, setEditingPermissions] = useState<any | null>(null);
+  const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [deletingUser, setDeletingUser] = useState<any | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newUser, setNewUser] = useState({ email: '', name: '' });
+  const [adding, setAdding] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  const permissionList = [
+    { id: 'addBookings', label: 'Add Bookings' },
+    { id: 'viewBookings', label: 'View Bookings' },
+    { id: 'editBookings', label: 'Edit Bookings' },
+    { id: 'deleteBookings', label: 'Delete Bookings' },
+    { id: 'addLeads', label: 'Add Leads' },
+    { id: 'viewLeads', label: 'View Leads' },
+    { id: 'editLeads', label: 'Edit Leads (Status, Tags, Remarks)' },
+    { id: 'deleteLeads', label: 'Delete Leads' },
+    { id: 'leadsSettings', label: 'Leads Settings (Export, Sync, etc)' },
+    { id: 'viewFinance', label: 'View Finance' },
+    { id: 'addBlogs', label: 'Add Blogs' },
+    { id: 'viewBlogs', label: 'View Blogs' },
+    { id: 'editBlogs', label: 'Edit Blogs' },
+    { id: 'deleteBlogs', label: 'Delete Blogs' },
+    { id: 'addSettings', label: 'Add Settings' },
+    { id: 'viewSettings', label: 'View Settings' },
+    { id: 'editSettings', label: 'Edit Settings' },
+    { id: 'deleteSettings', label: 'Delete Settings' }
+  ];
+
+  const permissionMatrix = [
+    { module: 'Bookings', add: 'addBookings', view: 'viewBookings', edit: 'editBookings', delete: 'deleteBookings', setting: null },
+    { module: 'Leads', add: 'addLeads', view: 'viewLeads', edit: 'editLeads', delete: 'deleteLeads', setting: 'leadsSettings' },
+    { module: 'Finance', add: null, view: 'viewFinance', edit: null, delete: null, setting: null },
+    { module: 'Blogs', add: 'addBlogs', view: 'viewBlogs', edit: 'editBlogs', delete: 'deleteBlogs', setting: null },
+    { module: 'Settings', add: 'addSettings', view: 'viewSettings', edit: 'editSettings', delete: 'deleteSettings', setting: null },
+  ];
+
+  const handleTogglePermission = (id: string) => {
+    if (!editingPermissions) return;
+    setEditingPermissions({
+      ...editingPermissions,
+      permissions: {
+        ...(editingPermissions.permissions || {}),
+        [id]: !editingPermissions.permissions?.[id]
+      }
+    });
+  };
+
+  const handleSavePermissions = async () => {
+    if (!editingPermissions) return;
+    try {
+      await onUpdatePermissions(editingPermissions.id, editingPermissions.permissions);
+      showToast('Permissions updated successfully', 'success');
+      setEditingPermissions(null);
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to update permissions', 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm overflow-hidden">
+        <div className="p-8 border-b border-luxury-dark/5 flex justify-between items-center bg-[#FAFAFA]">
+          <div>
+            <h3 className="text-2xl font-serif font-bold text-luxury-dark">User Management</h3>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mt-1">Manage agent accounts and permissions</p>
+          </div>
+          <div className="flex gap-4">
+            <div className="hidden sm:block px-4 py-2 bg-luxury-gold/10 rounded-xl border border-luxury-gold/20">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-gold">Total Users: {users.length}</p>
+            </div>
+            <button 
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-6 py-2 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10"
+            >
+              <Plus size={14} />
+              Add Agent
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-[#FAFAFA] border-b border-luxury-dark/5">
+                <th className="px-8 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">User</th>
+                <th className="px-8 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Role</th>
+                <th className="px-8 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Permissions</th>
+                <th className="px-8 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-luxury-dark/5">
+              {users.map(user => (
+                <tr key={user.id} className="hover:bg-[#FAFAFA]/50 transition-colors">
+                  <td className="px-8 py-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-luxury-dark/5 flex items-center justify-center overflow-hidden">
+                        {user.photoURL ? (
+                          <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={20} className="text-luxury-dark/20" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-luxury-dark">{user.displayName || 'Anonymous User'}</p>
+                        <p className="text-xs text-luxury-dark/40">{user.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-8 py-6">
+                    <select 
+                      value={user.role || 'client'}
+                      onChange={(e) => onUpdateRole(user.id, e.target.value)}
+                      disabled={user.role === 'admin' && users.filter(u => u.role === 'admin').length <= 1}
+                      className={`text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl outline-none transition-all cursor-pointer ${
+                        user.role === 'admin' ? 'bg-luxury-dark text-white' :
+                        user.role === 'agent' ? 'bg-luxury-gold text-luxury-dark' :
+                        'bg-luxury-dark/5 text-luxury-dark/40'
+                      }`}
+                    >
+                      <option value="client">Client</option>
+                      <option value="agent">Agent</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </td>
+                  <td className="px-8 py-6">
+                    {user.role === 'admin' ? (
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-[#0F9D58] bg-[#0F9D58]/10 px-3 py-1 rounded-lg">Full Access</span>
+                    ) : user.role === 'agent' ? (
+                      <div className="flex flex-wrap gap-1 max-w-[200px]">
+                        {user.permissions && Object.entries(user.permissions).filter(([k, v]) => v && permissionList.some(p => p.id === k)).map(([k, _]) => (
+                          <span key={k} className="px-2 py-0.5 bg-luxury-dark/5 text-luxury-dark/60 rounded text-[9px] font-bold uppercase tracking-tight">
+                            {permissionList.find(p => p.id === k)?.label || k}
+                          </span>
+                        ))}
+                        {(!user.permissions || Object.values(user.permissions).every(v => !v)) && (
+                          <span className="text-[10px] italic text-luxury-dark/20">No specific permissions set</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[10px] italic text-luxury-dark/20">Read only access</span>
+                    )}
+                  </td>
+                  <td className="px-8 py-6 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button 
+                        onClick={() => setEditingUser(user)}
+                        className="p-2 text-luxury-dark/40 hover:text-luxury-dark hover:bg-luxury-dark/5 rounded-xl transition-all"
+                        title="Edit User Profile"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      {user.role === 'agent' && (
+                        <button 
+                          onClick={() => setEditingPermissions(user)}
+                          className="p-2 text-luxury-gold hover:bg-luxury-gold/10 rounded-xl transition-all"
+                          title="Edit Permissions"
+                        >
+                          <Settings size={18} />
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setDeletingUser(user)}
+                        disabled={user.role === 'admin' && users.filter(u => u.role === 'admin').length <= 1}
+                        className="p-2 text-red-500/40 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all disabled:opacity-0"
+                        title="Delete User"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editingUser && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-2xl font-serif font-bold text-luxury-dark">Edit User</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mt-1">Update basic information</p>
+              </div>
+              <button 
+                onClick={() => setEditingUser(null)}
+                className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-luxury-dark/5 text-luxury-dark/40"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">Full Name</label>
+                <input
+                  type="text"
+                  value={editingUser.displayName || ''}
+                  onChange={(e) => setEditingUser({...editingUser, displayName: e.target.value})}
+                  className="w-full bg-luxury-dark/5 border-none rounded-2xl p-4 focus:ring-2 focus:ring-luxury-gold outline-none text-sm font-medium transition-all"
+                  placeholder="Enter name"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">Email Address</label>
+                <input
+                  type="email"
+                  value={editingUser.email || ''}
+                  onChange={(e) => setEditingUser({...editingUser, email: e.target.value})}
+                  className="w-full bg-luxury-dark/5 border-none rounded-2xl p-4 focus:ring-2 focus:ring-luxury-gold outline-none text-sm font-medium transition-all"
+                  placeholder="Enter email"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={() => setEditingUser(null)}
+                className="py-4 border border-luxury-dark/10 rounded-2xl font-bold uppercase tracking-widest text-[10px] text-luxury-dark/40 hover:bg-luxury-dark/5 transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={async () => {
+                  setUpdating(true);
+                  await onUpdateUser(editingUser.id, { 
+                    displayName: editingUser.displayName, 
+                    email: editingUser.email 
+                  });
+                  setUpdating(false);
+                  setEditingUser(null);
+                }}
+                disabled={updating}
+                className="py-4 bg-luxury-dark text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10 disabled:opacity-50"
+              >
+                {updating ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingUser && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-center">
+            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Delete User?</h3>
+            <p className="text-sm text-luxury-dark/40 mb-8 px-4">
+              Are you sure you want to delete <span className="font-bold text-luxury-dark">{deletingUser.displayName || deletingUser.email}</span>? This action cannot be undone.
+            </p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={() => setDeletingUser(null)}
+                className="py-4 border border-luxury-dark/10 rounded-2xl font-bold uppercase tracking-widest text-[10px] text-luxury-dark/40 hover:bg-luxury-dark/5 transition-all"
+              >
+                No, Keep
+              </button>
+              <button 
+                onClick={async () => {
+                  setUpdating(true);
+                  await onDeleteUser(deletingUser.id);
+                  setUpdating(false);
+                  setDeletingUser(null);
+                }}
+                disabled={updating}
+                className="py-4 bg-red-600 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-red-700 transition-all shadow-lg shadow-red-600/10 disabled:opacity-50"
+              >
+                {updating ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editingPermissions && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-8 max-w-4xl w-full shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6 shrink-0">
+              <div>
+                <h3 className="text-2xl font-serif font-bold text-luxury-dark">Agent Permissions</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mt-1">Configure access for {editingPermissions.displayName}</p>
+              </div>
+              <button 
+                onClick={() => setEditingPermissions(null)}
+                className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-luxury-dark/5 text-luxury-dark/40"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="mb-8 overflow-y-auto flex-1">
+              <div className="min-w-[600px]">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-luxury-dark/10">
+                      <th className="py-4 px-4 text-xs font-bold text-luxury-dark uppercase tracking-widest bg-luxury-dark/5 rounded-tl-xl">Name</th>
+                      <th className="py-4 px-4 text-xs font-bold text-luxury-dark uppercase tracking-widest text-center bg-luxury-dark/5">Add</th>
+                      <th className="py-4 px-4 text-xs font-bold text-luxury-dark uppercase tracking-widest text-center bg-luxury-dark/5">View</th>
+                      <th className="py-4 px-4 text-xs font-bold text-luxury-dark uppercase tracking-widest text-center bg-luxury-dark/5">Edit</th>
+                      <th className="py-4 px-4 text-xs font-bold text-luxury-dark uppercase tracking-widest text-center bg-luxury-dark/5">Delete</th>
+                      <th className="py-4 px-4 text-xs font-bold text-luxury-dark uppercase tracking-widest text-center bg-luxury-dark/5 rounded-tr-xl">Setting</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {permissionMatrix.map((row, idx) => (
+                      <tr key={row.module} className={idx % 2 === 0 ? 'bg-white' : 'bg-luxury-dark/[0.02]'}>
+                        <td className="py-4 px-4 text-sm font-bold text-luxury-dark/80">{row.module}</td>
+                        <td className="py-4 px-4 text-center">
+                          {row.add && (
+                            <input
+                              type="checkbox"
+                              checked={editingPermissions.permissions?.[row.add] || false}
+                              onChange={() => handleTogglePermission(row.add)}
+                              className="w-5 h-5 rounded border-luxury-dark/20 text-luxury-gold focus:ring-luxury-gold cursor-pointer"
+                            />
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          {row.view && (
+                            <input
+                              type="checkbox"
+                              checked={editingPermissions.permissions?.[row.view] || false}
+                              onChange={() => handleTogglePermission(row.view)}
+                              className="w-5 h-5 rounded border-luxury-dark/20 text-luxury-gold focus:ring-luxury-gold cursor-pointer"
+                            />
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          {row.edit && (
+                            <input
+                              type="checkbox"
+                              checked={editingPermissions.permissions?.[row.edit] || false}
+                              onChange={() => handleTogglePermission(row.edit)}
+                              className="w-5 h-5 rounded border-luxury-dark/20 text-luxury-gold focus:ring-luxury-gold cursor-pointer"
+                            />
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          {row.delete && (
+                            <input
+                              type="checkbox"
+                              checked={editingPermissions.permissions?.[row.delete] || false}
+                              onChange={() => handleTogglePermission(row.delete)}
+                              className="w-5 h-5 rounded border-luxury-dark/20 text-luxury-gold focus:ring-luxury-gold cursor-pointer"
+                            />
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          {row.setting && (
+                            <input
+                              type="checkbox"
+                              checked={editingPermissions.permissions?.[row.setting] || false}
+                              onChange={() => handleTogglePermission(row.setting)}
+                              className="w-5 h-5 rounded border-luxury-dark/20 text-luxury-gold focus:ring-luxury-gold cursor-pointer"
+                            />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 shrink-0 mt-4">
+              <button 
+                onClick={() => setEditingPermissions(null)}
+                className="py-4 border border-luxury-dark/10 rounded-2xl font-bold uppercase tracking-widest text-[10px] text-luxury-dark/40 hover:bg-luxury-dark/5 transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSavePermissions}
+                className="py-4 bg-luxury-dark text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl"
+          >
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-2xl font-serif font-bold text-luxury-dark">Add New Agent</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mt-1">Authorize a new team member</p>
+              </div>
+              <button 
+                onClick={() => setShowAddModal(false)}
+                className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-luxury-dark/5 text-luxury-dark/40"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-4">Full Name</label>
+                <input 
+                  type="text" 
+                  value={newUser.name}
+                  onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                  placeholder="e.g. John Doe"
+                  className="w-full px-6 py-4 bg-luxury-dark/5 border-none rounded-2xl text-xs font-medium focus:ring-2 focus:ring-luxury-gold outline-none transition-all placeholder:text-luxury-dark/20 text-luxury-dark"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-4">Email Address</label>
+                <input 
+                  type="email" 
+                  value={newUser.email}
+                  onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                  placeholder="agent@example.com"
+                  className="w-full px-6 py-4 bg-luxury-dark/5 border-none rounded-2xl text-xs font-medium focus:ring-2 focus:ring-luxury-gold outline-none transition-all placeholder:text-luxury-dark/20 text-luxury-dark"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={() => setShowAddModal(false)}
+                className="py-4 border border-luxury-dark/10 rounded-2xl font-bold uppercase tracking-widest text-[10px] text-luxury-dark/40 hover:bg-luxury-dark/5 transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                disabled={adding || !newUser.email || !newUser.name}
+                onClick={async () => {
+                  setAdding(true);
+                  try {
+                    await onAddUser(newUser.email, newUser.name);
+                    setShowAddModal(false);
+                    setNewUser({ email: '', name: '' });
+                  } catch (err) {
+                    // Toast is handled by onAddUser in App.tsx
+                  } finally {
+                    setAdding(false);
+                  }
+                }}
+                className="py-4 bg-luxury-dark text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg shadow-luxury-dark/10 disabled:opacity-50"
+              >
+                {adding ? 'Adding...' : 'Add Agent'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, canEditSettingsAdmin?: boolean }) => {
   const [urls, setUrls] = useState<{ name: string, url: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -863,7 +1332,8 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
                 />
                 <button 
                   onClick={handleAddUrl}
-                  className="px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all"
+                  disabled={!canEditSettingsAdmin}
+                  className="px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
                 >
                   Add
                 </button>
@@ -885,12 +1355,14 @@ const CalendarSync = ({ showToast }: { showToast: (msg: string, type?: 'success'
                       <p className="text-[10px] text-luxury-dark/40 font-mono truncate max-w-[200px] md:max-w-md">{item.url}</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => handleRemoveUrl(index)}
-                    className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  {canEditSettingsAdmin && (
+                    <button 
+                      onClick={() => handleRemoveUrl(index)}
+                      className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
                 </div>
               ))}
               {urls.length === 0 && (
@@ -1179,21 +1651,32 @@ const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; show
   );
 };
 
-const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, counts }: any) => {
+const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, counts, userRole, userPermissions }: any) => {
   const tabs = [
     { id: 'settings', filter: 'general', label: 'General' },
     { id: 'chatbot_settings', filter: 'chatbot_settings', label: 'Chatbot AI', labelShort: 'AI Bot' },
-    { id: 'reviews', filter: 'reviews', label: 'Reviews', count: counts.reviews },
-    { id: 'gallery', filter: 'gallery', label: 'Gallery', count: counts.gallery },
-    { id: 'logs', filter: 'logs', label: 'Logs', count: counts.logs },
-    { id: 'sync', filter: 'sync', label: 'Calendar Sync', labelShort: 'iCal' },
+    { id: 'reviews', filter: 'reviews', label: 'Reviews', count: counts.reviews, permission: 'viewSettings' },
+    { id: 'gallery', filter: 'gallery', label: 'Gallery', count: counts.gallery, permission: 'viewSettings' },
+    { id: 'logs', filter: 'logs', label: 'Logs', count: counts.logs, permission: 'viewSettings' },
+    { id: 'sync', filter: 'sync', label: 'Calendar Sync', labelShort: 'iCal', permission: 'leadsSettings' },
     { id: 'notifications', filter: 'notifications', label: 'Notifications', count: counts.notifications },
-    { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool' }
+    // Only show User Management for Admins
+    ...(userRole === 'admin' ? [{ id: 'users', filter: 'users', label: 'User Management', labelShort: 'Users' }] : []),
+    { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool', permission: 'leadsSettings' }
   ];
+
+  const filteredTabs = tabs.filter(tab => {
+    if (userRole === 'admin') return true;
+    if (userRole === 'agent') {
+      if (!tab.permission) return true;
+      return userPermissions?.[tab.permission] === true;
+    }
+    return false;
+  });
 
   return (
     <div className="flex flex-wrap gap-2 mb-8 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
-      {tabs.map((tab) => (
+      {filteredTabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => {
@@ -1215,11 +1698,24 @@ const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, coun
   );
 };
 
-const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, userRole: string | null }) => {
+const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: { 
+  leads: any[], 
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, 
+  userRole: string | null,
+  userPermissions: any 
+}) => {
   const [filter, setFilter] = useState('new');
   const [selectedTag, setSelectedTag] = useState('');
   const [leadToDelete, setLeadToDelete] = useState<string | null>(null);
   const syncAttempted = useRef(false);
+  
+  // Permission helpers
+  const canDelete = userRole === 'admin' || (userRole === 'agent' && userPermissions?.deleteLeads);
+  const canExport = userRole === 'admin' || (userRole === 'agent' && userPermissions?.leadsSettings);
+  const canAdd = userRole === 'admin' || (userRole === 'agent' && userPermissions?.addLeads);
+  const canEdit = userRole === 'admin' || (userRole === 'agent' && userPermissions?.editLeads);
+  const canManageUsers = userRole === 'admin'; // Only full admins manage users
+  const canEditSettings = userRole === 'admin' || (userRole === 'agent' && userPermissions?.leadsSettings);
   
   // Google Sheets Sync State
   const [syncModalOpen, setSyncModalOpen] = useState(false);
@@ -2016,41 +2512,49 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
         )}
 
         <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-          <button
-            onClick={() => setManualModalOpen(true)}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-luxury-dark text-white rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-md whitespace-nowrap"
-          >
-            <Plus size={14} />
-            Add Lead
-          </button>
-          <button
-            onClick={handleExportLeads}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-luxury-dark/5 text-luxury-dark rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark/10 transition-colors whitespace-nowrap"
-          >
-            <Download size={14} />
-            Export
-          </button>
-          <button
-            onClick={() => setMetaModalOpen(true)}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#1877F2]/10 text-[#1877F2] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#1877F2]/20 transition-colors whitespace-nowrap"
-          >
-            <RefreshCw size={14} className={isMetaSyncing ? 'animate-spin' : ''} />
-            Meta
-          </button>
-          <button
-            onClick={() => setGmailModalOpen(true)}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#DB4437]/10 text-[#DB4437] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#DB4437]/20 transition-colors whitespace-nowrap"
-          >
-            <Mail size={14} />
-            Gmail
-          </button>
-          <button
-            onClick={() => setSyncModalOpen(true)}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F9D58]/10 text-[#0F9D58] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#0F9D58]/20 transition-colors whitespace-nowrap"
-          >
-            <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-            Sheets
-          </button>
+          {canExport && (
+            <button
+              onClick={handleExportLeads}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-luxury-dark/5 text-luxury-dark rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark/10 transition-colors whitespace-nowrap"
+            >
+              <Download size={14} />
+              Export
+            </button>
+          )}
+          {canAdd && (
+            <button
+              onClick={() => setManualModalOpen(true)}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-luxury-dark text-white rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-md whitespace-nowrap"
+            >
+              <Plus size={14} />
+              Add Lead
+            </button>
+          )}
+          {canEditSettings && (
+            <>
+              <button
+                onClick={() => setMetaModalOpen(true)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#1877F2]/10 text-[#1877F2] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#1877F2]/20 transition-colors whitespace-nowrap"
+              >
+                <RefreshCw size={14} className={isMetaSyncing ? 'animate-spin' : ''} />
+                Meta
+              </button>
+              <button
+                onClick={() => setGmailModalOpen(true)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#DB4437]/10 text-[#DB4437] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#DB4437]/20 transition-colors whitespace-nowrap"
+              >
+                <Mail size={14} />
+                Gmail
+              </button>
+              <button
+                onClick={() => setSyncModalOpen(true)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F9D58]/10 text-[#0F9D58] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#0F9D58]/20 transition-colors whitespace-nowrap"
+              >
+                <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                Sheets
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2135,7 +2639,10 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                         <select 
                           value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
                           onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
-                          className={`text-[10px] font-bold uppercase tracking-widest border rounded-xl px-3 py-2 appearance-none cursor-pointer outline-none transition-all ${
+                          disabled={!canEdit}
+                          className={`text-[10px] font-bold uppercase tracking-widest border rounded-xl px-3 py-2 appearance-none outline-none transition-all ${
+                            !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                          } ${
                             (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                             (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-100' :
                             'bg-[#FAFAFA] text-luxury-dark/40 border-luxury-dark/10 hover:border-luxury-gold'
@@ -2153,12 +2660,14 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider group/tag bg-luxury-dark/5 text-luxury-dark/60"
                             >
                               {tag}
-                              <button 
-                                onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
-                                className="hover:text-red-500 transition-colors"
-                              >
-                                <X size={8} />
-                              </button>
+                              {canEdit && (
+                                <button 
+                                  onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
+                                  className="hover:text-red-500 transition-colors"
+                                >
+                                  <X size={8} />
+                                </button>
+                              )}
                             </span>
                           ))}
                         </div>
@@ -2174,16 +2683,20 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                             (e.target as HTMLTextAreaElement).blur();
                           }
                         }}
-                        placeholder="Add remarks..."
+                        disabled={!canEdit}
+                        placeholder={canEdit ? "Add remarks..." : "No remarks"}
                         rows={2}
-                        className="text-xs border-none rounded-xl px-4 py-2 w-full min-w-[180px] focus:ring-1 focus:ring-luxury-gold outline-none transition-colors resize-none bg-[#FAFAFA] text-luxury-dark placeholder:text-luxury-dark/20"
+                        className={`text-xs border-none rounded-xl px-4 py-2 w-full min-w-[180px] outline-none transition-colors resize-none bg-[#FAFAFA] text-luxury-dark placeholder:text-luxury-dark/20 ${!canEdit ? 'opacity-70 cursor-not-allowed' : 'focus:ring-1 focus:ring-luxury-gold'}`}
                       />
                     </td>
                     <td className="px-6 py-5">
                       <select 
                         value={lead.status || 'new'} 
                         onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                        className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-4 py-2 appearance-none cursor-pointer outline-none transition-all ${
+                        disabled={!canEdit}
+                        className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-4 py-2 appearance-none outline-none transition-all ${
+                          !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                        } ${
                           lead.status === 'converted' ? 'bg-[#0F9D58]/10 text-[#0F9D58]' :
                           lead.status === 'contacted' ? 'bg-[#1877F2]/10 text-[#1877F2]' :
                           lead.status === 'lost' ? 'bg-red-50 text-red-600' :
@@ -2197,12 +2710,14 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                       </select>
                     </td>
                     <td className="px-6 py-5 text-right">
-                      <button 
-                        onClick={() => setLeadToDelete(lead.id)} 
-                        className="w-8 h-8 inline-flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {canDelete && (
+                        <button 
+                          onClick={() => setLeadToDelete(lead.id)} 
+                          className="w-8 h-8 inline-flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -2237,7 +2752,10 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                  <select 
                     value={lead.status || 'new'} 
                     onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                    className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-3 py-1.5 appearance-none cursor-pointer outline-none ${
+                    disabled={!canEdit}
+                    className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-3 py-1.5 appearance-none outline-none ${
+                        !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                    } ${
                       lead.status === 'converted' ? 'bg-[#0F9D58]/10 text-[#0F9D58]' :
                       lead.status === 'contacted' ? 'bg-[#1877F2]/10 text-[#1877F2]' :
                       lead.status === 'lost' ? 'bg-red-50 text-red-600' :
@@ -2265,8 +2783,8 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                   )}
                   {lead.email && (
                     <div 
-                      onClick={() => openReplyModal('email', lead.email, lead.name, lead.id)}
-                      className={`flex items-center gap-3 text-sm cursor-pointer ${lead.emailSent ? 'text-red-600' : 'text-luxury-dark/80'}`}
+                      onClick={() => canEdit && openReplyModal('email', lead.email, lead.name, lead.id)}
+                      className={`flex items-center gap-3 text-sm ${canEdit ? 'cursor-pointer' : 'cursor-default opacity-70'} ${lead.emailSent ? 'text-red-600' : 'text-luxury-dark/80'}`}
                     >
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${lead.emailSent ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
                         <Mail size={14} />
@@ -2276,8 +2794,8 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                   )}
                   {(lead.phone || lead.mobile) && (
                     <div 
-                      onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name, lead.id)}
-                      className={`flex items-center gap-3 text-sm cursor-pointer ${lead.whatsappSent ? 'text-red-600' : 'text-luxury-dark/80'}`}
+                      onClick={() => canEdit && openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name, lead.id)}
+                      className={`flex items-center gap-3 text-sm ${canEdit ? 'cursor-pointer' : 'cursor-default opacity-70'} ${lead.whatsappSent ? 'text-red-600' : 'text-luxury-dark/80'}`}
                     >
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${lead.whatsappSent ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
                         <Phone size={14} />
@@ -2296,7 +2814,10 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                     <select 
                        value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
                        onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
-                       className={`w-full text-[10px] font-bold uppercase tracking-widest border rounded-2xl px-4 py-3 appearance-none cursor-pointer outline-none transition-all ${
+                       disabled={!canEdit}
+                       className={`w-full text-[10px] font-bold uppercase tracking-widest border rounded-2xl px-4 py-3 appearance-none outline-none transition-all ${
+                         !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                       } ${
                          (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
                          (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-200' :
                          'bg-[#FAFAFA] text-luxury-dark/40 border-luxury-dark/10'
@@ -2314,30 +2835,34 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                            className="px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5 bg-luxury-dark/5 text-luxury-dark/60"
                          >
                            {tag}
-                           <button 
-                             onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
-                             className="hover:text-red-500 transition-colors"
-                           >
-                             <X size={10} />
-                           </button>
+                           {canEdit && (
+                             <button 
+                               onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
+                               className="hover:text-red-500 transition-colors"
+                             >
+                               <X size={10} />
+                             </button>
+                           )}
                          </span>
                        ))}
                     </div>
 
-                    <div className="relative">
-                      <input 
-                        type="text"
-                        placeholder="Add custom tag + Enter"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddCustomTag(lead.id, (e.target as HTMLInputElement).value, lead.tags || []);
-                            (e.target as HTMLInputElement).value = '';
-                          }
-                        }}
-                        className="w-full text-[10px] rounded-xl px-4 py-3 outline-none focus:ring-1 focus:ring-luxury-gold transition-all bg-luxury-dark/5 text-luxury-dark"
-                      />
-                    </div>
+                    {canEdit && (
+                      <div className="relative">
+                        <input 
+                          type="text"
+                          placeholder="Add custom tag + Enter"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddCustomTag(lead.id, (e.target as HTMLInputElement).value, lead.tags || []);
+                              (e.target as HTMLInputElement).value = '';
+                            }
+                          }}
+                          className="w-full text-[10px] rounded-xl px-4 py-3 outline-none focus:ring-1 focus:ring-luxury-gold transition-all bg-luxury-dark/5 text-luxury-dark"
+                        />
+                      </div>
+                    )}
                  </div>
                </div>
 
@@ -2346,19 +2871,22 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
                 <textarea 
                    defaultValue={lead.remarks || ''}
                    onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
-                   placeholder="Notes..."
+                   disabled={!canEdit}
+                   placeholder={canEdit ? "Notes..." : "No remarks"}
                    rows={2}
-                   className="text-xs border-none rounded-xl px-4 py-3 w-full focus:ring-1 focus:ring-luxury-gold outline-none transition-colors resize-none bg-[#FAFAFA] text-luxury-dark"
+                   className={`text-xs border-none rounded-xl px-4 py-3 w-full outline-none transition-colors resize-none bg-[#FAFAFA] text-luxury-dark ${!canEdit ? 'opacity-70 cursor-not-allowed' : 'focus:ring-1 focus:ring-luxury-gold'}`}
                  />
                </div>
 
                <div className={`pt-4 border-t text-right ${isSent ? 'border-red-100' : 'border-luxury-dark/5'}`}>
-                  <button 
-                    onClick={() => setLeadToDelete(lead.id)} 
-                    className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-xl transition-all"
-                  >
-                    Delete Lead
-                  </button>
+                  {canDelete && (
+                    <button 
+                      onClick={() => setLeadToDelete(lead.id)} 
+                      className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-xl transition-all"
+                    >
+                      Delete Lead
+                    </button>
+                  )}
                </div>
             </div>
           );
@@ -2905,12 +3433,13 @@ const LeadDashboard = ({ leads, showToast, userRole }: { leads: any[], showToast
   );
 };
 
-const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], onAssignExpense, showToast }: { 
+const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], onAssignExpense, showToast, userRole }: { 
   bookings: any[], 
   expenseCategories: any[], 
   globalExpenses?: any[],
   onAssignExpense: (b: any) => void,
-  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
+  userRole?: string | null
 }) => {
   const [newCategory, setNewCategory] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -3371,67 +3900,69 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
         </div>
       </div>
 
-      {/* Category Management Section */}
-      <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
-        <h3 className="text-xl font-serif font-bold text-luxury-dark mb-8">Expense Categories</h3>
-        <div className="flex flex-col sm:flex-row gap-3 mb-8">
-          <input 
-            type="text" 
-            placeholder="New category name..."
-            value={newCategory}
-            onChange={(e) => setNewCategory(e.target.value)}
-            className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm font-bold focus:outline-none focus:border-luxury-gold transition-colors"
-          />
-          <div className="flex gap-2">
-            <button 
-              onClick={handleAddCategory}
-              disabled={isAddingCategory || !newCategory.trim()}
-              className="flex-1 sm:flex-none px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
-            >
-              {isAddingCategory ? 'Saving...' : editingCategory ? 'Update' : 'Add Category'}
-            </button>
-            {editingCategory && (
-              <button 
-                onClick={() => { setEditingCategory(null); setNewCategory(''); }}
-                className="px-6 py-3 bg-luxury-dark/5 text-luxury-dark/40 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-luxury-dark/10 transition-all"
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          {expenseCategories.map(cat => (
-            <div key={cat.id} className="flex items-center gap-3 px-4 py-2 bg-luxury-dark/5 rounded-xl group">
-              <span className="text-xs font-bold text-luxury-dark">{cat.name}</span>
-              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      {userRole === 'admin' && (
+        <>
+          {/* Category Management Section */}
+          <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
+            <h3 className="text-xl font-serif font-bold text-luxury-dark mb-8">Expense Categories</h3>
+            <div className="flex flex-col sm:flex-row gap-3 mb-8">
+              <input 
+                type="text" 
+                placeholder="New category name..."
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm font-bold focus:outline-none focus:border-luxury-gold transition-colors"
+              />
+              <div className="flex gap-2">
                 <button 
-                  onClick={() => handleEditCategory(cat)}
-                  className="text-luxury-gold hover:text-luxury-dark"
+                  onClick={handleAddCategory}
+                  disabled={isAddingCategory || !newCategory.trim()}
+                  className="flex-1 sm:flex-none px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
                 >
-                  <Edit3 size={14} />
+                  {isAddingCategory ? 'Saving...' : editingCategory ? 'Update' : 'Add Category'}
                 </button>
-                <button 
-                  onClick={() => handleDeleteCategory(cat.id)}
-                  className="text-red-400 hover:text-red-600"
-                >
-                  <X size={14} />
-                </button>
+                {editingCategory && (
+                  <button 
+                    onClick={() => { setEditingCategory(null); setNewCategory(''); }}
+                    className="px-6 py-3 bg-luxury-dark/5 text-luxury-dark/40 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-luxury-dark/10 transition-all"
+                  >
+                    Cancel
+                  </button>
+                )}
               </div>
             </div>
-          ))}
-          {expenseCategories.length === 0 && (
-            <p className="text-xs text-luxury-dark/30 italic">No custom categories added yet.</p>
-          )}
-        </div>
-      </div>
+            <div className="flex flex-wrap gap-3">
+              {expenseCategories.map(cat => (
+                <div key={cat.id} className="flex items-center gap-3 px-4 py-2 bg-luxury-dark/5 rounded-xl group">
+                  <span className="text-xs font-bold text-luxury-dark">{cat.name}</span>
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={() => handleEditCategory(cat)}
+                      className="text-luxury-gold hover:text-luxury-dark"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteCategory(cat.id)}
+                      className="text-red-400 hover:text-red-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {expenseCategories.length === 0 && (
+                <p className="text-xs text-luxury-dark/30 italic">No custom categories added yet.</p>
+              )}
+            </div>
+          </div>
 
-      {/* Global Expenses Section */}
-      <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h3 className="text-xl font-serif font-bold text-luxury-dark">Global Property Expenses</h3>
-            <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest mt-1">Marketing, Maintenance, Salaries</p>
+          {/* Global Expenses Section */}
+          <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
+            <div className="flex justify-between items-center mb-8">
+              <div>
+                <h3 className="text-xl font-serif font-bold text-luxury-dark">Global Property Expenses</h3>
+                <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest mt-1">Marketing, Maintenance, Salaries</p>
           </div>
           <button 
             onClick={() => setIsAddingGlobalExpense(!isAddingGlobalExpense)}
@@ -3543,6 +4074,8 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
           </table>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };
@@ -3686,9 +4219,10 @@ const AssignExpenseModal = ({ booking, expenseCategories, onClose, showToast }: 
   );
 };
 
-const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, onLogout, galleryImages, heroSettings, replyTemplates, onClearCache }: { 
+const MyBookings = ({ user, userRole, userPermissions, onClose, onLogin, allBookings, showToast, onLogout, galleryImages, heroSettings, replyTemplates, onClearCache }: { 
   user: FirebaseUser; 
   userRole: string | null; 
+  userPermissions: any;
   onClose: () => void; 
   onLogin: () => void; 
   allBookings: any[]; 
@@ -3704,9 +4238,9 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings'>(userRole === 'admin' ? 'bookings' : 'all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
-  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'notifications' | 'migration' | 'chatbot_settings'>('general');
+  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'notifications' | 'migration' | 'chatbot_settings' | 'users'>('general');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -3724,6 +4258,7 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [assigningExpenseBooking, setAssigningExpenseBooking] = useState<any | null>(null);
   const [blogs, setBlogs] = useState<any[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
+  const [appUsers, setAppUsers] = useState<any[]>([]);
 
   // Gallery Management State
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
@@ -3737,6 +4272,9 @@ const MyBookings = ({ user, userRole, onClose, onLogin, allBookings, showToast, 
   const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number } | null>(null);
   const [editingGalleryImage, setEditingGalleryImage] = useState<any | null>(null);
   const [seedProgress, setSeedProgress] = useState<{ current: number; total: number } | null>(null);
+  const canAddSettingsAdmin = userRole === 'admin' || (userRole === 'agent' && userPermissions?.addSettings);
+  const canEditSettingsAdmin = userRole === 'admin' || (userRole === 'agent' && userPermissions?.editSettings);
+  const canDeleteSettingsAdmin = userRole === 'admin' || (userRole === 'agent' && userPermissions?.deleteSettings);
 
   const galleryCategories = ['Villa', 'Pool', 'Interiors', 'Dining', 'Activities', 'Amenities'];
 
@@ -4395,19 +4933,30 @@ RULES FOR RESPONDING:
   const [hasSetDefaultFilter, setHasSetDefaultFilter] = useState(false);
 
   useEffect(() => {
-    if (userRole && !hasSetDefaultFilter) {
-      setActiveFilter(userRole === 'admin' ? 'bookings' : 'all');
+    if (userRole && userPermissions && !hasSetDefaultFilter) {
+      if (userRole === 'admin') {
+         setActiveFilter('bookings');
+      } else if (userRole === 'agent') {
+         if (userPermissions?.viewBookings) setActiveFilter('bookings');
+         else if (userPermissions?.viewLeads) setActiveFilter('leads');
+         else if (userPermissions?.viewFinance) setActiveFilter('finance');
+         else if (userPermissions?.viewBlogs) setActiveFilter('blogs');
+         else if (userPermissions?.viewSettings) setActiveFilter('settings');
+         else setActiveFilter('all');
+      } else {
+         setActiveFilter('all');
+      }
       setHasSetDefaultFilter(true);
     }
-  }, [userRole, hasSetDefaultFilter]);
+  }, [userRole, userPermissions, hasSetDefaultFilter]);
 
   const handleChangePassword = async () => {
     setIsUpdateModalOpen(true);
   };
 
   useEffect(() => {
-    if (userRole === 'admin') {
-      const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'));
+    if (!user || (userRole !== 'admin' && userRole !== 'agent')) return;
+    const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => {
@@ -4415,25 +4964,26 @@ RULES FOR RESPONDING:
         // We don't throw here to avoid crashing the whole admin panel if notifications fail
       });
       return () => unsubscribe();
-    }
   }, [userRole]);
 
   useEffect(() => {
-    if (userRole === 'admin' && activeFilter === 'reviews') {
+    if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
+    
+    if (activeFilter === 'reviews' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewSettings))) {
       const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setReviews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'reviews'));
       return () => unsubscribe();
     }
-    if (userRole === 'admin' && activeFilter === 'logs') {
+    if (activeFilter === 'logs' && (userRole === 'admin' || userRole === 'agent')) {
       const q = query(collection(db, 'logs'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setAdminLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'logs'));
       return () => unsubscribe();
     }
-    if (userRole === 'admin' && activeFilter === 'finance') {
+    if (activeFilter === 'finance' && (userRole === 'admin' || userRole === 'agent')) {
       const qCat = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
       const unCat = onSnapshot(qCat, (snapshot) => {
         setExpenseCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -4445,14 +4995,22 @@ RULES FOR RESPONDING:
       }, (error) => handleFirestoreError(error, OperationType.GET, 'global_expenses'));
       return () => { unCat(); unExp(); };
     }
-    if (userRole === 'admin' && activeFilter === 'leads') {
+    if (activeFilter === 'leads' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewLeads))) {
       const q = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setLeads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'leads'));
       return () => unsubscribe();
     }
-  }, [userRole, activeFilter]);
+    if (activeFilter === 'users' && (userRole === 'admin' || userRole === 'agent')) {
+      if (!user) return;
+      const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setAppUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
+      return () => unsubscribe();
+    }
+  }, [userRole, activeFilter, user?.uid]);
 
   const filteredReviews = useMemo(() => {
     if (reviewFilter === 'all') return reviews;
@@ -4481,7 +5039,8 @@ RULES FOR RESPONDING:
       "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg"
     ].includes(img.src)).length,
     logs: adminLogs.length,
-    notifications: notifications.length
+    notifications: notifications.length,
+    isAdmin: userRole === 'admin'
   };
 
   const handleReviewStatus = async (reviewId: string, status: 'approved' | 'rejected' | 'pending') => {
@@ -4502,14 +5061,97 @@ RULES FOR RESPONDING:
     }
   };
 
+  const handleUpdateUser = async (userId: string, data: { displayName?: string, email?: string }) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        ...data,
+        updatedAt: serverTimestamp()
+      });
+      showToast('User profile updated', 'success');
+      await logAdminAction('update_user_profile', userId, `Updated: ${Object.keys(data).join(', ')}`);
+    } catch (error) {
+      console.error('Error updating user:', error);
+      showToast('Failed to update user profile', 'error');
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      await deleteDoc(doc(db, 'users', userId));
+      showToast('User deleted from system', 'success');
+      await logAdminAction('delete_user', userId, 'User accounts/permissions removed');
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      showToast('Failed to delete user', 'error');
+    }
+  };
+
+  const handleUpdateUserRole = async (userId: string, role: string) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        role,
+        updatedAt: serverTimestamp()
+      });
+      showToast(`User role updated to ${role}`, 'success');
+      await logAdminAction('update_user_role', userId, `Role changed to ${role}`);
+    } catch (error) {
+      console.error('Error updating user role:', error);
+      showToast('Failed to update user role', 'error');
+    }
+  };
+
+  const handleUpdateUserPermissions = async (userId: string, permissions: any) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        permissions,
+        updatedAt: serverTimestamp()
+      });
+      showToast('User permissions updated', 'success');
+      await logAdminAction('update_user_permissions', userId, 'Permissions updated');
+    } catch (error) {
+      console.error('Error updating user permissions:', error);
+      showToast('Failed to update user permissions', 'error');
+    }
+  };
+
+  const handleAddFieldAgent = async (email: string, name: string) => {
+    try {
+      const existingUser = appUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+      if (existingUser) {
+        throw new Error('User already exists in system.');
+      }
+      
+      await addDoc(collection(db, 'users'), {
+        email: email.toLowerCase(),
+        displayName: name,
+        role: 'agent',
+        permissions: {
+          viewLeads: true,
+          manageBookings: true,
+          deleteLead: false,
+          exportData: false,
+          editSettings: false
+        },
+        createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
+      });
+      showToast(`Agent ${name} authorized. Role will be assigned when they log in.`, 'success');
+      await logAdminAction('authorize_agent', email, `Pre-authorized agent by email: ${name}`);
+    } catch (error) {
+      console.error('Error adding user:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to add agent', 'error');
+      throw error;
+    }
+  };
+
   useEffect(() => {
+    if (!user || userRole === null) return;
     let unsubscribe: () => void = () => {};
     
     try {
       let unsubscribeUid: () => void = () => {};
       let unsubscribeEmail: () => void = () => {};
 
-      if (userRole === 'admin') {
+      if (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewBookings)) {
         const q = query(collection(db, 'bookings'));
         unsubscribe = onSnapshot(q, (snapshot) => {
           const bookingsData = snapshot.docs.map(doc => ({
@@ -4581,7 +5223,10 @@ RULES FOR RESPONDING:
           uidBookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           combineAndSetBookings();
         }, (error) => {
-          console.error("Error fetching UID bookings:", error);
+          // Only log if they are strictly a client, as admins/agents use the unfiltered query above
+          if (userRole === 'client') {
+            console.error("Error fetching UID bookings:", error);
+          }
         });
 
         if (user.email) {
@@ -4590,7 +5235,10 @@ RULES FOR RESPONDING:
             emailBookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             combineAndSetBookings();
           }, (error) => {
-            console.error("Error fetching Email bookings:", error);
+            // Only log if they are strictly a client, as admins/agents use the unfiltered query above
+            if (userRole === 'client') {
+              console.error("Error fetching Email bookings:", error);
+            }
           });
         }
         
@@ -4605,17 +5253,18 @@ RULES FOR RESPONDING:
     }
 
     return () => unsubscribe();
-  }, [user.uid, user.email, userRole]);
+  }, [user?.uid, user?.email, userRole]);
 
   useEffect(() => {
-    if (userRole === 'admin') {
+    if (!userRole) return;
+    if (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewBlogs)) {
       const q = query(collection(db, 'blogs'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setBlogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'blogs'));
       return () => unsubscribe();
     }
-  }, [userRole]);
+  }, [userRole, userPermissions]);
 
   const filteredBookings = useMemo(() => {
     const today = new Date();
@@ -4857,7 +5506,7 @@ RULES FOR RESPONDING:
               <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
               Back to Bookings
             </button>
-            <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{userRole === 'admin' ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
+            <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{(userRole === 'admin' || userRole === 'agent') ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
               <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} />
             </div>
@@ -4878,19 +5527,21 @@ RULES FOR RESPONDING:
                 <div className="space-y-6 flex-1 w-full">
                   <div className="space-y-2">
                     <h1 className="text-4xl sm:text-5xl md:text-7xl font-serif font-bold text-luxury-dark leading-tight">
-                      {userRole === 'admin' ? 'All Bookings' : 'My Bookings'}
+                      {userRole === 'admin' ? 'Admin Dashboard' : userRole === 'agent' ? 'Agent Dashboard' : 'My Bookings'}
                     </h1>
                     <p className="text-luxury-dark/40 text-base sm:text-lg font-medium">
-                      Manage all luxury stays and celebration details
+                      {(userRole === 'admin' || userRole === 'agent') ? 'Oversee all property operations, bookings and guest inquiries' : 'Manage all luxury stays and celebration details'}
                     </p>
                   </div>
-                  <button 
-                    onClick={() => setIsAdminCreating(true)}
-                    className="px-8 py-4 bg-[#141414] text-white rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 shadow-xl shadow-black/10 shrink-0 w-full sm:w-auto"
-                  >
-                    <Calendar size={16} />
-                    CREATE BOOKING
-                  </button>
+                {(userRole === 'admin' || userRole === 'client' || (userRole === 'agent' && userPermissions?.addBookings)) && (
+                <button
+                  onClick={() => setIsAdminCreating(true)}
+                  className="px-8 py-4 bg-[#141414] text-white rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 shadow-xl shadow-black/10 shrink-0 w-full sm:w-auto"
+                >
+                  <Calendar size={16} />
+                  {(userRole === 'admin' || userRole === 'agent') ? 'CREATE BOOKING' : 'BOOK NOW'}
+                </button>
+                )}
                 </div>
 
                 {/* Right Side: Compact User Profile Card */}
@@ -4906,7 +5557,7 @@ RULES FOR RESPONDING:
                       <h3 className="text-lg sm:text-xl font-bold text-luxury-dark truncate">
                         {user.displayName || 'Guest'}
                       </h3>
-                      {userRole === 'admin' && (
+                      {(userRole === 'admin' || userRole === 'agent') && (
                         <button 
                           onClick={subscribeToPushNotifications}
                           disabled={isSubscribingPush || !isPushSupported}
@@ -4950,15 +5601,22 @@ RULES FOR RESPONDING:
                 </div>
               </div>
             </div>
-             {userRole === 'admin' && (
-          <div className="flex flex-wrap gap-2 mb-8 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
-             {[
-               { id: 'bookings', label: 'Bookings', icon: Calendar, colorClass: 'bg-blue-600 shadow-blue-500/20', hoverIconClass: 'text-blue-500 group-hover:text-blue-600' },
-               { id: 'leads', label: 'Leads', icon: Users, colorClass: 'bg-purple-600 shadow-purple-500/20', hoverIconClass: 'text-purple-500 group-hover:text-purple-600' },
-               { id: 'finance', label: 'Finance', icon: PieChart, colorClass: 'bg-emerald-600 shadow-emerald-500/20', hoverIconClass: 'text-emerald-500 group-hover:text-emerald-600' },
-               { id: 'blogs', label: 'Blogs', icon: BookOpen, colorClass: 'bg-rose-500 shadow-rose-500/20', hoverIconClass: 'text-rose-500 group-hover:text-rose-600' },
-               { id: 'settings', label: 'Settings', icon: Settings, colorClass: 'bg-[#C8A45D] shadow-[#C8A45D]/20', hoverIconClass: 'text-[#C8A45D] group-hover:text-luxury-gold' }
-             ].map((tab) => {
+            {(userRole === 'admin' || userRole === 'agent') && (
+              <div className="flex flex-wrap gap-2 mb-8 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
+                {[
+                  { id: 'bookings', label: 'Bookings', icon: Calendar, colorClass: 'bg-blue-600 shadow-blue-500/20', hoverIconClass: 'text-blue-500 group-hover:text-blue-600', permission: 'viewBookings' },
+                  { id: 'leads', label: 'Leads', icon: Users, colorClass: 'bg-purple-600 shadow-purple-500/20', hoverIconClass: 'text-purple-500 group-hover:text-purple-600', permission: 'viewLeads' },
+                  { id: 'finance', label: 'Finance', icon: BarChart3, colorClass: 'bg-emerald-600 shadow-emerald-500/20', hoverIconClass: 'text-emerald-500 group-hover:text-emerald-600', permission: 'viewFinance' },
+                  { id: 'blogs', label: 'Blogs', icon: BookOpen, colorClass: 'bg-rose-500 shadow-rose-500/20', hoverIconClass: 'text-rose-500 group-hover:text-rose-600', permission: 'viewBlogs' },
+                  { id: 'settings', label: 'Settings', icon: Settings, colorClass: 'bg-[#C8A45D] shadow-[#C8A45D]/20', hoverIconClass: 'text-[#C8A45D] group-hover:text-luxury-gold', permission: 'viewSettings' }
+                ].filter(tab => {
+                  if (userRole === 'admin') return true;
+                  if (userRole === 'agent') {
+                    if (!tab.permission) return true;
+                    return userPermissions?.[tab.permission] === true;
+                  }
+                  return false;
+                }).map((tab) => {
                const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'notifications', 'migration'].includes(activeFilter);
                const isActive = tab.id === 'settings' ? isSettingsTab : activeFilter === tab.id;
                
@@ -5015,26 +5673,28 @@ RULES FOR RESPONDING:
               Retry Now
             </button>
           </div>
-        ) : activeFilter === 'reviews' && userRole === 'admin' ? (
+        ) : (activeFilter === 'reviews' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <h3 className="text-xl font-serif font-bold text-luxury-dark">Guest Reviews</h3>
                 <p className="text-sm text-luxury-dark/60">Manage and approve guest testimonials</p>
               </div>
-              <button
-                onClick={() => syncGoogleReviews(false)}
-                disabled={syncingReviews}
-                className="flex items-center gap-2 px-4 py-2 bg-luxury-gold text-luxury-dark rounded-xl font-bold hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg"
-              >
-                {syncingReviews ? (
-                  <RefreshCw size={18} className="animate-spin" />
-                ) : (
-                  <Share2 size={18} />
-                )}
-                {syncingReviews ? 'Syncing...' : 'Sync Google Reviews'}
-              </button>
+              {(userRole === 'admin' || userPermissions?.editSettings) && (
+                <button
+                  onClick={() => syncGoogleReviews(false)}
+                  disabled={syncingReviews}
+                  className="flex items-center gap-2 px-4 py-2 bg-luxury-gold text-luxury-dark rounded-xl font-bold hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg"
+                >
+                  {syncingReviews ? (
+                    <RefreshCw size={18} className="animate-spin" />
+                  ) : (
+                    <Share2 size={18} />
+                  )}
+                  {syncingReviews ? 'Syncing...' : 'Sync Google Reviews'}
+                </button>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-2 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
@@ -5128,19 +5788,33 @@ RULES FOR RESPONDING:
             )}
           </div>
         </div>
-        ) : activeFilter === 'leads' && userRole === 'admin' ? (
-          <LeadDashboard leads={leads} showToast={showToast} userRole={userRole} />
-        ) : activeFilter === 'finance' && userRole === 'admin' ? (
+        ) : (activeFilter === 'leads' && (userRole === 'admin' || userRole === 'agent')) ? (
+          <LeadDashboard leads={leads} showToast={showToast} userRole={userRole} userPermissions={userPermissions} />
+        ) : (activeFilter === 'users' && (userRole === 'admin' || userRole === 'agent')) ? (
+          <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            <UserManagement 
+              users={appUsers} 
+              onUpdateRole={handleUpdateUserRole} 
+              onUpdatePermissions={handleUpdateUserPermissions}
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
+              onAddUser={handleAddFieldAgent}
+              showToast={showToast}
+            />
+          </div>
+        ) : (activeFilter === 'finance' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewFinance))) ? (
           <FinanceDashboard 
             bookings={bookings} 
             expenseCategories={expenseCategories}
             globalExpenses={globalExpenses}
             onAssignExpense={setAssigningExpenseBooking}
             showToast={showToast}
+            userRole={userRole}
           />
-        ) : activeFilter === 'logs' && userRole === 'admin' ? (
+        ) : (activeFilter === 'logs' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -5191,9 +5865,9 @@ RULES FOR RESPONDING:
             </div>
           </div>
         </div>
-        ) : activeFilter === 'notifications' && userRole === 'admin' ? (
+        ) : (activeFilter === 'notifications' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
               <div className="flex p-1 bg-luxury-dark/5 rounded-2xl w-full md:w-auto">
@@ -5282,9 +5956,9 @@ RULES FOR RESPONDING:
             )}
           </div>
         </div>
-        ) : activeFilter === 'gallery' && userRole === 'admin' ? (
+        ) : (activeFilter === 'gallery' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <h3 className="text-xl font-serif font-bold text-luxury-dark mb-6">Add New Image to Gallery</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -5350,36 +6024,44 @@ RULES FOR RESPONDING:
                   )}
                 </div>
               </div>
-              <button 
-                onClick={handleAddGalleryImage}
-                disabled={isAddingImage}
-                className="mt-6 px-8 py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
-              >
-                {isAddingImage ? 'Adding...' : 'Add to Gallery'}
-              </button>
-              
-              <button 
-                onClick={handleFetchCloudinaryImages}
-                disabled={isFetchingCloudinary}
-                className="mt-6 ml-4 px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
-              >
-                {isFetchingCloudinary ? 'Fetching...' : 'Fetch from Cloudinary'}
-              </button>
+              {canAddSettingsAdmin && (
+                <>
+                  <button 
+                    onClick={handleAddGalleryImage}
+                    disabled={isAddingImage}
+                    className="mt-6 px-8 py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
+                  >
+                    {isAddingImage ? 'Adding...' : 'Add to Gallery'}
+                  </button>
+                  
+                  <button 
+                    onClick={handleFetchCloudinaryImages}
+                    disabled={isFetchingCloudinary}
+                    className="mt-6 ml-4 px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
+                  >
+                    {isFetchingCloudinary ? 'Fetching...' : 'Fetch from Cloudinary'}
+                  </button>
+                </>
+              )}
 
-              <button 
-                onClick={handleRemoveDuplicates}
-                className="mt-6 ml-4 px-8 py-3 bg-red-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-700 transition-all"
-              >
-                Remove Duplicates
-              </button>
+              {canDeleteSettingsAdmin && (
+                <button 
+                  onClick={handleRemoveDuplicates}
+                  className="mt-6 ml-4 px-8 py-3 bg-red-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-700 transition-all"
+                >
+                  Remove Duplicates
+                </button>
+              )}
 
-              <button 
-                onClick={handleAutoAnalyzeGallery}
-                disabled={isAnalyzingGallery}
-                className="mt-6 ml-4 px-8 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50"
-              >
-                {isAnalyzingGallery ? 'Analyzing...' : 'Auto-Analyze All Images'}
-              </button>
+              {canEditSettingsAdmin && (
+                <button 
+                  onClick={handleAutoAnalyzeGallery}
+                  disabled={isAnalyzingGallery}
+                  className="mt-6 ml-4 px-8 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50"
+                >
+                  {isAnalyzingGallery ? 'Analyzing...' : 'Auto-Analyze All Images'}
+                </button>
+              )}
               
               <div className="mt-8 flex flex-wrap gap-4 items-center justify-between border-t border-luxury-dark/5 pt-8">
                 <div className="flex gap-6">
@@ -5439,13 +6121,15 @@ RULES FOR RESPONDING:
 
                   {galleryImages.length < 17 && (
                   <div className="flex flex-col gap-4">
-                    <button 
-                      onClick={handleSeedGallery}
-                      disabled={isAddingImage}
-                      className="px-8 py-3 bg-luxury-gold/10 text-luxury-gold rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 w-fit"
-                    >
-                      {isAddingImage ? 'Importing...' : 'Import Missing Default Images'}
-                    </button>
+                    {canAddSettingsAdmin && (
+                      <button 
+                        onClick={handleSeedGallery}
+                        disabled={isAddingImage}
+                        className="px-8 py-3 bg-luxury-gold/10 text-luxury-gold rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 w-fit"
+                      >
+                        {isAddingImage ? 'Importing...' : 'Import Missing Default Images'}
+                      </button>
+                    )}
                     
                     {seedProgress && (
                       <div className="w-full max-w-md space-y-2">
@@ -5513,18 +6197,22 @@ RULES FOR RESPONDING:
                         <p className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold mb-1">{img.category}</p>
                         <p className="text-sm font-bold text-luxury-dark truncate">{img.title}</p>
                         <div className="mt-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={() => setEditingGalleryImage(img)}
-                            className="flex-1 py-2 bg-luxury-dark/5 text-luxury-dark text-[10px] font-bold rounded-lg hover:bg-luxury-dark hover:text-white transition-all"
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteGalleryImage(img)}
-                            className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {canEditSettingsAdmin && (
+                            <button 
+                              onClick={() => setEditingGalleryImage(img)}
+                              className="flex-1 py-2 bg-luxury-dark/5 text-luxury-dark text-[10px] font-bold rounded-lg hover:bg-luxury-dark hover:text-white transition-all"
+                            >
+                              Edit
+                            </button>
+                          )}
+                          {canDeleteSettingsAdmin && (
+                            <button 
+                              onClick={() => handleDeleteGalleryImage(img)}
+                              className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       </>
                     )}
@@ -5538,22 +6226,24 @@ RULES FOR RESPONDING:
               )}
             </div>
           </div>
-        ) : activeFilter === 'settings' && userRole === 'admin' ? (
+        ) : (activeFilter === 'settings' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="max-w-4xl mx-auto space-y-12">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-serif font-bold text-luxury-dark">Hero Section Settings</h3>
-                <button 
-                  onClick={handleSaveHeroSettings}
-                  disabled={isSavingHero}
-                  className="px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20"
-                >
-                  {isSavingHero ? 'Saving...' : 'Save Settings'}
-                </button>
+                {canEditSettingsAdmin && (
+                  <button 
+                    onClick={handleSaveHeroSettings}
+                    disabled={isSavingHero}
+                    className="px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20"
+                  >
+                    {isSavingHero ? 'Saving...' : 'Save Settings'}
+                  </button>
+                )}
               </div>
 
-              <div className="space-y-6">
+              <div className="space-y-6 opacity-100">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Hero Background Image URL</label>
@@ -5561,7 +6251,8 @@ RULES FOR RESPONDING:
                       type="text" 
                       value={editingHero?.backgroundImage || ''}
                       onChange={(e) => setEditingHero({...editingHero, backgroundImage: e.target.value})}
-                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      disabled={!canEditSettingsAdmin}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div className="space-y-2">
@@ -5570,7 +6261,8 @@ RULES FOR RESPONDING:
                       type="text" 
                       value={editingHero?.subtitle || ''}
                       onChange={(e) => setEditingHero({...editingHero, subtitle: e.target.value})}
-                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      disabled={!canEditSettingsAdmin}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -5581,7 +6273,8 @@ RULES FOR RESPONDING:
                     type="text" 
                     value={editingHero?.title || ''}
                     onChange={(e) => setEditingHero({...editingHero, title: e.target.value})}
-                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                    disabled={!canEditSettingsAdmin}
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                   />
                 </div>
 
@@ -5591,7 +6284,8 @@ RULES FOR RESPONDING:
                     type="text" 
                     value={editingHero?.highlight || ''}
                     onChange={(e) => setEditingHero({...editingHero, highlight: e.target.value})}
-                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                    disabled={!canEditSettingsAdmin}
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                   />
                 </div>
 
@@ -5600,8 +6294,9 @@ RULES FOR RESPONDING:
                   <textarea 
                     value={editingHero?.description || ''}
                     onChange={(e) => setEditingHero({...editingHero, description: e.target.value})}
+                    disabled={!canEditSettingsAdmin}
                     rows={4}
-                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none"
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none disabled:opacity-70 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -5610,13 +6305,15 @@ RULES FOR RESPONDING:
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-serif font-bold text-luxury-dark">Quick Reply Templates</h3>
-                <button 
-                  onClick={handleSaveReplyTemplates}
-                  disabled={isSavingReplyTemplates}
-                  className="px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20"
-                >
-                  {isSavingReplyTemplates ? 'Saving...' : 'Save Templates'}
-                </button>
+                {canEditSettingsAdmin && (
+                  <button 
+                    onClick={handleSaveReplyTemplates}
+                    disabled={isSavingReplyTemplates}
+                    className="px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20"
+                  >
+                    {isSavingReplyTemplates ? 'Saving...' : 'Save Templates'}
+                  </button>
+                )}
               </div>
 
               <div className="space-y-6">
@@ -5628,8 +6325,9 @@ RULES FOR RESPONDING:
                   <textarea 
                     value={editingReplyTemplates?.email || ''}
                     onChange={(e) => setEditingReplyTemplates({...editingReplyTemplates, email: e.target.value})}
+                    disabled={!canEditSettingsAdmin}
                     rows={6}
-                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none"
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none disabled:opacity-70 disabled:cursor-not-allowed"
                   />
                 </div>
 
@@ -5641,8 +6339,9 @@ RULES FOR RESPONDING:
                   <textarea 
                     value={editingReplyTemplates?.whatsapp || ''}
                     onChange={(e) => setEditingReplyTemplates({...editingReplyTemplates, whatsapp: e.target.value})}
+                    disabled={!canEditSettingsAdmin}
                     rows={4}
-                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none"
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none disabled:opacity-70 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -5661,24 +6360,24 @@ RULES FOR RESPONDING:
               </button>
             </div>
           </div>
-        ) : activeFilter === 'sync' && userRole === 'admin' ? (
+        ) : (activeFilter === 'sync' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
-            <CalendarSync showToast={showToast} />
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            <CalendarSync showToast={showToast} canEditSettingsAdmin={canEditSettingsAdmin} />
           </div>
-        ) : activeFilter === 'blogs' && userRole === 'admin' ? (
-          <BlogAdmin showToast={showToast} galleryImages={galleryImages} />
-        ) : activeFilter === 'migration' && userRole === 'admin' ? (
+        ) : (activeFilter === 'blogs' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewBlogs))) ? (
+          <BlogAdmin showToast={showToast} galleryImages={galleryImages} userRole={userRole} userPermissions={userPermissions} />
+        ) : (activeFilter === 'migration' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             <DataMigration showToast={showToast} />
           </div>
-        ) : activeFilter === 'chatbot_settings' && userRole === 'admin' ? (
+        ) : (activeFilter === 'chatbot_settings' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} />
-            <ChatbotSettingsAdmin showToast={showToast} />
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            <ChatbotSettingsAdmin showToast={showToast} canEditSettingsAdmin={canEditSettingsAdmin} />
           </div>
-        ) : userRole === 'admin' ? (
+        ) : (userRole === 'admin' || userRole === 'agent') ? (
           <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex flex-wrap gap-2 p-1 bg-luxury-dark/5 rounded-2xl w-fit">
@@ -5763,7 +6462,7 @@ RULES FOR RESPONDING:
                             </div>
                             <div className="flex items-center gap-3 mt-4">
                               <p className="text-[10px] text-luxury-dark/30 uppercase tracking-[0.2em]">Booking ID: {booking.id.slice(0, 8)}</p>
-                              {(userRole === 'admin' || booking.status === 'pending' || (booking.status === 'confirmed' && parse(booking.checkIn, 'dd/MM/yyyy', new Date()) > new Date())) && (
+                              {(userRole === 'admin' || (userRole === 'agent' && userPermissions?.editBookings) || booking.status === 'pending' || (booking.status === 'confirmed' && parse(booking.checkIn, 'dd/MM/yyyy', new Date()) > new Date())) && (
                                 <button 
                                   onClick={() => setEditingBooking(booking)}
                                   className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold hover:text-luxury-dark transition-colors flex items-center gap-1"
@@ -5814,7 +6513,7 @@ RULES FOR RESPONDING:
                             <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
                             <p className="font-bold text-luxury-dark">{(booking.createdAt || '').split(',')[0]}</p>
                           </div>
-                          {userRole === 'admin' && (
+                          {(userRole === 'admin' || userRole === 'agent') && (
                             <div className="space-y-1">
                               <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booked By</p>
                               <p className="font-bold text-luxury-dark">{booking.bookedBy || 'client'}</p>
@@ -5822,9 +6521,9 @@ RULES FOR RESPONDING:
                           )}
                         </div>
 
-                        {userRole === 'admin' && (
+                        {(userRole === 'admin' || (userRole === 'agent' && userPermissions?.editBookings)) && (
                           <div className="mt-8 pt-8 border-t border-luxury-dark/5">
-                            <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-4">Admin Controls</p>
+                            <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-4">Management Actions</p>
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                               <div className="space-y-2">
@@ -5893,7 +6592,8 @@ RULES FOR RESPONDING:
                                       setBookingToDelete(booking);
                                       setIsConfirmModalOpen(true);
                                     }}
-                                    className="w-full px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                                    disabled={userRole === 'agent' && !userPermissions?.deleteBookings}
+                                    className="w-full px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     <Trash2 size={12} /> Delete Booking
                                   </button>
@@ -6025,7 +6725,7 @@ RULES FOR RESPONDING:
                       </div>
                       <div className="flex items-center gap-3 mt-4">
                         <p className="text-[10px] text-luxury-dark/30 uppercase tracking-[0.2em]">Booking ID: {booking.id.slice(0, 8)}</p>
-                        {(userRole === 'admin' || booking.status === 'pending' || (booking.status === 'confirmed' && parse(booking.checkIn, 'dd/MM/yyyy', new Date()) > new Date())) && (
+                        {(userRole === 'admin' || (userRole === 'agent' && userPermissions?.editBookings) || booking.status === 'pending' || (booking.status === 'confirmed' && parse(booking.checkIn, 'dd/MM/yyyy', new Date()) > new Date())) && (
                           <button 
                             onClick={() => setEditingBooking(booking)}
                             className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold hover:text-luxury-dark transition-colors flex items-center gap-1"
@@ -6348,11 +7048,11 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
                 onClick={onMyBookings}
                 className={`flex items-center gap-2 text-sm font-medium hover:text-luxury-gold transition-colors ${isNavSolid ? 'text-luxury-dark' : 'text-white'}`}
               >
-                {userRole === 'admin' ? <LayoutDashboard size={18} /> : <History size={18} />}
-                {userRole === 'admin' ? 'Admin Dashboard' : 'My Bookings'}
+                {userRole === 'admin' ? <LayoutDashboard size={18} /> : userRole === 'agent' ? <LayoutDashboard size={18} /> : <History size={18} />}
+                {userRole === 'admin' ? 'Admin Dashboard' : userRole === 'agent' ? 'Agent Dashboard' : 'My Bookings'}
               </button>
-              {userRole === 'admin' && (
-                <span className="px-2 py-0.5 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded uppercase tracking-widest">Admin</span>
+              {(userRole === 'admin' || userRole === 'agent') && (
+                <span className="px-2 py-0.5 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded uppercase tracking-widest">{userRole}</span>
               )}
               <button 
                 onClick={handleSignOut}
@@ -6419,8 +7119,8 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
                     }}
                     className="flex items-center gap-3 text-luxury-dark font-bold"
                   >
-                    {userRole === 'admin' ? <LayoutDashboard size={20} /> : <History size={20} />}
-                    {userRole === 'admin' ? 'Admin Dashboard' : 'My Bookings'}
+                    {userRole === 'admin' ? <LayoutDashboard size={20} /> : userRole === 'agent' ? <LayoutDashboard size={20} /> : <History size={20} />}
+                    {userRole === 'admin' ? 'Admin Dashboard' : userRole === 'agent' ? 'Agent Dashboard' : 'My Bookings'}
                   </button>
                   <button 
                     onClick={handleSignOut}
@@ -7322,26 +8022,26 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
   expenseCategories?: any[]
 }) => {
-  const [name, setName] = useState(editBooking?.name || (userRole === 'admin' && !editBooking ? '' : user?.displayName || ''));
+  const [name, setName] = useState(editBooking?.name || ((userRole === 'admin' || userRole === 'agent') && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
-  const [email, setEmail] = useState(editBooking?.email || (userRole === 'admin' && !editBooking ? '' : user?.email || ''));
+  const [email, setEmail] = useState(editBooking?.email || ((userRole === 'admin' || userRole === 'agent') && !editBooking ? '' : user?.email || ''));
   const [dayGuestAdults, setDayGuestAdults] = useState(editBooking?.dayGuestAdults || 0);
   const [dayGuestChildren, setDayGuestChildren] = useState<number[]>(editBooking?.dayGuestChildren || []);
   const [nightGuestAdults, setNightGuestAdults] = useState(editBooking?.nightGuestAdults || 0);
   const [nightGuestChildren, setNightGuestChildren] = useState<number[]>(editBooking?.nightGuestChildren || []);
   const [occasion, setOccasion] = useState(editBooking?.occasion || '');
-  const [bookedBy, setBookedBy] = useState(editBooking?.bookedBy && !['admin_for_client', 'admin_personal', 'client'].includes(editBooking.bookedBy) ? editBooking.bookedBy : '');
+  const [bookedBy, setBookedBy] = useState(editBooking?.bookedBy && !['admin_for_client', 'admin_personal', 'client', 'agent_for_client'].includes(editBooking.bookedBy) ? editBooking.bookedBy : '');
   const [checkIn, setCheckIn] = useState<Date | null>(editBooking?.checkIn ? parse(editBooking.checkIn, 'dd/MM/yyyy', new Date()) : null);
   const [checkOut, setCheckOut] = useState<Date | null>(editBooking?.checkOut ? parse(editBooking.checkOut, 'dd/MM/yyyy', new Date()) : null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [isAdminBooking, setIsAdminBooking] = useState(userRole === 'admin' && !editBooking);
+  const [isAdminBooking, setIsAdminBooking] = useState((userRole === 'admin' || userRole === 'agent') && !editBooking);
   const [hasSetDefaultBookingMode, setHasSetDefaultBookingMode] = useState(false);
   const [bookingAmount, setBookingAmount] = useState<number>(editBooking?.bookingAmount || (editBooking ? (editBooking.totalAmount - (editBooking.securityDeposit || 5000)) : 0));
   const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || 5000);
 
   useEffect(() => {
-    if (userRole === 'admin' && !editBooking && !hasSetDefaultBookingMode) {
+    if ((userRole === 'admin' || userRole === 'agent') && !editBooking && !hasSetDefaultBookingMode) {
       setIsAdminBooking(true);
       setHasSetDefaultBookingMode(true);
     }
@@ -7356,7 +8056,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [clientSearch, setClientSearch] = useState('');
 
   useEffect(() => {
-    if (userRole === 'admin' && isAdminBooking) {
+    if ((userRole === 'admin' || userRole === 'agent') && isAdminBooking) {
       const fetchClients = async () => {
         try {
           const q = query(collection(db, 'users'), where('role', '==', 'client'));
@@ -7587,7 +8287,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         mobile,
         email,
         occasion,
-        bookedBy: userRole === 'admin' ? (bookedBy || (isAdminBooking ? 'admin_for_client' : 'admin_personal')) : 'client',
+        bookedBy: (userRole === 'admin' || userRole === 'agent') ? (bookedBy || (isAdminBooking ? (userRole === 'admin' ? 'admin_for_client' : 'agent_for_client') : 'admin_personal')) : 'client',
         paymentMethod: paymentMethod
       };
 
@@ -8077,7 +8777,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       </div>
 
-      <div className={`grid grid-cols-1 ${userRole === 'admin' ? 'md:grid-cols-2' : ''} gap-5`}>
+      <div className={`grid grid-cols-1 ${(userRole === 'admin' || userRole === 'agent') ? 'md:grid-cols-2' : ''} gap-5`}>
         <div className="space-y-1.5">
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Email Address</label>
           <div className="relative">
@@ -9172,6 +9872,7 @@ export default function App() {
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [userPermissions, setUserPermissions] = useState<any>(null);
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [galleryImages, setGalleryImages] = useState<any[]>([]);
   const [heroSettings, setHeroSettings] = useState<any>(null);
@@ -9367,16 +10068,37 @@ export default function App() {
           try {
             const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
             if (userDoc.exists()) {
-              setUserRole(userDoc.data().role);
+              const userData = userDoc.data();
+              setUserRole(userData.role);
+              setUserPermissions(userData.permissions || null);
             } else {
-              // Default for new users
-              const role = currentUser.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client';
+              let role = 'client';
+              let permissions = null;
+
+              if (currentUser.email) {
+                // Check if pre-authorized by email
+                const q = query(collection(db, 'users'), where('email', '==', currentUser.email.toLowerCase()));
+                const querySnapshot = await getDocs(q);
+                
+                if (!querySnapshot.empty) {
+                  const placeholderDoc = querySnapshot.docs[0];
+                  const placeholderData = placeholderDoc.data();
+                  role = placeholderData.role || role;
+                  permissions = placeholderData.permissions || permissions;
+                  // Cleanup placeholder
+                  await deleteDoc(doc(db, 'users', placeholderDoc.id));
+                }
+              }
+              
               setUserRole(role);
+              setUserPermissions(permissions);
+              
               await setDoc(doc(db, 'users', currentUser.uid), {
                 uid: currentUser.uid,
-                email: currentUser.email || '',
+                email: (currentUser.email || '').toLowerCase(),
                 displayName: currentUser.displayName || 'Guest',
                 role: role,
+                permissions: permissions,
                 isAnonymous: currentUser.isAnonymous,
                 createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
               }, { merge: true });
@@ -9384,7 +10106,7 @@ export default function App() {
           } catch (docErr) {
             console.error("Error fetching user profile:", docErr);
             // Don't block the whole app if just the profile fetch fails but we have the user
-            setUserRole(currentUser.email === 'anujkumarmittal@gmail.com' ? 'admin' : 'client');
+            setUserRole('client');
           }
         } else {
           setUserRole(null);
@@ -9513,6 +10235,7 @@ export default function App() {
           <MyBookings 
             user={user} 
             userRole={userRole} 
+            userPermissions={userPermissions}
             onClose={() => setIsDashboardOpen(false)} 
             onLogin={() => setIsAuthModalOpen(true)} 
             allBookings={allBookings} 
