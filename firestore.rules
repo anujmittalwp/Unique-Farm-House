@@ -312,6 +312,11 @@ service cloud.firestore {
       allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
+    match /settings/visitorCount {
+      allow read: if true;
+      allow write: if true; // Open for anyone to run increment()
+    }
+    
     match /settings/{settingId} {
       allow read: if true;
       allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);

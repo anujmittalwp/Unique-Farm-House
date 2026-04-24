@@ -114,7 +114,8 @@ import {
   deleteDoc,
   updateDoc,
   or,
-  writeBatch
+  writeBatch,
+  increment
 } from 'firebase/firestore';
 import { format, addDays, parse, isValid } from 'date-fns';
 import DatePicker from 'react-datepicker';
@@ -9617,6 +9618,51 @@ const SEOContent = () => {
   );
 };
 
+const VisitorCounter = () => {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    const incrementVisitor = async () => {
+      const isNewVisitor = !localStorage.getItem('hasVisited_uniquefarms');
+      const counterRef = doc(db, 'settings', 'visitorCount');
+      
+      try {
+        const docSnap = await getDoc(counterRef);
+        if (!docSnap.exists()) {
+          if (isNewVisitor) {
+            await setDoc(counterRef, { count: 1 });
+            setCount(1);
+            localStorage.setItem('hasVisited_uniquefarms', 'true');
+          } else {
+            setCount(0); // Fallback
+          }
+        } else {
+          if (isNewVisitor) {
+            await updateDoc(counterRef, { count: increment(1) });
+            setCount(docSnap.data().count + 1);
+            localStorage.setItem('hasVisited_uniquefarms', 'true');
+          } else {
+            setCount(docSnap.data().count);
+          }
+        }
+      } catch (err) {
+        console.error("Counter error:", err);
+      }
+    };
+    
+    incrementVisitor();
+  }, []);
+
+  if (count === null) return null;
+
+  return (
+    <div className="flex items-center gap-2 text-white/50 text-sm mt-8 border border-white/10 rounded-full px-4 py-2 w-fit">
+      <Users size={16} className="text-luxury-gold" />
+      <span><strong className="text-white">{count.toLocaleString()}</strong> Unique Visitors</span>
+    </div>
+  );
+};
+
 const Footer = () => {
   return (
     <footer className="bg-luxury-dark text-white py-12 sm:py-16 px-6 border-t border-white/5">
@@ -9646,6 +9692,8 @@ const Footer = () => {
                 <Star size={18} />
               </a>
             </div>
+            
+            <VisitorCounter />
           </div>
 
           <div>
