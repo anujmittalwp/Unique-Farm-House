@@ -165,7 +165,9 @@ export const Chatbot = () => {
 - Amenities: AC, Wi-Fi, Kitchen, Modern Interiors.
 - Rules: Follow concise instruction.`;
 
-      const systemInstruction = systemPrompt || `You are the Unique Farmhouse assistant. 
+      const userProvidedDetails = messages.some(m => m.content.includes("Submitted my details:"));
+      
+      let baseInstruction = systemPrompt || `You are the Unique Farmhouse assistant. 
 Answer ONLY what is asked. 
 Be extremely short (STRICTLY 1 sentence). 
 NO greetings, NO extra details, NO pleasantries.
@@ -174,6 +176,11 @@ Answer the question directly.
 ${propertyInfo}
 
 If booking/quote: "Please share your Name, Mobile, Email, and Total Guests."`;
+
+      let systemInstruction = baseInstruction;
+      if (userProvidedDetails) {
+        systemInstruction += "\n\nCRITICAL SYSTEM OVERRIDE: The user HAS provided their details. DO NOT ask for their name, mobile, email, or guests again. DO NOT output 'save_lead'. Answer their questions and provide quotes directly. You must give them the prices immediately if they ask.";
+      }
 
       // Construct a valid conversation starting with user
       const apiContents = updatedMessages
@@ -184,7 +191,7 @@ If booking/quote: "Please share your Name, Mobile, Email, and Total Guests."`;
         }));
 
       // Use allowed model alias
-      const modelId = "gemini-flash-latest";
+      const modelId = "gemini-3-flash-preview";
 
       const response = await safeAiCall(() => ai.models.generateContent({
         model: modelId,

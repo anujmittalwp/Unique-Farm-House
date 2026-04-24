@@ -614,6 +614,12 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
                   )}
                 </button>
 
+                {isForgotPassword && (
+                  <p className="mt-4 text-[10px] text-center text-luxury-dark/40 italic">
+                    Note: If you are an agent and haven't created an account yet, please choose "Sign Up" instead of resetting your password.
+                  </p>
+                )}
+
                 {!isForgotPassword && (
                   <>
                     <div className="relative my-6">
@@ -1951,7 +1957,13 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
+          let errorData: any = {};
+          try {
+            const errText = await response.text();
+            errorData = JSON.parse(errText);
+          } catch (e) {
+            errorData = { error: `Server error (${response.status})` };
+          }
           let msg = errorData.error || `Error (${response.status})`;
           if (msg.includes('534-5.7.9') || (errorData.details && errorData.details.toLowerCase().includes('application-specific password required'))) {
             msg = "CRITICAL: You are using your regular Gmail password. Google requires a 16-character 'App Password'. Please check settings.";
@@ -3066,7 +3078,15 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                             })
                           });
                           
-                          const data = await response.json();
+                          let data: any = {};
+                          try {
+                            const errText = await response.text();
+                            data = JSON.parse(errText);
+                          } catch (e) {
+                            if (!response.ok) {
+                              throw new Error(`Server error (${response.status})`);
+                            }
+                          }
                           if (data.success) {
                             showToast('Test email sent successfully!', 'success');
                           } else {
@@ -5140,8 +5160,8 @@ RULES FOR RESPONDING:
         },
         createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
       });
-      showToast(`Agent ${name} authorized. Role will be assigned when they log in.`, 'success');
-      await logAdminAction('authorize_agent', email, `Pre-authorized agent by email: ${name}`);
+      showToast(`Agent ${name} authorized. Since this is a new account, they must "Sign Up" first with this email to create their password.`, 'success');
+      await logAdminAction('authorize_agent', email, `Pre-authorized agent by email: ${name}. Instructed to sign up.`);
     } catch (error) {
       console.error('Error adding user:', error);
       showToast(error instanceof Error ? error.message : 'Failed to add agent', 'error');
