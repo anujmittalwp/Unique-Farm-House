@@ -77,7 +77,8 @@ import {
   Settings,
   Bell,
   BellRing,
-  BellOff
+  BellOff,
+  Tag
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 import { Blog, BlogPost } from './Blog';
@@ -2476,103 +2477,113 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     });
 
   return (
-    <div className="space-y-6 relative">
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 mb-8 border-b border-luxury-dark/5 pb-6">
-        <div className="flex gap-2 w-full xl:w-auto overflow-x-auto no-scrollbar max-w-full pb-2 xl:pb-0">
-          {['all', 'new', 'contacted', 'converted', 'lost'].map(f => (
-            <button
-              key={f}
-              onClick={() => {
-                setFilter(f);
-                setSelectedTag(''); // Reset tag filter when changing status
-              }}
-              className={`px-5 py-2.5 rounded-[1rem] text-[10px] font-bold uppercase tracking-[0.15em] transition-all whitespace-nowrap shrink-0 flex items-center gap-2 ${
-                filter === f 
-                  ? 'bg-luxury-dark text-white shadow-md' 
-                  : 'bg-luxury-dark/5 text-luxury-dark/60 hover:bg-luxury-dark/10 hover:text-luxury-dark'
-              }`}
-            >
-              {f}
-              <span className={`px-2 py-0.5 rounded-full text-[9px] ${filter === f ? 'bg-white/20 text-white' : 'bg-luxury-dark/10 text-luxury-dark'}`}>
-                 {f === 'all' ? leads.length : leads.filter(l => l.status === f).length}
-              </span>
-            </button>
-          ))}
-        </div>
+    <div className="space-y-8 relative">
+      <div className="bg-white rounded-[2rem] border border-luxury-dark/5 shadow-sm p-6 sm:p-8">
+        <div className="flex flex-col gap-8">
+          {/* Top Row: Status Filters & Actions */}
+          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+            <div className="flex gap-2 w-full xl:w-auto overflow-x-auto no-scrollbar max-w-full pb-2 xl:pb-0">
+              {['all', 'new', 'contacted', 'converted', 'lost'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => {
+                    setFilter(f);
+                    setSelectedTag(''); // Reset tag filter when changing status
+                  }}
+                  className={`px-5 py-2.5 rounded-[1rem] text-[10px] font-bold uppercase tracking-[0.15em] transition-all whitespace-nowrap shrink-0 flex items-center gap-2 ${
+                    filter === f 
+                      ? 'bg-luxury-dark text-white shadow-md scale-105' 
+                      : 'bg-luxury-dark/5 text-luxury-dark/60 hover:bg-luxury-dark/10 hover:text-luxury-dark'
+                  }`}
+                >
+                  {f}
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] ${filter === f ? 'bg-white/20 text-white' : 'bg-luxury-dark/10 text-luxury-dark'}`}>
+                     {f === 'all' ? leads.length : leads.filter(l => l.status === f).length}
+                  </span>
+                </button>
+              ))}
+            </div>
 
-        {/* Tag Filter */}
-        {uniqueTags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 px-2 py-1 bg-white/50 backdrop-blur-sm rounded-2xl border border-luxury-dark/5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-luxury-dark/30 ml-2">Filter by Tag:</span>
-            <button
-              onClick={() => setSelectedTag('')}
-              className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                selectedTag === '' 
-                  ? 'bg-luxury-gold text-luxury-dark shadow-sm' 
-                  : 'text-luxury-dark/40 hover:bg-luxury-dark/5'
-              }`}
-            >
-              All
-            </button>
-            {uniqueTags.map(tag => (
-              <button
-                key={tag}
-                onClick={() => setSelectedTag(tag)}
-                className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                  selectedTag === tag 
-                    ? 'bg-luxury-gold text-luxury-dark shadow-sm' 
-                    : 'text-luxury-dark/40 hover:bg-luxury-dark/5'
-                }`}
-              >
-                {tag}
-              </button>
-            ))}
+            <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-end">
+              {canExport && (
+                <button
+                  onClick={handleExportLeads}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-luxury-dark/5 text-luxury-dark rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark/10 transition-colors whitespace-nowrap"
+                >
+                  <Download size={14} />
+                  Export
+                </button>
+              )}
+              {canAdd && (
+                <button
+                  onClick={() => setManualModalOpen(true)}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-luxury-dark text-white rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-md whitespace-nowrap"
+                >
+                  <Plus size={14} />
+                  Add Lead
+                </button>
+              )}
+              {canEditSettings && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setMetaModalOpen(true)}
+                    className="p-2.5 bg-[#1877F2]/10 text-[#1877F2] rounded-xl hover:bg-[#1877F2]/20 transition-all active:scale-95"
+                    title="Meta Sync"
+                  >
+                    <RefreshCw size={14} className={isMetaSyncing ? 'animate-spin' : ''} />
+                  </button>
+                  <button
+                    onClick={() => setGmailModalOpen(true)}
+                    className="p-2.5 bg-[#DB4437]/10 text-[#DB4437] rounded-xl hover:bg-[#DB4437]/20 transition-all active:scale-95"
+                    title="Gmail Settings"
+                  >
+                    <Mail size={14} />
+                  </button>
+                  <button
+                    onClick={() => setSyncModalOpen(true)}
+                    className="p-2.5 bg-[#0F9D58]/10 text-[#0F9D58] rounded-xl hover:bg-[#0F9D58]/20 transition-all active:scale-95"
+                    title="Google Sheets Sync"
+                  >
+                    <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        )}
 
-        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-          {canExport && (
-            <button
-              onClick={handleExportLeads}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-luxury-dark/5 text-luxury-dark rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark/10 transition-colors whitespace-nowrap"
-            >
-              <Download size={14} />
-              Export
-            </button>
-          )}
-          {canAdd && (
-            <button
-              onClick={() => setManualModalOpen(true)}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-luxury-dark text-white rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-md whitespace-nowrap"
-            >
-              <Plus size={14} />
-              Add Lead
-            </button>
-          )}
-          {canEditSettings && (
-            <>
-              <button
-                onClick={() => setMetaModalOpen(true)}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#1877F2]/10 text-[#1877F2] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#1877F2]/20 transition-colors whitespace-nowrap"
-              >
-                <RefreshCw size={14} className={isMetaSyncing ? 'animate-spin' : ''} />
-                Meta
-              </button>
-              <button
-                onClick={() => setGmailModalOpen(true)}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#DB4437]/10 text-[#DB4437] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#DB4437]/20 transition-colors whitespace-nowrap"
-              >
-                <Mail size={14} />
-                Gmail
-              </button>
-              <button
-                onClick={() => setSyncModalOpen(true)}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F9D58]/10 text-[#0F9D58] rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-[#0F9D58]/20 transition-colors whitespace-nowrap"
-              >
-                <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                Sheets
-              </button>
-            </>
+          {/* Bottom Row: Tag Filter */}
+          {uniqueTags.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 py-4 border-t border-luxury-dark/5">
+              <div className="flex items-center gap-2 text-luxury-dark/30 whitespace-nowrap mr-2">
+                <Tag size={12} strokeWidth={3} />
+                <span className="text-[10px] font-bold uppercase tracking-widest">Filter by Tag:</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setSelectedTag('')}
+                  className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                    selectedTag === '' 
+                      ? 'bg-luxury-gold text-luxury-dark shadow-sm scale-105' 
+                      : 'bg-luxury-dark/5 text-luxury-dark/40 hover:bg-luxury-dark/10'
+                  }`}
+                >
+                  All
+                </button>
+                {uniqueTags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => setSelectedTag(tag)}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                      selectedTag === tag 
+                        ? 'bg-luxury-gold text-luxury-dark shadow-sm scale-105' 
+                        : 'bg-luxury-dark/5 text-luxury-dark/40 hover:bg-luxury-dark/10'
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>

@@ -454,12 +454,19 @@ async function startServer() {
       const sanitizedPass = gmailPass.replace(/\s+/g, '');
       console.log(`[Gmail] Using account: ${gmailUser}`);
 
+      // Using explicit host/port for better reliability in container environments
       const transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true, // Use SSL
         auth: {
           user: gmailUser,
           pass: sanitizedPass,
         },
+        tls: {
+          // Do not fail on invalid certs
+          rejectUnauthorized: false
+        }
       });
 
       const mailOptions = {
