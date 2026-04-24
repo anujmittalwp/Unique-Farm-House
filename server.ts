@@ -413,7 +413,7 @@ async function startServer() {
   app.post("/api/chat", (req, res) => res.status(410).json({ error: "Deprecated" }));
 
   // Gmail API Endpoint
-  app.post("/api/mail/send", async (req, res) => {
+  app.post("/api/communications/reply", async (req, res) => {
     try {
       const { to, subject, html, text, config } = req.body;
       

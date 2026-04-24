@@ -1934,7 +1934,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
       setIsSendingReply(true);
       try {
-        const response = await fetch('/api/mail/send', {
+        const response = await fetch('/api/communications/reply', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -3059,7 +3059,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                           }
                           
                           showToast('Sending test email...', 'info');
-                          const response = await fetch('/api/mail/send', {
+                          const response = await fetch('/api/communications/reply', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
