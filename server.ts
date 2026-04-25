@@ -463,7 +463,9 @@ async function startServer() {
         port: 465,
         secure: true,
         auth: { user, pass: sanitizedPass },
-        tls: { rejectUnauthorized: false }
+        tls: { rejectUnauthorized: false },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000
       });
 
       await transporter.verify();
@@ -552,7 +554,9 @@ async function startServer() {
         port: 465,
         secure: true,
         auth: { user: gmailUser, pass: sanitizedPass },
-        tls: { rejectUnauthorized: false }
+        tls: { rejectUnauthorized: false },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000
       });
 
       const info = await transporter.sendMail({

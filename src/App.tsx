@@ -1826,11 +1826,18 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           workerSecret: workerSecret.trim()
         })
       });
-      const data = await response.json();
+      let data;
+      try {
+        const text = await response.text();
+        data = text ? JSON.parse(text) : {};
+      } catch (e) {
+        throw new Error(`Server returned non-JSON response (Status ${response.status})`);
+      }
+      
       if (response.ok) {
         showToast('Success! Gmail connection is working.', 'success');
       } else {
-        throw new Error(data.details || data.error || 'Connection failed');
+        throw new Error(data.details || data.error || `HTTP ${response.status}: Connection failed`);
       }
     } catch (err: any) {
       console.error('SMTP Test Error:', err);
@@ -3108,6 +3115,9 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                   <li>Search for <span className="font-bold text-luxury-dark">"App Passwords"</span>.</li>
                   <li>Create for <span className="font-bold text-luxury-dark">"Other"</span> named <span className="italic">"CRM"</span>.</li>
                   <li>Paste the 16-character code in App Password field.</li>
+                  <li className="text-red-500 font-semibold px-2 py-1 bg-red-50/50 rounded-lg mt-2 italic shadow-sm border border-red-100/50">
+                    Note: Most servers block direct SMTP (Port 465). If "Test Sync" fails, use a Cloudflare Relay.
+                  </li>
                 </ol>
               </div>
 
