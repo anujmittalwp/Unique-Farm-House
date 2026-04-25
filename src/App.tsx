@@ -1782,13 +1782,22 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     
     setGmailSaving(true);
     try {
+      const u = gmailUser.trim();
+      const p = gmailPass.trim();
+      const w = workerUrl.trim();
+      const s = workerSecret.trim();
+
       await setDoc(doc(db, 'settings', 'gmail'), {
-        user: gmailUser,
-        pass: gmailPass,
-        workerUrl: workerUrl,
-        workerSecret: workerSecret,
+        user: u,
+        pass: p,
+        workerUrl: w,
+        workerSecret: s,
         updatedAt: serverTimestamp()
       });
+      setGmailUser(u);
+      setGmailPass(p);
+      setWorkerUrl(w);
+      setWorkerSecret(s);
       showToast('Gmail settings saved successfully', 'success');
     } catch (error: any) {
       console.error("Error saving Gmail settings:", error);
@@ -1810,10 +1819,10 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          user: gmailUser, 
-          pass: gmailPass,
-          workerUrl: workerUrl,
-          workerSecret: workerSecret
+          user: gmailUser.trim(), 
+          pass: gmailPass.trim(),
+          workerUrl: workerUrl.trim(),
+          workerSecret: workerSecret.trim()
         })
       });
       const data = await response.json();

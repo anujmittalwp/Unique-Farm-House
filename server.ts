@@ -416,7 +416,12 @@ async function startServer() {
   // Gmail API Endpoint
   app.post("/api/communications/test-connection", async (req, res) => {
     try {
-      const { user, pass, workerUrl, workerSecret } = req.body;
+      let { user, pass, workerUrl, workerSecret } = req.body;
+      user = (user || '').trim();
+      pass = (pass || '').trim();
+      workerUrl = (workerUrl || '').trim();
+      workerSecret = (workerSecret || '').trim();
+
       if (!user || !pass) {
         return res.status(400).json({ error: "Email and password/app-password are required" });
       }
@@ -478,26 +483,26 @@ async function startServer() {
     try {
       const { to, subject, html, text, config } = req.body;
       
-      let gmailUser = config?.user || process.env.GMAIL_USER;
-      let gmailPass = config?.pass || process.env.GMAIL_APP_PASSWORD;
-      let workerUrl = config?.workerUrl;
-      let workerSecret = config?.workerSecret;
+      let gmailUser = (config?.user || process.env.GMAIL_USER || '').trim();
+      let gmailPass = (config?.pass || process.env.GMAIL_APP_PASSWORD || '').trim();
+      let workerUrl = (config?.workerUrl || '').trim();
+      let workerSecret = (config?.workerSecret || '').trim();
 
       // Always check Firestore if no explicit config provided to allow UI settings to override
       try {
         const gmailDoc = await getDoc(doc(db, 'settings', 'gmail'));
         if (gmailDoc.exists()) {
           const data = gmailDoc.data();
-          gmailUser = data.user || gmailUser;
-          gmailPass = data.pass || gmailPass;
-          workerUrl = data.workerUrl || workerUrl;
-          workerSecret = data.workerSecret || workerSecret;
+          gmailUser = (data.user || gmailUser).trim();
+          gmailPass = (data.pass || gmailPass).trim();
+          workerUrl = (data.workerUrl || workerUrl).trim();
+          workerSecret = (data.workerSecret || workerSecret).trim();
         }
       } catch (dbErr) {
         console.warn("[Gmail] Could not fetch Gmail config from Firestore:", dbErr);
       }
 
-      const sanitizedPass = gmailPass ? gmailPass.replace(/\s+/g, '') : '';
+      const sanitizedPass = gmailPass.replace(/\s+/g, '');
 
       // If workerUrl is configured, use the relay
       if (workerUrl) {
@@ -518,17 +523,23 @@ async function startServer() {
           });
 
           const result: any = await response.json().catch(() => ({}));
-          console.log(`[Gmail] Relay Response [${response.status}]:`, result);
+          console.log(`[Gmail] Relay Response Status: ${response.status}`);
           
           if (response.ok) {
             return res.json({ success: true, message: "Email sent via Cloudflare Worker", result });
           } else {
-            const errorMsg = result.error || result.details || `Worker Relay Failed (Status ${response.status})`;
-            return res.status(response.status).json({ error: errorMsg, details: result });
+            let errorMsg = `Worker Relay Error (${response.status})`;
+            if (response.status === 405) errorMsg = "Cloudflare Worker Error: 405 Method Not Allowed. Ensure your Worker handles POST requests.";
+            if (response.status === 401) errorMsg = "Cloudflare Worker Error: 401 Unauthorized. Check your Worker Secret.";
+            
+            return res.status(response.status).json({ 
+              error: errorMsg, 
+              details: result.error || result.details || result
+            });
           }
         } catch (fetchErr: any) {
-          console.error(`[Gmail] Relay Fetch Error:`, fetchErr);
-          return res.status(502).json({ error: "Failed to connect to Cloudflare Worker", details: fetchErr.message });
+          console.error(`[Gmail] Relay Network/Fetch Error:`, fetchErr);
+          return res.status(502).json({ error: "Failed to connect to Cloudflare Worker. Check the URL status.", details: fetchErr.message });
         }
       }
 
