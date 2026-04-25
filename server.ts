@@ -413,96 +413,108 @@ async function startServer() {
   app.post("/api/chat", (req, res) => res.status(410).json({ error: "Deprecated" }));
 
   // Gmail API Endpoint
+  // Gmail API Endpoint
+  app.post("/api/communications/test-connection", async (req, res) => {
+    try {
+      const { user, pass } = req.body;
+      if (!user || !pass) {
+        return res.status(400).json({ error: "Email and password/app-password are required" });
+      }
+
+      console.log(`[Gmail Test] Testing connection for ${user}`);
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: { user, pass: pass.replace(/\s+/g, '') },
+        tls: { rejectUnauthorized: false }
+      });
+
+      await transporter.verify();
+      console.log(`[Gmail Test] Connection verified for ${user}`);
+      res.json({ success: true, message: "Connection successful" });
+    } catch (error: any) {
+      console.error('[Gmail Test] Connection failed:', error);
+      res.status(500).json({ 
+        error: "Connection failed", 
+        details: error.message,
+        code: error.code
+      });
+    }
+  });
+
   app.post("/api/communications/reply", async (req, res) => {
     try {
       const { to, subject, html, text, config } = req.body;
       
-      let gmailUser = process.env.GMAIL_USER;
-      let gmailPass = process.env.GMAIL_APP_PASSWORD;
+      let gmailUser = config?.user || process.env.GMAIL_USER;
+      let gmailPass = config?.pass || process.env.GMAIL_APP_PASSWORD;
+      let workerUrl = config?.workerUrl;
+      let workerSecret = config?.workerSecret;
 
-      console.log(`[Gmail] Attempting to send email to ${to}`);
+      // Always check Firestore if no explicit config provided to allow UI settings to override
+      try {
+        const gmailDoc = await getDoc(doc(db, 'settings', 'gmail'));
+        if (gmailDoc.exists()) {
+          const data = gmailDoc.data();
+          gmailUser = data.user || gmailUser;
+          gmailPass = data.pass || gmailPass;
+          workerUrl = data.workerUrl || workerUrl;
+          workerSecret = data.workerSecret || workerSecret;
+        }
+      } catch (dbErr) {
+        console.warn("[Gmail] Could not fetch Gmail config from Firestore:", dbErr);
+      }
 
-      // Priorities: 1. Request Body Config, 2. Firestore Settings, 3. Environment Variables
-      if (config?.user && config?.pass) {
-        console.log(`[Gmail] Using provided config from request body`);
-        gmailUser = config.user;
-        gmailPass = config.pass;
-      } else {
-        // Always check Firestore if no explicit config provided, to allow UI settings to override env
-        try {
-          const gmailDoc = await getDoc(doc(db, 'settings', 'gmail'));
-          if (gmailDoc.exists()) {
-            console.log(`[Gmail] Found/Overriding credentials from Firestore settings`);
-            const data = gmailDoc.data();
-            gmailUser = data.user || gmailUser;
-            gmailPass = data.pass || gmailPass;
-          }
-        } catch (dbErr) {
-          console.warn("[Gmail] Could not fetch Gmail config from Firestore:", dbErr);
+      // If workerUrl is configured, use the relay
+      if (workerUrl) {
+        console.log(`[Gmail] Using Cloudflare Worker Relay: ${workerUrl}`);
+        const response = await fetch(workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: to || gmailUser,
+            subject: subject || 'Unique Farmhouse - Notification',
+            html: html || `<div>${text || 'This is an automated message.'}</div>`,
+            text: text || "This is an automated message.",
+            user: gmailUser,
+            pass: gmailPass,
+            secret: workerSecret
+          })
+        });
+
+        const result: any = await response.json();
+        if (response.ok) {
+          return res.json({ success: true, message: "Email sent via Cloudflare Worker", result });
+        } else {
+          throw new Error(result.error || result.details || "Worker Relay Failed");
         }
       }
 
       if (!gmailUser || !gmailPass) {
-        console.error(`[Gmail] Missing configuration (User: ${!!gmailUser}, Pass: ${!!gmailPass})`);
-        return res.status(400).json({ 
-          error: "Gmail configuration missing.",
-          details: "Please set GMAIL_USER and GMAIL_APP_PASSWORD in environment variables or app settings." 
-        });
+        return res.status(400).json({ error: "Gmail configuration missing." });
       }
 
-      // Sanitize password (remove spaces)
-      const sanitizedPass = gmailPass.replace(/\s+/g, '');
-      console.log(`[Gmail] Using account: ${gmailUser}`);
-
-      // Using explicit host/port for better reliability in container environments
       const transporter = nodemailer.createTransport({
         host: 'smtp.gmail.com',
         port: 465,
-        secure: true, // Use SSL
-        auth: {
-          user: gmailUser,
-          pass: sanitizedPass,
-        },
-        tls: {
-          // Do not fail on invalid certs
-          rejectUnauthorized: false
-        }
+        secure: true,
+        auth: { user: gmailUser, pass: gmailPass.replace(/\s+/g, '') },
+        tls: { rejectUnauthorized: false }
       });
 
-      const mailOptions = {
+      const info = await transporter.sendMail({
         from: `Unique Farmhouse <${gmailUser}>`,
-        to: to || gmailUser, // Fallback to self for testing
+        to: to || gmailUser,
         subject: subject || 'Unique Farmhouse - Notification',
         text: text || "This is an automated message.",
         html: html || `<div>${text || 'This is an automated message.'}</div>`,
-      };
+      });
 
-      console.log(`[Gmail] Configuration found, sending to ${mailOptions.to}...`);
-
-      const info = await transporter.sendMail(mailOptions);
-      console.log('[Gmail] Send result:', info.response);
-      res.json({ success: true, messageId: info.messageId, response: info.response });
+      res.json({ success: true, messageId: info.messageId });
     } catch (error: any) {
       console.error('[Gmail] Send Error:', error);
-      
-      // Provide more specific error messages for Gmail issues
-      let errorMessage = 'Failed to send email via Gmail.';
-      let details = error.message;
-
-      if (error.code === 'EAUTH') {
-        errorMessage = 'Gmail authentication failed.';
-        details = 'Please verify your Gmail address and App Password. Ensure 2-Step Verification is enabled.';
-      } else if (error.code === 'ESOCKET') {
-        errorMessage = 'Network error connecting to Gmail.';
-        details = 'Could not establish connection to Gmail servers.';
-      }
-
-      res.status(500).json({ 
-        error: errorMessage,
-        details: details,
-        code: error.code,
-        command: error.command
-      });
+      res.status(500).json({ error: error.message });
     }
   });
 

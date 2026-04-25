@@ -61,6 +61,7 @@ import {
   Moon,
   CheckCircle2,
   Clock,
+  Cloud,
   AlertCircle,
   Edit3,
   IndianRupee,
@@ -1746,6 +1747,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
   const [gmailModalOpen, setGmailModalOpen] = useState(false);
   const [gmailUser, setGmailUser] = useState('');
   const [gmailPass, setGmailPass] = useState('');
+  const [workerUrl, setWorkerUrl] = useState('');
+  const [workerSecret, setWorkerSecret] = useState('');
   const [gmailSaving, setGmailSaving] = useState(false);
   const [testEmailRecipient, setTestEmailRecipient] = useState('');
 
@@ -1759,6 +1762,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           const data = docSnap.data();
           setGmailUser(data.user || '');
           setGmailPass(data.pass || '');
+          setWorkerUrl(data.workerUrl || '');
+          setWorkerSecret(data.workerSecret || '');
           // Only update recipient if it's currently empty
           setTestEmailRecipient(prev => prev || data.user || '');
         }
@@ -1780,6 +1785,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       await setDoc(doc(db, 'settings', 'gmail'), {
         user: gmailUser,
         pass: gmailPass,
+        workerUrl: workerUrl,
+        workerSecret: workerSecret,
         updatedAt: serverTimestamp()
       });
       showToast('Gmail settings saved successfully', 'success');
@@ -1788,6 +1795,33 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       showToast('Failed to save settings: ' + error.message, 'error');
     } finally {
       setGmailSaving(false);
+    }
+  };
+
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const handleTestGmailConnection = async () => {
+    if (!gmailUser || !gmailPass) {
+      showToast('Enter Gmail and Password first', 'error');
+      return;
+    }
+    setIsTestingConnection(true);
+    try {
+      const response = await fetch('/api/communications/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: gmailUser, pass: gmailPass })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        showToast('Success! Gmail connection is working.', 'success');
+      } else {
+        throw new Error(data.details || data.error || 'Connection failed');
+      }
+    } catch (err: any) {
+      console.error('SMTP Test Error:', err);
+      showToast(`Test failed: ${err.message}`, 'error');
+    } finally {
+      setIsTestingConnection(false);
     }
   };
 
@@ -2483,22 +2517,28 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           {/* Top Row: Status Filters & Actions */}
           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
             <div className="flex gap-2 w-full xl:w-auto overflow-x-auto no-scrollbar max-w-full pb-2 xl:pb-0">
-              {['all', 'new', 'contacted', 'converted', 'lost'].map(f => (
+              {[
+                  {id: 'all', label: 'All', count: leads.length},
+                  {id: 'new', label: 'New', count: leads.filter(l => l.status === 'new').length},
+                  {id: 'contacted', label: 'Contacted', count: leads.filter(l => l.status === 'contacted').length},
+                  {id: 'converted', label: 'Converted', count: leads.filter(l => l.status === 'converted').length},
+                  {id: 'lost', label: 'Lost', count: leads.filter(l => l.status === 'lost').length}
+                ].map(f => (
                 <button
-                  key={f}
+                  key={f.id}
                   onClick={() => {
-                    setFilter(f);
+                    setFilter(f.id);
                     setSelectedTag(''); // Reset tag filter when changing status
                   }}
-                  className={`px-5 py-2.5 rounded-[1rem] text-[10px] font-bold uppercase tracking-[0.15em] transition-all whitespace-nowrap shrink-0 flex items-center gap-2 ${
-                    filter === f 
-                      ? 'bg-luxury-dark text-white shadow-md scale-105' 
-                      : 'bg-luxury-dark/5 text-luxury-dark/60 hover:bg-luxury-dark/10 hover:text-luxury-dark'
+                  className={`px-6 py-3 rounded-full text-[10px] font-bold uppercase tracking-[0.2em] transition-all whitespace-nowrap shrink-0 flex items-center gap-3 active:scale-95 ${
+                    filter === f.id 
+                      ? 'bg-[#141414] text-white shadow-[0_10px_20px_rgba(0,0,0,0.15)] scale-105' 
+                      : 'bg-[#F5F5F5] text-luxury-dark/40 hover:bg-[#E8E8E8] hover:text-luxury-dark'
                   }`}
                 >
-                  {f}
-                  <span className={`px-2 py-0.5 rounded-full text-[9px] ${filter === f ? 'bg-white/20 text-white' : 'bg-luxury-dark/10 text-luxury-dark'}`}>
-                     {f === 'all' ? leads.length : leads.filter(l => l.status === f).length}
+                  {f.label}
+                  <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black ${filter === f.id ? 'bg-white/20 text-white' : 'bg-black/10 text-luxury-dark/60'}`}>
+                     {f.count}
                   </span>
                 </button>
               ))}
@@ -2589,121 +2629,113 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       </div>
 
       {/* Desktop View */}
-      <div className="hidden xl:block bg-white rounded-[2rem] border border-luxury-dark/5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+      <div className="hidden xl:block bg-white rounded-[2.5rem] border border-luxury-dark/5 shadow-[0_20px_50px_rgba(0,0,0,0.02)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-[#FAFAFA] border-b border-luxury-dark/5">
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Date</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Name</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Contact</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Details</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Tags</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Remarks</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Status</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40 text-right">Actions</th>
+              <tr className="bg-[#141414] text-white">
+                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Date</th>
+                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Lead Info</th>
+                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Direct Action</th>
+                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Inquiry Details</th>
+                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Categorization</th>
+                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Intelligence</th>
+                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Lifecycle</th>
+                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60 text-right">Delete</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-luxury-dark/5">
               {filteredLeads.map(lead => {
                 const isSent = lead.emailSent || lead.whatsappSent;
                 return (
-                  <tr key={lead.id} className="hover:bg-[#FAFAFA] transition-colors group">
-                    <td className="px-6 py-5 text-xs font-medium whitespace-nowrap text-luxury-dark/60">
+                  <tr key={lead.id} className="hover:bg-luxury-cream/20 transition-all group/row">
+                    <td className="px-8 py-7 text-xs font-bold text-luxury-dark/40 italic">
                       {formatDate(lead.createdAt)}
                     </td>
-                    <td className="px-6 py-5">
-                      <p className="text-sm font-bold mb-0.5 text-luxury-dark">{lead.name}</p>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-[#C8A45D]">{lead.source === 'meta' ? 'Meta Ad' : lead.source}</p>
+                    <td className="px-8 py-7">
+                      <p className="text-base font-bold text-luxury-dark leading-tight mb-1 group-hover/row:text-luxury-gold transition-colors">{lead.name}</p>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${lead.source === 'meta' ? 'bg-[#1877F2]/10 text-[#1877F2]' : 'bg-luxury-dark text-white'}`}>
+                          {lead.source === 'meta' ? 'Meta Lead' : lead.source}
+                        </span>
+                      </div>
                     </td>
-                    <td className="px-6 py-5 text-xs">
-                      <div className="space-y-1.5">
+                    <td className="px-8 py-7">
+                      <div className="flex items-center gap-3">
                         {lead.email && (
-                          <div 
+                          <button 
                             onClick={() => openReplyModal('email', lead.email, lead.name, lead.id)}
-                            className={`cursor-pointer transition-colors flex items-center gap-2 group/contact ${lead.emailSent ? 'text-red-500 hover:text-red-700' : 'text-luxury-dark/60 hover:text-blue-600'}`}
-                            title="Send Email"
+                            className={`p-3 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-sm hover:shadow-md ${lead.emailSent ? 'bg-red-50 text-red-500 border border-red-100' : 'bg-luxury-dark/5 text-luxury-dark hover:bg-luxury-gold hover:text-white'}`}
+                            title="Gmail Integration"
                           >
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${lead.emailSent ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500 group-hover/contact:bg-blue-100'}`}>
-                              <Mail size={10} />
-                            </div>
-                            <span className="truncate max-w-[150px] font-medium">{lead.email}</span>
-                          </div>
+                            <Mail size={16} strokeWidth={2.5} />
+                          </button>
                         )}
                         {(lead.phone || lead.mobile) && (
-                          <div 
+                          <button 
                             onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name, lead.id)}
-                            className={`cursor-pointer transition-colors flex items-center gap-2 group/contact ${lead.whatsappSent ? 'text-red-500 hover:text-red-700' : 'text-luxury-dark/60 hover:text-green-600'}`}
-                            title="Send WhatsApp"
+                            className={`p-3 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-sm hover:shadow-md ${lead.whatsappSent ? 'bg-red-50 text-red-500 border border-red-100' : 'bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white'}`}
+                            title="WhatsApp Connect"
                           >
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${lead.whatsappSent ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500 group-hover/contact:bg-green-100'}`}>
-                              <Phone size={10} />
-                            </div>
-                            <span className="font-medium">{lead.phone || lead.mobile}</span>
-                          </div>
+                            <Phone size={16} strokeWidth={2.5} />
+                          </button>
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-5">
-                      <div className="space-y-1">
-                        {(lead.budget || lead.guests) && (
-                          <p className="text-xs font-bold text-luxury-dark">
-                            {lead.budget ? `₹${lead.budget}` : ''}
-                            {lead.budget && lead.guests ? ' • ' : ''}
-                            {lead.guests ? `${lead.guests} Guests` : ''}
-                          </p>
-                        )}
+                    <td className="px-8 py-7">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap gap-2 text-[11px] font-bold text-luxury-dark">
+                          {lead.budget && (
+                            <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-100">
+                              <IndianRupee size={10} /> {lead.budget}
+                            </span>
+                          )}
+                          {lead.guests && (
+                            <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-100">
+                              <Users size={10} /> {lead.guests}
+                            </span>
+                          )}
+                        </div>
                         {lead.city && (
-                          <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-luxury-dark/40">
+                          <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em] text-luxury-dark/30">
                             <MapPin size={10} className="text-luxury-gold" />
                             {lead.city}
                           </div>
                         )}
-                        {!lead.budget && !lead.guests && !lead.city && (
-                          <span className="text-[10px] italic text-luxury-dark/20">No details</span>
-                        )}
                       </div>
                     </td>
-                    <td className="px-6 py-5">
-                      <div className="flex flex-col gap-2">
+                    <td className="px-8 py-7">
+                      <div className="flex flex-col gap-3 min-w-[160px]">
                         <select 
                           value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
                           onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
                           disabled={!canEdit}
-                          className={`text-[10px] font-bold uppercase tracking-widest border rounded-xl px-3 py-2 appearance-none outline-none transition-all ${
+                          className={`text-[10px] font-black uppercase tracking-[0.15em] border-2 rounded-xl px-4 py-3 appearance-none outline-none transition-all shadow-sm ${
                             !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
                           } ${
-                            (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                            (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-100' :
-                            'bg-[#FAFAFA] text-luxury-dark/40 border-luxury-dark/10 hover:border-luxury-gold'
+                            (lead.tags || []).includes('Relevent') ? 'bg-emerald-500 text-white border-emerald-500' :
+                            (lead.tags || []).includes('Non Relevent') ? 'bg-red-500 text-white border-red-500' :
+                            'bg-white text-luxury-dark border-luxury-dark/10 hover:border-luxury-gold'
                           }`}
                         >
-                          <option value="">Select Tag...</option>
-                          <option value="Relevent">Relevent</option>
-                          <option value="Non Relevent">Non Relevent</option>
+                          <option value="" className="text-luxury-dark">Select Level</option>
+                          <option value="Relevent">✨ Relevent</option>
+                          <option value="Non Relevent">⚠️ Non Relevent</option>
                         </select>
                         
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-1.5">
                           {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
                             <span 
                               key={tag} 
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider group/tag bg-luxury-dark/5 text-luxury-dark/60"
+                              className="px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest bg-luxury-gold/10 text-luxury-dark/60 border border-luxury-gold/10"
                             >
                               {tag}
-                              {canEdit && (
-                                <button 
-                                  onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
-                                  className="hover:text-red-500 transition-colors"
-                                >
-                                  <X size={8} />
-                                </button>
-                              )}
                             </span>
                           ))}
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-5">
+                    <td className="px-8 py-7">
                       <textarea 
                         defaultValue={lead.remarks || ''}
                         onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
@@ -2714,38 +2746,38 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                           }
                         }}
                         disabled={!canEdit}
-                        placeholder={canEdit ? "Add remarks..." : "No remarks"}
+                        placeholder={canEdit ? "Enter lead intelligence..." : "N/A"}
                         rows={2}
-                        className={`text-xs border-none rounded-xl px-4 py-2 w-full min-w-[180px] outline-none transition-colors resize-none bg-[#FAFAFA] text-luxury-dark placeholder:text-luxury-dark/20 ${!canEdit ? 'opacity-70 cursor-not-allowed' : 'focus:ring-1 focus:ring-luxury-gold'}`}
+                        className={`text-xs border-2 border-transparent rounded-[1.5rem] px-5 py-3 w-full min-w-[220px] outline-none transition-all resize-none shadow-inner bg-[#F5F5F5] text-luxury-dark placeholder:text-luxury-dark/20 ${!canEdit ? 'opacity-70 cursor-not-allowed' : 'focus:bg-white focus:border-luxury-gold focus:shadow-md'}`}
                       />
                     </td>
-                    <td className="px-6 py-5">
+                    <td className="px-8 py-7">
                       <select 
                         value={lead.status || 'new'} 
                         onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
                         disabled={!canEdit}
-                        className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-4 py-2 appearance-none outline-none transition-all ${
-                          !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                        className={`text-[10px] font-black uppercase tracking-[0.2em] border-none rounded-2xl px-5 py-3 appearance-none outline-none transition-all shadow-lg ${
+                          !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer hover:scale-105'
                         } ${
-                          lead.status === 'converted' ? 'bg-[#0F9D58]/10 text-[#0F9D58]' :
-                          lead.status === 'contacted' ? 'bg-[#1877F2]/10 text-[#1877F2]' :
-                          lead.status === 'lost' ? 'bg-red-50 text-red-600' :
-                           'bg-amber-50 text-amber-600'
+                          lead.status === 'converted' ? 'bg-[#10B981] text-white' :
+                          lead.status === 'contacted' ? 'bg-[#3B82F6] text-white' :
+                          lead.status === 'lost' ? 'bg-red-500 text-white' :
+                           'bg-[#F59E0B] text-white'
                         }`}
                       >
-                        <option value="new">New</option>
-                        <option value="contacted">Contacted</option>
-                        <option value="converted">Converted</option>
-                        <option value="lost">Lost</option>
+                        <option value="new">NEW INQUIRY</option>
+                        <option value="contacted">CONTACTED</option>
+                        <option value="converted">CONVERTED</option>
+                        <option value="lost">LOST LEAD</option>
                       </select>
                     </td>
-                    <td className="px-6 py-5 text-right">
+                    <td className="px-8 py-7 text-right">
                       {canDelete && (
                         <button 
                           onClick={() => setLeadToDelete(lead.id)} 
-                          className="w-8 h-8 inline-flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                          className="w-12 h-12 inline-flex items-center justify-center rounded-2xl bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-95 group/del"
                         >
-                          <Trash2 size={14} />
+                          <Trash2 size={18} className="group-hover/del:scale-110 transition-transform" />
                         </button>
                       )}
                     </td>
@@ -2769,152 +2801,114 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       </div>
 
       {/* Mobile/Tablet Card View */}
-      <div className="xl:hidden grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="xl:hidden grid grid-cols-1 md:grid-cols-2 gap-6">
         {filteredLeads.map(lead => {
           const isSent = lead.emailSent || lead.whatsappSent;
           return (
-            <div key={lead.id} className="bg-white rounded-[2rem] p-6 border border-luxury-dark/5 shadow-sm space-y-5">
-               <div className="flex justify-between items-start">
+            <div key={lead.id} className="bg-white rounded-[2.5rem] p-8 border border-luxury-dark/5 shadow-lg relative overflow-hidden group">
+               <div className="absolute top-0 right-0 w-24 h-24 -mr-12 -mt-12 bg-luxury-gold/5 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700" />
+               
+               <div className="flex justify-between items-start relative z-10 mb-6">
                  <div>
-                   <h3 className="text-lg font-bold text-luxury-dark">{lead.name}</h3>
-                   <p className="text-[10px] font-bold uppercase tracking-widest mt-0.5 text-[#C8A45D]">{lead.source === 'meta' ? 'Meta Ad' : lead.source} • {formatDate(lead.createdAt)}</p>
+                   <h3 className="text-xl font-bold text-luxury-dark group-hover:text-luxury-gold transition-colors">{lead.name}</h3>
+                   <div className="flex items-center gap-2 mt-1">
+                     <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${lead.source === 'meta' ? 'bg-[#1877F2]/10 text-[#1877F2]' : 'bg-luxury-dark text-white'}`}>
+                        {lead.source === 'meta' ? 'Meta Lead' : lead.source}
+                     </span>
+                     <span className="text-[9px] font-bold text-luxury-dark/30 uppercase tracking-widest italic">{formatDate(lead.createdAt)}</span>
+                   </div>
                  </div>
                  <select 
                     value={lead.status || 'new'} 
                     onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
                     disabled={!canEdit}
-                    className={`text-[10px] font-bold uppercase tracking-widest border-none rounded-xl px-3 py-1.5 appearance-none outline-none ${
-                        !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                    className={`text-[9px] font-black uppercase tracking-[0.2em] border-none rounded-xl px-4 py-2 appearance-none outline-none shadow-sm ${
+                        !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer active:scale-95 transition-transform'
                     } ${
-                      lead.status === 'converted' ? 'bg-[#0F9D58]/10 text-[#0F9D58]' :
-                      lead.status === 'contacted' ? 'bg-[#1877F2]/10 text-[#1877F2]' :
-                      lead.status === 'lost' ? 'bg-red-50 text-red-600' :
-                      'bg-amber-50 text-amber-600'
+                      lead.status === 'converted' ? 'bg-[#10B981] text-white' :
+                      lead.status === 'contacted' ? 'bg-[#3B82F6] text-white' :
+                      lead.status === 'lost' ? 'bg-red-500 text-white' :
+                      'bg-[#F59E0B] text-white'
                     }`}
                   >
-                    <option value="new">New</option>
-                    <option value="contacted">Contacted</option>
-                    <option value="converted">Converted</option>
-                    <option value="lost">Lost</option>
+                    <option value="new">NEW</option>
+                    <option value="contacted">CONTACT</option>
+                    <option value="converted">WON</option>
+                    <option value="lost">LOST</option>
                  </select>
                </div>
 
-               <div className="bg-[#FAFAFA] rounded-2xl p-4 flex flex-col gap-2">
-                  {(lead.budget || lead.guests || lead.city) && (
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 pb-2 border-b border-luxury-dark/5">
-                      {lead.budget && <span className="text-xs font-bold text-luxury-dark">₹{lead.budget}</span>}
-                      {lead.guests && <span className="text-xs font-bold text-luxury-gold">{lead.guests} Guests</span>}
-                      {lead.city && (
-                        <span className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 text-luxury-dark/40">
-                          <MapPin size={10} /> {lead.city}
-                        </span>
-                      )}
-                    </div>
-                  )}
+               <div className="grid grid-cols-2 gap-3 relative z-10 mb-6">
                   {lead.email && (
-                    <div 
+                    <button 
                       onClick={() => canEdit && openReplyModal('email', lead.email, lead.name, lead.id)}
-                      className={`flex items-center gap-3 text-sm ${canEdit ? 'cursor-pointer' : 'cursor-default opacity-70'} ${lead.emailSent ? 'text-red-600' : 'text-luxury-dark/80'}`}
+                      className={`flex flex-col items-center justify-center p-4 rounded-2xl transition-all active:scale-95 border-2 ${lead.emailSent ? 'bg-red-50 text-red-500 border-red-100' : 'bg-luxury-cream/50 text-luxury-dark border-transparent hover:border-luxury-gold hover:bg-white'}`}
                     >
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${lead.emailSent ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
-                        <Mail size={14} />
-                      </div>
-                      <span className="truncate font-medium">{lead.email}</span>
-                    </div>
+                      <Mail size={20} strokeWidth={2.5} className="mb-2" />
+                      <span className="text-[10px] font-black uppercase tracking-widest">Email</span>
+                    </button>
                   )}
                   {(lead.phone || lead.mobile) && (
-                    <div 
+                    <button 
                       onClick={() => canEdit && openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name, lead.id)}
-                      className={`flex items-center gap-3 text-sm ${canEdit ? 'cursor-pointer' : 'cursor-default opacity-70'} ${lead.whatsappSent ? 'text-red-600' : 'text-luxury-dark/80'}`}
+                      className={`flex flex-col items-center justify-center p-4 rounded-2xl transition-all active:scale-95 border-2 ${lead.whatsappSent ? 'bg-red-50 text-red-500 border-red-100' : 'bg-[#25D366]/5 text-[#25D366] border-transparent hover:border-[#25D366] hover:bg-white'}`}
                     >
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${lead.whatsappSent ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
-                        <Phone size={14} />
-                      </div>
-                      <span className="font-medium">{lead.phone || lead.mobile}</span>
-                    </div>
-                  )}
-                  {!lead.email && !lead.phone && !lead.mobile && (
-                    <p className="text-xs italic text-luxury-dark/40">No contact info provided</p>
+                      <Phone size={20} strokeWidth={2.5} className="mb-2" />
+                      <span className="text-[10px] font-black uppercase tracking-widest">WhatsApp</span>
+                    </button>
                   )}
                </div>
 
-               <div>
-                 <p className="text-[10px] font-bold uppercase tracking-widest mb-2 text-luxury-dark/40">Tags</p>
-                 <div className="flex flex-col gap-3">
-                    <select 
-                       value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
-                       onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
-                       disabled={!canEdit}
-                       className={`w-full text-[10px] font-bold uppercase tracking-widest border rounded-2xl px-4 py-3 appearance-none outline-none transition-all ${
-                         !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
-                       } ${
-                         (lead.tags || []).includes('Relevent') ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                         (lead.tags || []).includes('Non Relevent') ? 'bg-red-50 text-red-600 border-red-200' :
-                         'bg-[#FAFAFA] text-luxury-dark/40 border-luxury-dark/10'
-                       }`}
-                     >
-                       <option value="">No Tag Set</option>
-                       <option value="Relevent">Relevent</option>
-                       <option value="Non Relevent">Non Relevent</option>
-                    </select>
-
-                    <div className="flex flex-wrap gap-2">
-                       {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
-                         <span 
-                           key={tag} 
-                           className="px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center gap-1.5 bg-luxury-dark/5 text-luxury-dark/60"
-                         >
-                           {tag}
-                           {canEdit && (
-                             <button 
-                               onClick={() => handleRemoveTag(lead.id, tag, lead.tags || [])}
-                               className="hover:text-red-500 transition-colors"
-                             >
-                               <X size={10} />
-                             </button>
-                           )}
-                         </span>
-                       ))}
-                    </div>
-
-                    {canEdit && (
-                      <div className="relative">
-                        <input 
-                          type="text"
-                          placeholder="Add custom tag + Enter"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddCustomTag(lead.id, (e.target as HTMLInputElement).value, lead.tags || []);
-                              (e.target as HTMLInputElement).value = '';
-                            }
-                          }}
-                          className="w-full text-[10px] rounded-xl px-4 py-3 outline-none focus:ring-1 focus:ring-luxury-gold transition-all bg-luxury-dark/5 text-luxury-dark"
-                        />
+               <div className="bg-[#F9F9F9] rounded-[2rem] p-6 space-y-4 relative z-10 shadow-inner">
+                  <div className="flex flex-wrap gap-3">
+                    {lead.budget && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm border border-luxury-dark/5">
+                        <IndianRupee size={12} className="text-emerald-500" />
+                        <span className="text-xs font-bold text-luxury-dark">{lead.budget}</span>
                       </div>
                     )}
-                 </div>
+                    {lead.guests && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm border border-luxury-dark/5">
+                        <Users size={12} className="text-blue-500" />
+                        <span className="text-xs font-bold text-luxury-dark">{lead.guests}</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {lead.city && (
+                    <div className="flex items-center gap-2 text-xs font-bold text-luxury-dark/40">
+                       <MapPin size={14} className="text-luxury-gold" />
+                       {lead.city}
+                    </div>
+                  )}
+
+                  <div className="pt-4 border-t border-luxury-dark/5">
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-luxury-dark/20">Lead Intelligence</p>
+                    <textarea 
+                      defaultValue={lead.remarks || ''}
+                      onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
+                      disabled={!canEdit}
+                      placeholder="Add key insights..."
+                      rows={2}
+                      className="w-full bg-white border-2 border-transparent focus:border-luxury-gold rounded-xl px-4 py-3 text-xs outline-none transition-all resize-none shadow-sm text-luxury-dark placeholder:text-luxury-dark/20"
+                    />
+                  </div>
                </div>
 
-               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-2 text-luxury-dark/40">Remarks</p>
-                <textarea 
-                   defaultValue={lead.remarks || ''}
-                   onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
-                   disabled={!canEdit}
-                   placeholder={canEdit ? "Notes..." : "No remarks"}
-                   rows={2}
-                   className={`text-xs border-none rounded-xl px-4 py-3 w-full outline-none transition-colors resize-none bg-[#FAFAFA] text-luxury-dark ${!canEdit ? 'opacity-70 cursor-not-allowed' : 'focus:ring-1 focus:ring-luxury-gold'}`}
-                 />
-               </div>
-
-               <div className={`pt-4 border-t text-right ${isSent ? 'border-red-100' : 'border-luxury-dark/5'}`}>
+               <div className="flex justify-between items-center relative z-10 pt-4">
+                  <div className="flex flex-wrap gap-1">
+                    {(lead.tags || []).map((tag: string) => (
+                      <span key={tag} className="px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-luxury-gold/10 text-luxury-dark/60">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
                   {canDelete && (
                     <button 
                       onClick={() => setLeadToDelete(lead.id)} 
-                      className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-xl transition-all"
+                      className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
                     >
-                      Delete Lead
+                      <Trash2 size={16} />
                     </button>
                   )}
                </div>
@@ -2982,16 +2976,32 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                   <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40 mb-2">Configure Account</h4>
                   
                   <div className="space-y-3">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">Gmail Address</label>
-                      <input 
-                        type="email" 
-                        value={gmailUser}
-                        onChange={(e) => setGmailUser(e.target.value)}
-                        placeholder="yourname@gmail.com"
-                        className="w-full bg-white border border-luxury-dark/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-luxury-gold transition-all"
-                      />
-                    </div>
+                <div className="flex gap-4">
+                  <div className="space-y-1.5 flex-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">Gmail Address</label>
+                    <input 
+                      type="email" 
+                      value={gmailUser}
+                      onChange={(e) => setGmailUser(e.target.value)}
+                      placeholder="yourname@gmail.com"
+                      className="w-full bg-white border border-luxury-dark/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-luxury-gold transition-all"
+                    />
+                  </div>
+                  <div className="flex items-end mb-1">
+                    <button 
+                      onClick={handleTestGmailConnection}
+                      disabled={isTestingConnection}
+                      className="p-3.5 bg-red-50 text-[#DB4437] rounded-xl hover:bg-[#DB4437] hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2 border border-red-100"
+                      title="Test Connection"
+                    >
+                      {isTestingConnection ? (
+                        <RefreshCw size={14} className="animate-spin" />
+                      ) : (
+                        <Zap size={14} />
+                      )}
+                    </button>
+                  </div>
+                </div>
                     
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">App Password (16 Letters)</label>
@@ -3009,12 +3019,54 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                       </div>
                     </div>
 
+                    <div className="pt-4 border-t border-luxury-dark/5 space-y-4">
+                      <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#0061FF] mb-2 flex items-center gap-2">
+                        <Cloud size={12} />
+                        Cloudflare Relay (Optional)
+                      </h4>
+                      
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">Worker URL</label>
+                        <input 
+                          type="url" 
+                          value={workerUrl}
+                          onChange={(e) => setWorkerUrl(e.target.value)}
+                          placeholder="https://your-worker.workers.dev"
+                          className="w-full bg-white border border-luxury-dark/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-blue-400 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">Worker Secret</label>
+                        <input 
+                          type="password" 
+                          value={workerSecret}
+                          onChange={(e) => setWorkerSecret(e.target.value)}
+                          placeholder="Any custom token used in worker"
+                          className="w-full bg-white border border-luxury-dark/10 rounded-2xl px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-blue-400 transition-all font-mono"
+                        />
+                      </div>
+                    </div>
+
                     <button 
                       onClick={handleSaveGmailSettings}
                       disabled={gmailSaving}
                       className="w-full py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-black transition-all disabled:opacity-50"
                     >
                       {gmailSaving ? 'Saving...' : 'Save Configuration'}
+                    </button>
+
+                    <button 
+                      onClick={handleTestGmailConnection}
+                      disabled={isTestingConnection}
+                      className="w-full py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-red-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isTestingConnection ? (
+                        <div className="w-3 h-3 border-2 border-red-200 border-t-red-600 rounded-full animate-spin" />
+                      ) : (
+                        <RefreshCw size={12} />
+                      )}
+                      {isTestingConnection ? 'Testing...' : 'Test Connection'}
                     </button>
                   </div>
                 </div>
@@ -3756,58 +3808,63 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <TrendingUp size={24} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+        {[
+          { label: 'Total Income', value: stats.totalIncome, icon: IndianRupee, color: 'emerald', info: 'Gross Revenue' },
+          { label: 'Total Expenses', value: stats.totalExpenses, icon: TrendingDown, color: 'red', info: 'OpEx Costs' },
+          { label: 'Net Profit', value: stats.netProfit, icon: TrendingUp, color: 'luxury-gold', info: 'Post-Expense' },
+          { label: 'Efficiency', value: `${stats.profitMargin}%`, icon: PieChart, color: 'blue', info: 'Profit Margin' }
+        ].map((stat, idx) => (
+          <motion.div 
+            key={idx} 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.1 }}
+            className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 relative overflow-hidden group"
+          >
+            <div className={`absolute top-0 right-0 w-40 h-40 -mr-20 -mt-20 bg-${stat.color === 'luxury-gold' ? 'luxury-gold' : stat.color}-500/5 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000`} />
+            
+            <div className="relative z-10">
+              <div className="flex items-center justify-between mb-8">
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transform group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 ${
+                  stat.color === 'emerald' ? 'bg-emerald-500 text-white shadow-emerald-500/20' :
+                  stat.color === 'red' ? 'bg-red-500 text-white shadow-red-500/20' :
+                  stat.color === 'blue' ? 'bg-blue-500 text-white shadow-blue-500/20' :
+                  'bg-luxury-gold text-white shadow-luxury-gold/20'
+                }`}>
+                  <stat.icon size={28} strokeWidth={2.5} />
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-luxury-dark/20 uppercase tracking-[0.2em]">{stat.info}</p>
+                  <p className={`text-[9px] font-black uppercase mt-1 ${
+                    stat.color === 'red' ? 'text-red-500' : 'text-emerald-500'
+                  }`}>+12.5% vs Prev</p>
+                </div>
+              </div>
+              
+              <p className="text-[11px] font-bold text-luxury-dark/40 uppercase tracking-[0.3em] mb-1">{stat.label}</p>
+              <h3 className="text-4xl font-serif font-black text-luxury-dark tracking-tight">
+                {typeof stat.value === 'number' ? `₹${stat.value.toLocaleString()}` : stat.value}
+              </h3>
+              
+              <div className="mt-6 flex items-center gap-2">
+                <div className="flex-1 h-1 bg-luxury-dark/5 rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: '70%' }}
+                    className={`h-full ${
+                      stat.color === 'emerald' ? 'bg-emerald-500' :
+                      stat.color === 'red' ? 'bg-red-500' :
+                      stat.color === 'blue' ? 'bg-blue-500' :
+                      'bg-luxury-gold'
+                    }`}
+                  />
+                </div>
+                <span className="text-[9px] font-bold text-luxury-dark/30">Target: 85%</span>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Total Income</p>
-              <h3 className="text-2xl font-serif font-bold text-luxury-dark">₹{stats.totalIncome.toLocaleString()}</h3>
-            </div>
-          </div>
-          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Based on booking amounts only</p>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center">
-              <TrendingDown size={24} />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Total Expenses</p>
-              <h3 className="text-2xl font-serif font-bold text-luxury-dark">₹{stats.totalExpenses.toLocaleString()}</h3>
-            </div>
-          </div>
-          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Bookings & Global costs</p>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-luxury-gold/10 text-luxury-gold flex items-center justify-center">
-              <IndianRupee size={24} />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Net Profit</p>
-              <h3 className="text-2xl font-serif font-bold text-luxury-dark">₹{stats.netProfit.toLocaleString()}</h3>
-            </div>
-          </div>
-          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Income minus ALL expenses</p>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <PieChart size={24} />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">True ROI Margin</p>
-              <h3 className="text-2xl font-serif font-bold text-luxury-dark">{stats.profitMargin}%</h3>
-            </div>
-          </div>
-          <p className="text-[10px] text-luxury-dark/30 font-medium italic">Profit as % of income</p>
-        </div>
+          </motion.div>
+        ))}
       </div>
 
       {/* Charts Section */}
