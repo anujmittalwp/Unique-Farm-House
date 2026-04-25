@@ -1837,7 +1837,10 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       if (response.ok) {
         showToast('Success! Gmail connection is working.', 'success');
       } else {
-        throw new Error(data.details || data.error || `HTTP ${response.status}: Connection failed`);
+        if (data.debug) {
+          console.warn('[Gmail Debug Info]:', data.debug);
+        }
+        throw new Error(data.error || data.details || `HTTP ${response.status}: Connection failed`);
       }
     } catch (err: any) {
       console.error('SMTP Test Error:', err);
@@ -2968,41 +2971,128 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       )}
 
       {gmailModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
-          <div className="bg-white rounded-[1.5rem] sm:rounded-[2rem] max-w-xl w-full max-h-[92vh] overflow-hidden relative shadow-2xl flex flex-col mx-auto">
-            <div className="p-5 sm:p-8 flex justify-between items-center border-b border-luxury-dark/5">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-2 sm:p-4 text-left">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-[1.5rem] sm:rounded-[2.5rem] max-w-xl w-full max-h-[95vh] overflow-hidden relative shadow-2xl flex flex-col mx-auto"
+          >
+            {/* Header */}
+            <div className="p-5 sm:p-8 flex justify-between items-center border-b border-luxury-dark/5 bg-white shrink-0">
               <div className="flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-red-50 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0">
-                  <Mail className="text-[#DB4437] w-5 h-5 sm:w-6 sm:h-6" />
+                <div className="w-10 h-10 sm:w-14 sm:h-14 bg-red-50 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0">
+                  <Mail className="text-[#DB4437] w-5 h-5 sm:w-7 sm:h-7" />
                 </div>
                 <div>
-                  <h3 className="text-lg sm:text-2xl font-serif text-luxury-dark leading-none sm:leading-normal">Gmail Integration</h3>
-                  <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40 mt-1">Secure Email Automation</p>
+                  <h3 className="text-lg sm:text-2xl font-serif text-luxury-dark leading-tight">Gmail Connectivity</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider ${workerUrl ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                      {workerUrl ? 'Cloudflare Relay' : 'Direct SMTP'}
+                    </span>
+                  </div>
                 </div>
               </div>
               <button 
                 onClick={() => setGmailModalOpen(false)}
                 className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-lg sm:rounded-xl hover:bg-luxury-dark/5 text-luxury-dark/40 transition-colors"
+                id="close-gmail-modal"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6 custom-scrollbar max-h-[75vh]">
-              <div className="p-4 sm:p-6 bg-[#FAFAFA] border border-luxury-dark/5 rounded-[1.2rem] sm:rounded-[2rem] space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.2em] text-luxury-dark/40">Configuration</h4>
-                  <div className="flex items-center gap-2 px-2 py-1 bg-white border border-luxury-dark/5 rounded-lg">
-                    <div className={`w-1.5 h-1.5 rounded-full ${workerUrl ? 'bg-blue-500' : 'bg-emerald-500'}`}></div>
-                    <span className="text-[8px] font-bold uppercase text-luxury-dark/40">
-                      {workerUrl ? 'Cloudflare Relay' : 'Direct SMTP'}
-                    </span>
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6 custom-scrollbar bg-[#FDFDFD]">
+              
+              <div className="p-4 sm:p-6 bg-blue-50/40 border border-blue-100 rounded-[1.2rem] sm:rounded-[2rem] space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+                    <Cloud size={16} />
                   </div>
+                  <h4 className="text-[11px] sm:text-xs font-bold uppercase tracking-widest text-blue-700">Cloudflare Worker Required</h4>
                 </div>
-                
-                <div className="grid grid-cols-1 gap-4">
+                <p className="text-[10px] sm:text-xs text-blue-800/70 font-medium leading-relaxed">
+                  Most hosting providers block direct SMTP (Port 465). To send emails reliably, you <b>must</b> deploy a simple relay worker on Cloudflare. 
+                  <br /><br />
+                  <span className="text-red-600 bg-red-50 p-2 rounded-lg block border border-red-100 font-bold">
+                    ⚠️ CRITICAL: Use your *.workers.dev URL. <br />
+                    DO NOT use "ais-dev-ykn7bj..." as the Relay URL.
+                  </span>
+                </p>
+                <button 
+                  onClick={() => {
+                    const code = `/** Cloudflare SMTP Relay v1.2 (Updated) **/
+export default {
+  async fetch(request, env) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, X-Relay-Secret, Authorization",
+        }
+      });
+    }
+
+    if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+
+    const xSecret = request.headers.get("X-Relay-Secret");
+    const authHeader = request.headers.get("Authorization");
+    const bearerSecret = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
+    const incomingSecret = (xSecret || bearerSecret || "").trim();
+    const configuredSecret = (env.AUTH_SECRET || env.RELAY_SECRET || env.AUTH_TOKEN || "").trim();
+
+    if (configuredSecret && incomingSecret !== configuredSecret) {
+      return new Response(JSON.stringify({ 
+        error: "Invalid Relay Secret (401)",
+        details: "The secret provided did not match AUTH_SECRET or RELAY_SECRET in Worker variables."
+      }), { 
+        status: 401, 
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } 
+      });
+    }
+
+    try {
+      const data = await request.json();
+      const send_request = new Request("https://api.mailchannels.net/tx/v1/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email: data.to }] }],
+          from: { email: data.user, name: "CRM Automation" },
+          subject: data.subject,
+          content: [{ type: "text/html", value: data.html || data.text }]
+        })
+      });
+
+      const response = await fetch(send_request);
+      return new Response(await response.text(), { 
+        status: response.status, 
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } 
+      });
+    } catch (e) {
+      return new Response(JSON.stringify({ error: e.message }), { 
+        status: 500,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+      });
+    }
+  }
+};`;
+                    navigator.clipboard.writeText(code);
+                    showToast('Relay Code Copied! Paste this into Cloudflare Worker editor.', 'success');
+                  }}
+                  className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                >
+                  <Save size={14} />
+                  Copy Worker Code
+                </button>
+              </div>
+
+              {/* Credentials Section */}
+              <div className="p-4 sm:p-6 bg-white border border-luxury-dark/5 rounded-[1.2rem] sm:rounded-[2rem] shadow-sm space-y-5">
+                <div className="grid grid-cols-1 gap-5">
                   <div className="space-y-4">
-                    <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex flex-col sm:flex-row gap-4">
                       <div className="space-y-1.5 flex-1">
                         <label className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">Gmail Address</label>
                         <input 
@@ -3010,130 +3100,147 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                           value={gmailUser}
                           onChange={(e) => setGmailUser(e.target.value)}
                           placeholder="yourname@gmail.com"
-                          className="w-full bg-white border border-luxury-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-luxury-gold transition-all"
+                          className="w-full bg-[#FAFAFA] border border-luxury-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-luxury-gold/20 focus:border-luxury-gold transition-all"
                         />
                       </div>
                       <div className="flex items-end">
                         <button 
                           onClick={handleTestGmailConnection}
                           disabled={isTestingConnection}
-                          className="w-full sm:w-auto px-4 py-3 bg-red-50 text-[#DB4437] rounded-xl hover:bg-[#DB4437] hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2 border border-red-100 shadow-sm shrink-0"
+                          className="w-full sm:w-auto px-5 py-3 sm:py-3.5 bg-red-50 text-[#DB4437] rounded-xl hover:bg-[#DB4437] hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2 border border-red-100 shadow-sm shrink-0 active:scale-95"
+                          id="test-gmail-sync"
                         >
                           {isTestingConnection ? (
                             <RefreshCw size={14} className="animate-spin" />
                           ) : (
                             <Zap size={14} />
                           )}
-                          <span className="text-[9px] font-bold uppercase tracking-widest">Test Sync</span>
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Test Sync</span>
                         </button>
                       </div>
                     </div>
                       
                     <div className="space-y-1.5">
-                      <label className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">App Password</label>
+                      <label className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-2">Google App Password</label>
                       <input 
                         type="password" 
                         value={gmailPass}
                         onChange={(e) => setGmailPass(e.target.value)}
                         placeholder="xxxx xxxx xxxx xxxx"
-                        className="w-full bg-white border border-luxury-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-luxury-gold transition-all font-mono"
+                        className="w-full bg-[#FAFAFA] border border-luxury-dark/10 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-luxury-gold/20 focus:border-luxury-gold transition-all font-mono"
                       />
                     </div>
 
-                    <div className="pt-4 border-t border-luxury-dark/5 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.2em] text-[#0061FF] flex items-center gap-2">
+                    <div className="pt-4 border-t border-luxury-dark/5">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.2em] text-blue-600 flex items-center gap-2">
                           <Cloud size={12} />
-                          Cloudflare Relay
+                          Worker Relay Settings
                         </h4>
                         {workerUrl && (
                           <button 
                             onClick={() => { setWorkerUrl(''); setWorkerSecret(''); }}
                             className="text-[8px] font-bold text-red-500 uppercase hover:underline"
                           >
-                            Clear Relay
+                            Disable Relay
                           </button>
                         )}
                       </div>
                       
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <label className="text-[9px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-1">Worker URL (Optional)</label>
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-1">Worker URL</label>
                           <input 
                             type="url" 
                             value={workerUrl}
                             onChange={(e) => setWorkerUrl(e.target.value)}
                             placeholder="https://relays.dev..."
-                            className="w-full bg-white border border-luxury-dark/10 rounded-xl px-3 py-2.5 text-[11px] outline-none focus:ring-1 focus:ring-blue-400 transition-all font-mono"
+                            className={`w-full bg-[#FAFAFA] border rounded-xl px-3 py-3 text-[11px] outline-none transition-all font-mono ${
+                              workerUrl.includes(window.location.hostname) 
+                                ? 'border-red-500 ring-2 ring-red-100' 
+                                : 'border-luxury-dark/10 focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400'
+                            }`}
                           />
+                          {workerUrl.includes(window.location.hostname) && (
+                            <p className="text-[8px] text-red-600 font-bold uppercase tracking-wider px-1">
+                              ⚠️ Error: This is the App's own URL. Provide the *.workers.dev URL.
+                            </p>
+                          )}
                         </div>
 
                         <div className="space-y-1.5">
-                          <label className="text-[9px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-1">Relay Secret</label>
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-luxury-dark/60 ml-1">Relay Secret (AUTH_SECRET)</label>
                           <input 
                             type="password" 
                             value={workerSecret}
                             onChange={(e) => setWorkerSecret(e.target.value)}
-                            placeholder="..."
-                            className="w-full bg-white border border-luxury-dark/10 rounded-xl px-3 py-2.5 text-[11px] outline-none focus:ring-1 focus:ring-blue-400 transition-all font-mono"
+                            placeholder="Token..."
+                            className="w-full bg-[#FAFAFA] border border-luxury-dark/10 rounded-xl px-3 py-3 text-[11px] outline-none focus:ring-2 focus:ring-blue-400/20 focus:border-blue-400 transition-all font-mono"
                           />
                         </div>
                       </div>
-                      <p className="text-[8px] text-luxury-dark/40 font-medium leading-relaxed italic px-2">
-                        * Use Relay only if your server blocks direct SMTP ports. Leave empty for better performance.
+                      <p className="text-[8px] sm:text-[9px] text-gray-500 font-medium leading-relaxed italic mt-3 px-1">
+                        <b>Are you using a @gmail.com address?</b> You likely <b>do not</b> need a Cloudflare Worker relay. Leave the URLs blank above to connect directly via standard SMTP.
+                        <br/><br/>
+                        <b>Using a custom domain?</b> You can deploy a Cloudflare Worker with the code above. Add a Variable <code>AUTH_SECRET</code> to your Worker matching the field above.
+                        <br/><br/>
+                        <span className="text-red-500 font-bold">⚠️ MailChannels does NOT permit sending from @gmail.com addresses. If you have a @gmail.com address, clear out the Worker fields and try testing directly!</span>
                       </p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 pt-2">
-                      <button 
-                        onClick={handleSaveGmailSettings}
-                        disabled={gmailSaving}
-                        className="py-3.5 bg-luxury-dark text-white rounded-xl text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.15em] hover:bg-black transition-all shadow-md disabled:opacity-50 active:scale-95 flex items-center justify-center gap-2"
-                      >
-                        <Save size={12} />
-                        {gmailSaving ? 'Saving...' : 'Save Settings'}
-                      </button>
-
-                      <button 
-                        onClick={() => setGmailModalOpen(false)}
-                        className="py-3.5 bg-white text-luxury-dark border border-luxury-dark/10 rounded-xl text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.15em] hover:bg-luxury-dark/5 transition-all active:scale-95 shadow-sm"
-                      >
-                        Close
-                      </button>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="p-4 sm:p-6 bg-blue-50/30 border border-blue-100 rounded-[1.2rem] sm:rounded-[2rem] hidden sm:block">
-                <h4 className="text-[11px] sm:text-xs font-bold uppercase tracking-widest text-blue-600 mb-3 flex items-center gap-2">
+              {/* Instructions Section - Compact */}
+              <div className="p-4 sm:p-6 bg-blue-50/40 border border-blue-100/50 rounded-[1.2rem] sm:rounded-[2rem]">
+                <h4 className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-blue-700 mb-4 flex items-center gap-2">
                   <ShieldCheck size={14} />
-                  Setup Instructions
+                  Setup Steps
                 </h4>
-                <ol className="text-[10px] sm:text-xs text-luxury-dark/70 space-y-2 list-decimal list-inside leading-relaxed font-medium">
-                  <li>Enable <span className="font-bold text-luxury-dark underline decoration-blue-200">2-Step Verification</span> in Google Account.</li>
-                  <li>Search for <span className="font-bold text-luxury-dark">"App Passwords"</span>.</li>
-                  <li>Create for <span className="font-bold text-luxury-dark">"Other"</span> named <span className="italic">"CRM"</span>.</li>
-                  <li>Paste the 16-character code in App Password field.</li>
-                  <li className="text-red-500 font-semibold px-2 py-1 bg-red-50/50 rounded-lg mt-2 italic shadow-sm border border-red-100/50">
-                    Note: Most servers block direct SMTP (Port 465). If "Test Sync" fails, use a Cloudflare Relay.
-                  </li>
-                </ol>
+                <div className="space-y-3">
+                  {[
+                    "Enable 2-Step Verification in Google Account.",
+                    "Search for 'App Passwords' in Settings.",
+                    "Select 'Other', name it 'Dashboard', and Copy Code.",
+                    "Paste the 16-character code in App Password field above."
+                  ].map((step, idx) => (
+                    <div key={idx} className="flex gap-3 items-start">
+                      <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[10px] flex items-center justify-center shrink-0 font-bold">{idx + 1}</span>
+                      <p className="text-[10px] sm:text-xs text-luxury-dark/70 font-medium leading-tight pt-0.5">{step}</p>
+                    </div>
+                  ))}
+                  <div className="mt-4 p-3 bg-white/60 border border-blue-100 rounded-xl flex items-center gap-3">
+                    <Cloud className="text-blue-500 shrink-0" size={16} />
+                    <p className="text-[9px] sm:text-[10px] text-blue-700 font-bold leading-tight">
+                      Hosting error (405)? Deploy the Relay code provided by the AI assistant to your Cloudflare Worker.
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex items-center justify-between p-4 bg-luxury-dark/5 rounded-xl border border-luxury-dark/10">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${gmailUser && gmailPass ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-orange-400'}`}></div>
-                  <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60">System:</span>
+              {/* Modal Footer */}
+              <div className="sticky bottom-0 pt-2 pb-8 px-8 bg-white border-t border-luxury-dark/5">
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={handleSaveGmailSettings}
+                    disabled={gmailSaving}
+                    className="py-4 bg-luxury-dark text-white rounded-2xl text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.2em] hover:bg-black transition-all shadow-lg active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50"
+                    id="save-gmail-settings"
+                  >
+                    <Save size={16} />
+                    {gmailSaving ? 'Saving...' : 'Sync Config'}
+                  </button>
+
+                  <button 
+                    onClick={() => setGmailModalOpen(false)}
+                    className="py-4 bg-white text-luxury-dark border border-luxury-dark/10 rounded-2xl text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-dark/5 transition-all active:scale-95 shadow-sm"
+                  >
+                    Close
+                  </button>
                 </div>
-                <span className={`text-[8px] sm:text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-lg border italic ${
-                  gmailUser && gmailPass ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-orange-600 bg-orange-50 border-orange-100'
-                }`}>
-                  {gmailUser && gmailPass ? 'Ready to Send' : 'Setup Required'}
-                </span>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
 

@@ -430,29 +430,64 @@ async function startServer() {
 
       // If workerUrl is being tested
       if (workerUrl) {
-        console.log(`[Gmail Test] Testing Cloudflare Relay: ${workerUrl}`);
+        console.log(`[Gmail Test] Relay Fetch: "${workerUrl}"`);
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (workerSecret) {
+          headers['X-Relay-Secret'] = workerSecret;
+          headers['Authorization'] = `Bearer ${workerSecret}`;
+        }
+
         const response = await fetch(workerUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             to: user, // Send to self as test
             subject: 'Unique Farmhouse - Relay Test',
             text: 'Relay connection successful!',
             html: '<h3>Success</h3><p>Relay connection successful!</p>',
             user,
-            pass: sanitizedPass,
-            secret: workerSecret
+            pass: sanitizedPass
           })
         });
         
-        const result: any = await response.json().catch(() => ({}));
+        const resText = await response.text().catch(() => "No response body");
+        let result: any = {};
+        try {
+          result = JSON.parse(resText);
+        } catch (e) {
+          // Not JSON
+        }
+
         if (response.ok) {
-          return res.json({ success: true, message: "Cloudflare Relay connection successful" });
+          return res.json({ success: true, message: "Cloudflare Relay connection successful", result });
         } else {
+          let errorMsg = `Relay Error (${response.status})`;
+          
+          if (response.status === 401) {
+            // Check if the user accidentally provided the app's own URL
+            const isAppUrl = workerUrl.includes('ais-dev') || workerUrl.includes('ais-pre');
+            
+            if (isAppUrl) {
+              errorMsg = "Relay URL Error: You provided this app's URL instead of your Cloudflare Worker URL. Please check the 'Worker URL' setting.";
+            } else if (resText.includes('Invalid Relay Secret')) {
+              errorMsg = "Relay Secret Error (401): The 'Relay Secret' was rejected. If you are using a standard @gmail.com account, please CLEAR OUT the Worker URL and Worker Secret and try again to use direct SMTP. Otherwise, make sure your secret matches perfectly in Cloudflare.";
+            } else {
+              errorMsg = `MailChannels/Worker Error (401): ${resText.substring(0, 300)}. NOTE: MailChannels cannot send FROM @gmail.com. If you are using Gmail, this worker script will fail.`;
+            }
+          } else if (response.status === 405) {
+            errorMsg = "Method Not Allowed (405): Ensure your Cloudflare Worker handles POST requests correctly.";
+          } else if (response.status === 404) {
+            errorMsg = "Not Found (404): The Relay URL is incorrect or the Worker is not deployed.";
+          }
+
           return res.status(response.status).json({ 
-            error: "Relay test failed", 
-            details: result.error || result.details || `HTTP ${response.status}`,
-            result
+            error: errorMsg, 
+            url: workerUrl,
+            status: response.status,
+            debug: {
+              bodySnippet: resText.substring(0, 300),
+              isAppUrl: workerUrl.includes('ais-dev') || workerUrl.includes('ais-pre')
+            }
           });
         }
       }
@@ -508,40 +543,68 @@ async function startServer() {
 
       // If workerUrl is configured, use the relay
       if (workerUrl) {
-        console.log(`[Gmail] Using Cloudflare Worker Relay: ${workerUrl}`);
+        console.log(`[Gmail Send] Relay Fetch: "${workerUrl}"`);
         try {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (workerSecret) {
+            headers['X-Relay-Secret'] = workerSecret;
+            headers['Authorization'] = `Bearer ${workerSecret}`;
+          }
+
           const response = await fetch(workerUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
               to: to || gmailUser,
               subject: subject || 'Unique Farmhouse - Notification',
               html: html || `<div>${text || 'This is an automated message.'}</div>`,
               text: text || "This is an automated message.",
               user: gmailUser,
-              pass: sanitizedPass,
-              secret: workerSecret
+              pass: sanitizedPass
             })
           });
 
-          const result: any = await response.json().catch(() => ({}));
+          const resText = await response.text().catch(() => "No response body");
+          let result: any = {};
+          try {
+            result = JSON.parse(resText);
+          } catch (e) {
+            // Not JSON
+          }
+          
           console.log(`[Gmail] Relay Response Status: ${response.status}`);
           
           if (response.ok) {
             return res.json({ success: true, message: "Email sent via Cloudflare Worker", result });
           } else {
-            let errorMsg = `Worker Relay Error (${response.status})`;
-            if (response.status === 405) errorMsg = "Cloudflare Worker Error: 405 Method Not Allowed. Ensure your Worker handles POST requests.";
-            if (response.status === 401) errorMsg = "Cloudflare Worker Error: 401 Unauthorized. Check your Worker Secret.";
+            let errorMsg = `Relay Error (${response.status})`;
+            
+            if (response.status === 401) {
+              const isAppUrl = workerUrl.includes('ais-dev') || workerUrl.includes('ais-pre');
+              if (isAppUrl) {
+                errorMsg = "Relay URL Error: App URL provided instead of Cloudflare Worker URL.";
+              } else if (resText.includes('Invalid Relay Secret')) {
+                errorMsg = "Relay Secret mismatch (401). We checked your Secret against Cloudflare. Make sure you click 'Copy Cloudflare Worker Code' from the app and re-deploy it in Cloudflare to use the latest version.";
+              } else {
+                errorMsg = `Worker/MailChannels Error (401): ${resText.substring(0, 300)}`;
+              }
+            } else if (response.status === 405) {
+              errorMsg = "Method Not Allowed (405). Check Cloudflare Worker POST handler.";
+            }
             
             return res.status(response.status).json({ 
               error: errorMsg, 
-              details: result.error || result.details || result
+              url: workerUrl,
+              status: response.status,
+              debug: {
+                bodySnippet: resText.substring(0, 300),
+                isAppUrl: workerUrl.includes('ais-dev') || workerUrl.includes('ais-pre')
+              }
             });
           }
         } catch (fetchErr: any) {
           console.error(`[Gmail] Relay Network/Fetch Error:`, fetchErr);
-          return res.status(502).json({ error: "Failed to connect to Cloudflare Worker. Check the URL status.", details: fetchErr.message });
+          return res.status(502).json({ error: "Failed to connect to Cloudflare Worker.", details: fetchErr.message });
         }
       }
 
