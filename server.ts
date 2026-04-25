@@ -416,23 +416,54 @@ async function startServer() {
   // Gmail API Endpoint
   app.post("/api/communications/test-connection", async (req, res) => {
     try {
-      const { user, pass } = req.body;
+      const { user, pass, workerUrl, workerSecret } = req.body;
       if (!user || !pass) {
         return res.status(400).json({ error: "Email and password/app-password are required" });
       }
 
-      console.log(`[Gmail Test] Testing connection for ${user}`);
+      const sanitizedPass = pass.replace(/\s+/g, '');
+
+      // If workerUrl is being tested
+      if (workerUrl) {
+        console.log(`[Gmail Test] Testing Cloudflare Relay: ${workerUrl}`);
+        const response = await fetch(workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: user, // Send to self as test
+            subject: 'Unique Farmhouse - Relay Test',
+            text: 'Relay connection successful!',
+            html: '<h3>Success</h3><p>Relay connection successful!</p>',
+            user,
+            pass: sanitizedPass,
+            secret: workerSecret
+          })
+        });
+        
+        const result: any = await response.json().catch(() => ({}));
+        if (response.ok) {
+          return res.json({ success: true, message: "Cloudflare Relay connection successful" });
+        } else {
+          return res.status(response.status).json({ 
+            error: "Relay test failed", 
+            details: result.error || result.details || `HTTP ${response.status}`,
+            result
+          });
+        }
+      }
+
+      console.log(`[Gmail Test] Testing direct SMTP for ${user}`);
       const transporter = nodemailer.createTransport({
         host: 'smtp.gmail.com',
         port: 465,
         secure: true,
-        auth: { user, pass: pass.replace(/\s+/g, '') },
+        auth: { user, pass: sanitizedPass },
         tls: { rejectUnauthorized: false }
       });
 
       await transporter.verify();
       console.log(`[Gmail Test] Connection verified for ${user}`);
-      res.json({ success: true, message: "Connection successful" });
+      res.json({ success: true, message: "SMTP Connection successful" });
     } catch (error: any) {
       console.error('[Gmail Test] Connection failed:', error);
       res.status(500).json({ 
@@ -466,32 +497,42 @@ async function startServer() {
         console.warn("[Gmail] Could not fetch Gmail config from Firestore:", dbErr);
       }
 
+      const sanitizedPass = gmailPass ? gmailPass.replace(/\s+/g, '') : '';
+
       // If workerUrl is configured, use the relay
       if (workerUrl) {
         console.log(`[Gmail] Using Cloudflare Worker Relay: ${workerUrl}`);
-        const response = await fetch(workerUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: to || gmailUser,
-            subject: subject || 'Unique Farmhouse - Notification',
-            html: html || `<div>${text || 'This is an automated message.'}</div>`,
-            text: text || "This is an automated message.",
-            user: gmailUser,
-            pass: gmailPass,
-            secret: workerSecret
-          })
-        });
+        try {
+          const response = await fetch(workerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: to || gmailUser,
+              subject: subject || 'Unique Farmhouse - Notification',
+              html: html || `<div>${text || 'This is an automated message.'}</div>`,
+              text: text || "This is an automated message.",
+              user: gmailUser,
+              pass: sanitizedPass,
+              secret: workerSecret
+            })
+          });
 
-        const result: any = await response.json();
-        if (response.ok) {
-          return res.json({ success: true, message: "Email sent via Cloudflare Worker", result });
-        } else {
-          throw new Error(result.error || result.details || "Worker Relay Failed");
+          const result: any = await response.json().catch(() => ({}));
+          console.log(`[Gmail] Relay Response [${response.status}]:`, result);
+          
+          if (response.ok) {
+            return res.json({ success: true, message: "Email sent via Cloudflare Worker", result });
+          } else {
+            const errorMsg = result.error || result.details || `Worker Relay Failed (Status ${response.status})`;
+            return res.status(response.status).json({ error: errorMsg, details: result });
+          }
+        } catch (fetchErr: any) {
+          console.error(`[Gmail] Relay Fetch Error:`, fetchErr);
+          return res.status(502).json({ error: "Failed to connect to Cloudflare Worker", details: fetchErr.message });
         }
       }
 
-      if (!gmailUser || !gmailPass) {
+      if (!gmailUser || !sanitizedPass) {
         return res.status(400).json({ error: "Gmail configuration missing." });
       }
 
@@ -499,7 +540,7 @@ async function startServer() {
         host: 'smtp.gmail.com',
         port: 465,
         secure: true,
-        auth: { user: gmailUser, pass: gmailPass.replace(/\s+/g, '') },
+        auth: { user: gmailUser, pass: sanitizedPass },
         tls: { rejectUnauthorized: false }
       });
 
