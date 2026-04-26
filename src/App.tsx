@@ -1817,7 +1817,11 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     setIsTestingConnection(true);
     try {
       let response;
-      const wUrl = workerUrl.trim();
+      let wUrl = workerUrl.trim();
+      
+      if (wUrl && !wUrl.startsWith('http')) {
+        wUrl = 'https://' + wUrl;
+      }
       
       if (wUrl) {
         // Direct browser fetch to Cloudflare Worker
@@ -1827,28 +1831,42 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           headers['Authorization'] = `Bearer ${workerSecret.trim()}`;
         }
         
-        response = await fetch(wUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            to: testEmailRecipient || gmailUser, // Send to self
-            subject: 'Unique Farmhouse - Relay Test',
-            text: 'This is a test email sent directly from your browser via Cloudflare Worker relay.',
-            html: '<p>This is a test email sent directly from your browser via <strong>Cloudflare Worker</strong> relay.</p>'
-          })
-        });
+        try {
+          response = await fetch(wUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              to: testEmailRecipient || gmailUser, // Send to self
+              subject: 'Unique Farmhouse - Relay Test',
+              text: 'This is a test email sent directly from your browser via Cloudflare Worker relay.',
+              html: '<p>This is a test email sent directly from your browser via <strong>Cloudflare Worker</strong> relay.</p>'
+            })
+          });
+        } catch (fetchErr: any) {
+          if (fetchErr.message === 'Failed to fetch') {
+            throw new Error(`Failed to fetch from Worker. Verify your Worker URL (${wUrl}) is correct, public, and has CORS enabled.`);
+          }
+          throw fetchErr;
+        }
       } else {
         // Fallback to Express backend (fails on Cloudflare Pages)
-        response = await fetch('/api/communications/test-connection', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            user: gmailUser.trim(), 
-            pass: gmailPass.trim(),
-            workerUrl: wUrl,
-            workerSecret: workerSecret.trim()
-          })
-        });
+        try {
+          response = await fetch('/api/communications/test-connection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              user: gmailUser.trim(), 
+              pass: gmailPass.trim(),
+              workerUrl: wUrl,
+              workerSecret: workerSecret.trim()
+            })
+          });
+        } catch (fetchErr: any) {
+          if (fetchErr.message === 'Failed to fetch') {
+            throw new Error(`Failed to fetch from local API. Your network might be offline or the API server is unreachable.`);
+          }
+          throw fetchErr;
+        }
       }
 
       let data: any = {};
@@ -1914,7 +1932,9 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     tag: '',
     budget: '',
     guests: '',
-    city: ''
+    city: '',
+    bookingDate: '',
+    bookingTime: ''
   });
   const [isAddingLead, setIsAddingLead] = useState(false);
 
@@ -1973,6 +1993,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         budget: manualLead.budget,
         guests: manualLead.guests,
         city: manualLead.city,
+        bookingDate: manualLead.bookingDate || '',
+        bookingTime: manualLead.bookingTime || '',
         createdAt: serverTimestamp(),
         tags: manualLead.tag ? [sourceTag, manualLead.tag] : [sourceTag]
       };
@@ -1992,7 +2014,9 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         tag: '',
         budget: '',
         guests: '',
-        city: ''
+        city: '',
+        bookingDate: '',
+        bookingTime: ''
       });
     } catch (err) {
       console.error(err);
@@ -2010,8 +2034,10 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       Email: lead.email,
       Phone: lead.phone,
       Budget: lead.budget || '',
-      Guests: lead.guests || '',
+      Guests: lead.guests ? lead.guests.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()).replace('Then', 'Than') : '',
       City: lead.city || '',
+      'Expected Date': lead.bookingDate || '',
+      'Expected Time': lead.bookingTime || '',
       Source: lead.source || (lead.metaLeadId ? 'Facebook/Meta' : 'Website'),
       Tags: (lead.tags || []).join(', '),
       Remarks: lead.remarks,
@@ -2188,16 +2214,24 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         let email = '';
         let phone = '';
         let name = 'Unknown';
+        let guests = '';
+        let bookingDate = '';
+        let bookingTime = '';
+        let city = '';
 
         // Parse field_data array
         if (Array.isArray(fbLead.field_data)) {
           for (const field of fbLead.field_data) {
-            const fieldName = field.name.toLowerCase();
+            const fieldName = (field.name || '').toLowerCase();
             const val = field.values && field.values.length > 0 ? field.values[0] : '';
             
             if (fieldName.includes('email')) email = val;
             else if (fieldName.includes('phone')) phone = val;
             else if (fieldName.includes('name')) name = val;
+            else if (fieldName.includes('guest')) guests = val;
+            else if (fieldName.includes('date')) bookingDate = val;
+            else if (fieldName.includes('time')) bookingTime = val;
+            else if (fieldName.includes('city') || fieldName.includes('location')) city = val;
           }
         }
 
@@ -2205,6 +2239,10 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           name,
           email,
           phone,
+          guests,
+          bookingDate,
+          bookingTime,
+          city,
           status: 'new',
           createdAt: fbLead.created_time ? new Date(fbLead.created_time) : serverTimestamp(),
           source: 'meta',
@@ -2344,13 +2382,15 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           const existingPhones = new Set(currentLeads.map(l => l.phone).filter(Boolean));
           
           for (const row of newLeads) {
-            const email = (row.email || '').trim();
-            const phone = (row.phone_number || row.phone || '').trim();
-            const name = (row.full_name || row.form_name || row.name || 'Unknown').trim();
-            const budget = (row.budget || row.est_budget || row.max_budget || '').trim();
-            const guests = (row.guests || row.no_of_guests || row.number_of_guests || row.guest_count || '').trim();
-            const city = (row.city || row.location || row.area || '').trim();
-            const createdTimeStr = row.created_time || '';
+            const email = String(row.email || row['email address'] || '').trim();
+            const phone = String(row.phone_number || row['phone number'] || row.phone || row['contact number'] || '').trim();
+            const name = String(row.full_name || row['full name'] || row.form_name || row['form name'] || row.name || 'Unknown').trim();
+            const budget = String(row.budget || row.est_budget || row['est budget'] || row.max_budget || row['max budget'] || '').trim();
+            const guests = String(row.guests || row.no_of_guests || row['no. of guests'] || row['no._of_guests'] || row['number of guests'] || row.number_of_guests || row.guest_count || row['guest count'] || '').trim();
+            const city = String(row.city || row.location || row.area || '').trim();
+            const bookingDate = String(row.booking_date || row['booking date'] || row.event_date || row['event date'] || row.date || '').trim();
+            const bookingTime = String(row.booking_time || row['booking time'] || row.event_time || row['event time'] || row.time || '').trim();
+            const createdTimeStr = String(row.created_time || row['created time'] || row.timestamp || '').trim();
             
             let createdAt: any = serverTimestamp();
             if (createdTimeStr) {
@@ -2372,6 +2412,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                 budget,
                 guests,
                 city,
+                bookingDate,
+                bookingTime,
                 status: 'new',
                 createdAt,
                 source: 'google_sheets'
@@ -2411,6 +2453,17 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       showToast('Failed to save sync settings', 'error');
     }
   };
+
+  // Auto-sync Google Sheets leads every 30 minutes
+  useEffect(() => {
+    if (!csvUrl) return;
+    const intervalId = setInterval(() => {
+      performSync(csvUrl, true);
+    }, 30 * 60 * 1000); // 30 minutes
+    
+    return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [csvUrl]);
 
   const handleUpdateStatus = async (leadId: string, status: string) => {
     try {
@@ -2561,7 +2614,9 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     const d = String(date.getDate()).padStart(2, '0');
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const y = date.getFullYear();
-    return `${d}/${m}/${y}`;
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${d}/${m}/${y} ${hours}:${minutes}`;
   };
 
   const uniqueTags = Array.from(new Set(leads.flatMap(l => (l.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t))))).sort();
@@ -2723,7 +2778,12 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                           )}
                           {lead.guests && (
                             <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-100">
-                              <Users size={10} /> {lead.guests}
+                              <Users size={10} /> {lead.guests.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()).replace('Then', 'Than')}
+                            </span>
+                          )}
+                          {lead.bookingDate && (
+                            <span className="flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded-lg border border-purple-100">
+                              <Calendar size={10} /> {lead.bookingDate} {lead.bookingTime && ` at ${lead.bookingTime}`}
                             </span>
                           )}
                         </div>
@@ -2901,7 +2961,13 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                     {lead.guests && (
                       <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm border border-luxury-dark/5">
                         <Users size={12} className="text-blue-500" />
-                        <span className="text-xs font-bold text-luxury-dark">{lead.guests}</span>
+                        <span className="text-xs font-bold text-luxury-dark">{lead.guests.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()).replace('Then', 'Than')}</span>
+                      </div>
+                    )}
+                    {lead.bookingDate && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm border border-luxury-dark/5">
+                        <Calendar size={12} className="text-purple-500" />
+                        <span className="text-xs font-bold text-luxury-dark">{lead.bookingDate} {lead.bookingTime && ` at ${lead.bookingTime}`}</span>
                       </div>
                     )}
                   </div>
@@ -3537,11 +3603,37 @@ export default {
                 </div>
                 <div className="space-y-2">
                   <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">No. of Guests</label>
-                  <input
-                    type="text"
+                  <select
                     value={manualLead.guests}
                     onChange={(e) => setManualLead({...manualLead, guests: e.target.value})}
-                    placeholder="e.g. 100"
+                    className="w-full px-5 py-4 bg-luxury-dark/5 border-none rounded-2xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all appearance-none"
+                  >
+                    <option value="">Select Guests</option>
+                    <option value="Less than 10">Less than 10</option>
+                    <option value="10 to 15">10 to 15</option>
+                    <option value="15 to 20">15 to 20</option>
+                    <option value="Above 20">Above 20</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">Expected Booking Date</label>
+                  <input
+                    type="date"
+                    value={manualLead.bookingDate}
+                    onChange={(e) => setManualLead({...manualLead, bookingDate: e.target.value})}
+                    className="w-full px-5 py-4 bg-luxury-dark/5 border-none rounded-2xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 ml-1">Expected Booking Time</label>
+                  <input
+                    type="time"
+                    value={manualLead.bookingTime}
+                    onChange={(e) => setManualLead({...manualLead, bookingTime: e.target.value})}
                     className="w-full px-5 py-4 bg-luxury-dark/5 border-none rounded-2xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
                   />
                 </div>
