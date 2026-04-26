@@ -1816,31 +1816,75 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     }
     setIsTestingConnection(true);
     try {
-      const response = await fetch('/api/communications/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          user: gmailUser.trim(), 
-          pass: gmailPass.trim(),
-          workerUrl: workerUrl.trim(),
-          workerSecret: workerSecret.trim()
-        })
-      });
-      let data;
+      let response;
+      const wUrl = workerUrl.trim();
+      
+      if (wUrl) {
+        // Direct browser fetch to Cloudflare Worker
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (workerSecret.trim()) {
+          headers['X-Relay-Secret'] = workerSecret.trim();
+          headers['Authorization'] = `Bearer ${workerSecret.trim()}`;
+        }
+        
+        response = await fetch(wUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            to: testEmailRecipient || gmailUser, // Send to self
+            subject: 'Unique Farmhouse - Relay Test',
+            text: 'This is a test email sent directly from your browser via Cloudflare Worker relay.',
+            html: '<p>This is a test email sent directly from your browser via <strong>Cloudflare Worker</strong> relay.</p>'
+          })
+        });
+      } else {
+        // Fallback to Express backend (fails on Cloudflare Pages)
+        response = await fetch('/api/communications/test-connection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            user: gmailUser.trim(), 
+            pass: gmailPass.trim(),
+            workerUrl: wUrl,
+            workerSecret: workerSecret.trim()
+          })
+        });
+      }
+
+      let data: any = {};
+      let text = '';
       try {
-        const text = await response.text();
-        data = text ? JSON.parse(text) : {};
-      } catch (e) {
-        throw new Error(`Server returned non-JSON response (Status ${response.status})`);
+        text = await response.text();
+        if (text) {
+          data = JSON.parse(text);
+        }
+      } catch (e: any) {
+        if (response.status === 405 && !wUrl) {
+           throw new Error(`Cloudflare Pages Error (405). You deployed this app to a static host which doesn't support the Express backend. You MUST use the Cloudflare Worker Relay instead of direct SMTP!`);
+        }
+        if (response.status === 401) {
+            if (text.includes('nginx') || text.includes('ais-dev') || text.includes('ais-pre')) {
+              throw new Error(`Relay URL error (Local Proxy 401). You provided this app's URL instead of your Cloudflare Worker URL. Ensure the URL is correctly formatted and is a public workers.dev URL.`);
+            } else if (text.toLowerCase().includes('<html')) {
+              throw new Error(`Relay 401 Error: The URL returned an HTML page instead of a JSON response. Ensure you copied the exact public worker URL and not a private URL protected by Cloudflare Access. Snippet: ${text.substring(0, 80)}...`);
+            }
+        }
+        throw new Error(`Server returned non-JSON response (Status ${response.status}). Snippet: ${text.substring(0, 80)}...`);
       }
       
       if (response.ok) {
-        showToast('Success! Gmail connection is working.', 'success');
+        showToast('Success! Mail relay is working.', 'success');
       } else {
         if (data.debug) {
           console.warn('[Gmail Debug Info]:', data.debug);
         }
-        throw new Error(data.error || data.details || `HTTP ${response.status}: Connection failed`);
+        let errorMsg = data.error || data.details || `HTTP ${response.status}: Connection failed`;
+        if (response.status === 405 && !wUrl) {
+           errorMsg = `Cloudflare Pages Error (405). Direct SMTP requires the Node backend. Use the Cloudflare Worker configuration above!`;
+        } else if (response.status === 401 && data.error?.includes('Invalid Relay Secret')) {
+           errorMsg = `Relay Secret Error (401): The secret was rejected by the Worker. Check the AUTH_SECRET in Cloudflare!`;
+        }
+        throw new Error(errorMsg);
       }
     } catch (err: any) {
       console.error('SMTP Test Error:', err);
@@ -2612,40 +2656,6 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
             </div>
           </div>
 
-          {/* Bottom Row: Tag Filter */}
-          {uniqueTags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3 py-4 border-t border-luxury-dark/5">
-              <div className="flex items-center gap-2 text-luxury-dark/30 whitespace-nowrap mr-2">
-                <Tag size={12} strokeWidth={3} />
-                <span className="text-[10px] font-bold uppercase tracking-widest">Filter by Tag:</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setSelectedTag('')}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                    selectedTag === '' 
-                      ? 'bg-luxury-gold text-luxury-dark shadow-sm scale-105' 
-                      : 'bg-luxury-dark/5 text-luxury-dark/40 hover:bg-luxury-dark/10'
-                  }`}
-                >
-                  All
-                </button>
-                {uniqueTags.map(tag => (
-                  <button
-                    key={tag}
-                    onClick={() => setSelectedTag(tag)}
-                    className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                      selectedTag === tag 
-                        ? 'bg-luxury-gold text-luxury-dark shadow-sm scale-105' 
-                        : 'bg-luxury-dark/5 text-luxury-dark/40 hover:bg-luxury-dark/10'
-                    }`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -3021,60 +3031,75 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                 </p>
                 <button 
                   onClick={() => {
-                    const code = `/** Cloudflare SMTP Relay v1.2 (Updated) **/
+                    const code = `/** Cloudflare Relay to AI Studio Backend v2.0 **/
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, {
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, X-Relay-Secret, Authorization",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, x-api-key",
         }
       });
     }
 
-    if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+    // 1. Get Params from GET (URL) or POST (JSON body)
+    let to, subject, body;
+    const url = new URL(request.url);
 
-    const xSecret = request.headers.get("X-Relay-Secret");
-    const authHeader = request.headers.get("Authorization");
-    const bearerSecret = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
-    const incomingSecret = (xSecret || bearerSecret || "").trim();
-    const configuredSecret = (env.AUTH_SECRET || env.RELAY_SECRET || env.AUTH_TOKEN || "").trim();
-
-    if (configuredSecret && incomingSecret !== configuredSecret) {
-      return new Response(JSON.stringify({ 
-        error: "Invalid Relay Secret (401)",
-        details: "The secret provided did not match AUTH_SECRET or RELAY_SECRET in Worker variables."
-      }), { 
-        status: 401, 
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } 
-      });
+    if (request.method === "GET") {
+      to = url.searchParams.get("to");
+      subject = url.searchParams.get("subject") || "No Subject";
+      body = url.searchParams.get("body") || "No Content";
+    } else if (request.method === "POST") {
+      try {
+        const bodyData = await request.json();
+        to = bodyData.to;
+        subject = bodyData.subject || "No Subject";
+        body = bodyData.body || bodyData.html || bodyData.text || "No Content";
+      } catch (e) {
+        return new Response("Invalid JSON body", { status: 400 });
+      }
+    } else {
+      return new Response("Method Not Allowed", { status: 405 });
     }
 
+    if (!to) {
+      return new Response("Missing 'to' parameter", { status: 400 });
+    }
+
+    // 2. Setup AI Studio Backend URL and Secret
+    const BACKEND_URL = "${window.location.origin.replace('ais-dev', 'ais-pre')}/api/send-email"; 
+    
+    // Ensure you add MY_SECRET_KEY to your Worker environment variables!
+    const secretKey = env.MY_SECRET_KEY || "";
+
+    // 3. Send Request to AI Studio Backend
     try {
-      const data = await request.json();
-      const send_request = new Request("https://api.mailchannels.net/tx/v1/send", {
+      const response = await fetch(BACKEND_URL, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          personalizations: [{ to: [{ email: data.to }] }],
-          from: { email: data.user, name: "CRM Automation" },
-          subject: data.subject,
-          content: [{ type: "text/html", value: data.html || data.text }]
-        })
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": secretKey
+        },
+        body: JSON.stringify({ to, subject, body })
       });
 
-      const response = await fetch(send_request);
-      return new Response(await response.text(), { 
-        status: response.status, 
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } 
-      });
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (err) {
+        return new Response("Email failed ❌ - Backend returned non-JSON response (Status " + response.status + ")", { status: 502 });
+      }
+
+      if (response.ok && data.success) {
+        return new Response("Email sent successfully ✅", { status: 200 });
+      } else {
+        return new Response("Email failed ❌ - " + (data.error || "Backend Error"), { status: response.status });
+      }
     } catch (e) {
-      return new Response(JSON.stringify({ error: e.message }), { 
-        status: 500,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-      });
+      return new Response("Email failed ❌ - Fetch to Backend Failed: " + e.message, { status: 500 });
     }
   }
 };`;
@@ -5520,7 +5545,7 @@ RULES FOR RESPONDING:
 
   // Group bookings by check-in date for admin view
   const groupedBookings = useMemo(() => {
-    if (userRole !== 'admin') return null;
+    if (userRole !== 'admin' && userRole !== 'agent') return null;
     const groups: { [date: string]: any[] } = {};
     filteredBookings.forEach(booking => {
       const date = booking.checkIn;
@@ -6574,13 +6599,15 @@ RULES FOR RESPONDING:
                   </button>
                 ))}
               </div>
-              <button 
-                onClick={handleExportBookings}
-                className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/10 min-w-fit"
-              >
-                <Download size={14} />
-                Export Bookings
-              </button>
+              {(userRole === 'admin' || (userRole === 'agent' && userPermissions?.deleteBookings)) && (
+                <button 
+                  onClick={handleExportBookings}
+                  className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/10 min-w-fit"
+                >
+                  <Download size={14} />
+                  Export Bookings
+                </button>
+              )}
             </div>
             {Object.entries(groupedBookings || {}).map(([date, dateBookings]: [string, any]) => (
               <div key={date} className="space-y-4">
@@ -9254,8 +9281,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               required
               value={bookingAmount}
               onChange={(e) => setBookingAmount(parseInt(e.target.value) || 0)}
-              readOnly={userRole !== 'admin'}
-              className={`w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm font-bold ${userRole !== 'admin' ? 'opacity-70 cursor-not-allowed' : ''}`} 
+              readOnly={userRole !== 'admin' && userRole !== 'agent'}
+              className={`w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm font-bold ${userRole !== 'admin' && userRole !== 'agent' ? 'opacity-70 cursor-not-allowed' : ''}`} 
             />
             <IndianRupee className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
           </div>
@@ -9278,8 +9305,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               required
               value={securityAmount}
               onChange={(e) => setSecurityAmount(parseInt(e.target.value) || 0)}
-              readOnly={userRole !== 'admin'}
-              className={`w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm font-bold ${userRole !== 'admin' ? 'opacity-70 cursor-not-allowed' : ''}`} 
+              readOnly={userRole !== 'admin' && userRole !== 'agent'}
+              className={`w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm font-bold ${userRole !== 'admin' && userRole !== 'agent' ? 'opacity-70 cursor-not-allowed' : ''}`} 
             />
             <Shield className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
           </div>

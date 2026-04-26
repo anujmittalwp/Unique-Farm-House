@@ -637,6 +637,66 @@ async function startServer() {
     }
   });
 
+  // Gmail Backend Send Endpoint (Relayed from Cloudflare)
+  app.post("/api/send-email", async (req, res) => {
+    try {
+      const apiKey = req.headers['x-api-key'];
+      
+      let user = process.env.EMAIL_USER;
+      let pass = process.env.EMAIL_PASS;
+      let configuredSecret = process.env.MY_SECRET_KEY;
+
+      // Check Firestore configuration
+      try {
+        const gmailDoc = await getDoc(doc(db, 'settings', 'gmail'));
+        if (gmailDoc.exists()) {
+          const data = gmailDoc.data();
+          if (data.user) user = data.user.trim();
+          if (data.pass) pass = data.pass.trim();
+          if (data.workerSecret) configuredSecret = data.workerSecret.trim();
+        }
+      } catch (e) {
+        console.warn("Could not read Firestore config", e);
+      }
+
+      // If a secret is configured in backend/firestore, enforce it
+      if (configuredSecret && apiKey !== configuredSecret) {
+        return res.status(401).json({ success: false, error: "Unauthorized: Invalid x-api-key" });
+      }
+
+      const { to, subject, body } = req.body;
+
+      if (!to || !subject || !body) {
+        return res.status(400).json({ success: false, error: "Missing required fields: to, subject, body" });
+      }
+
+      if (!user || !pass) {
+        return res.status(500).json({ success: false, error: "Server misconfiguration: Email credentials missing in Database/ENV" });
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: { user, pass: pass.replace(/\s+/g, '') },
+        tls: { rejectUnauthorized: false }
+      });
+
+      const info = await transporter.sendMail({
+        from: user,
+        to,
+        subject,
+        html: body,
+      });
+
+      console.log(`[Email Sent] Successfully sent to ${to}, MessageId: ${info.messageId}`);
+      res.json({ success: true, message: "Email sent via backend!" });
+    } catch (error: any) {
+      console.error('[Email Send Error]', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // Handle unmatched API routes to ensure they return JSON instead of HTML pages
   app.use('/api', (req, res, next) => {
     res.status(404).json({ error: 'API route not found' });
