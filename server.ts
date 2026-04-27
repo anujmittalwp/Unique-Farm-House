@@ -315,7 +315,7 @@ async function startServer() {
   });
 
   // iCal Export
-  app.get(["/api/calendar/export", "/api/calendar/export.ics", "/api/calendar/bookings.ics"], async (req, res) => {
+  const exportRoute = async (req, res) => {
     try {
       const projectId = firebaseConfig.projectId;
       const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
@@ -329,7 +329,8 @@ async function startServer() {
       });
       if (!response.ok) {
         if (response.status === 404) {
-          return res.setHeader('Content-Type', 'text/calendar').send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR'));
+          res.setHeader('Content-Type', 'text/calendar');
+          return res.send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR\r\n'));
         }
         const errorText = await response.text();
         console.error('Firestore fetch error:', response.status, errorText);
@@ -340,21 +341,34 @@ async function startServer() {
       let icsContent = data.fields?.icsData?.stringValue;
       
       if (!icsContent) {
-        return res.setHeader('Content-Type', 'text/calendar').send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR'));
+        res.setHeader('Content-Type', 'text/calendar');
+        return res.send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR\r\n'));
       }
 
       if (!icsContent.includes('CALSCALE:GREGORIAN')) {
         icsContent = icsContent.replace('PRODID:-//Unique Farmhouse//Bookings//EN\r\n', 'PRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n');
       }
+      
+      if (!icsContent.endsWith('\r\n')) {
+        icsContent += '\r\n';
+      }
 
-      res.setHeader('Content-Type', 'text/calendar');
-      res.setHeader('Content-Disposition', 'attachment; filename="bookings.ics"');
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
+      // Some platforms require caching headers
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
       res.send(Buffer.from(icsContent));
     } catch (error) {
       console.error('Export error:', error);
       res.status(500).send('Error generating calendar: ' + (error instanceof Error ? error.message : String(error)));
     }
-  });
+  };
+
+  app.get(["/api/calendar/export", "/api/calendar/export.ics", "/api/calendar/bookings.ics"], exportRoute);
+  app.head(["/api/calendar/export", "/api/calendar/export.ics", "/api/calendar/bookings.ics"], exportRoute);
 
   // iCal Sync (Import)
   app.post("/api/calendar/sync", async (req, res) => {

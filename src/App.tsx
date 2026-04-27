@@ -1295,12 +1295,12 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
         <div className="flex gap-3">
           <input 
             readOnly
-            value={`${window.location.origin}/api/calendar/export.ics`}
+            value={window.location.origin.includes('run.app') ? 'https://www.uniquefarms.in/api/calendar/export.ics' : `${window.location.origin}/api/calendar/export.ics`}
             className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-xs font-mono text-luxury-dark/60"
           />
           <button 
             onClick={() => {
-              navigator.clipboard.writeText(`${window.location.origin}/api/calendar/export.ics`);
+              navigator.clipboard.writeText(window.location.origin.includes('run.app') ? 'https://www.uniquefarms.in/api/calendar/export.ics' : `${window.location.origin}/api/calendar/export.ics`);
               showToast('Export URL copied!', 'success');
             }}
             className="px-6 py-3 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all"
@@ -1308,6 +1308,13 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
             Copy URL
           </button>
         </div>
+        {window.location.origin.includes('run.app') && (
+          <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+             <p className="text-xs text-yellow-800 font-bold leading-relaxed">
+               ℹ️ Using Custom Domain: The URL above has been auto-configured to use your custom domain (www.uniquefarms.in). This is the correct URL to paste into Airbnb and Booking.com. Make sure your custom domain is pointing to your deployed backend!
+             </p>
+          </div>
+        )}
       </div>
 
       <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
@@ -5602,7 +5609,7 @@ RULES FOR RESPONDING:
 
   // Generate and save ICS calendar for external platforms
   useEffect(() => {
-    if (userRole === 'admin' && bookings.length > 0) {
+    if (userRole === 'admin') {
       const generateIcs = () => {
         let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n';
         bookings.filter(b => b.status === 'confirmed').forEach(b => {
@@ -5620,12 +5627,12 @@ RULES FOR RESPONDING:
               ics += `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z\r\n`;
               ics += `DTSTART;VALUE=DATE:${start}\r\n`;
               ics += `DTEND;VALUE=DATE:${end}\r\n`;
-              ics += `SUMMARY:Booking: ${b.name || 'Guest'}\r\n`;
+              ics += `SUMMARY:Unique Farmhouse Booking\r\n`;
               ics += 'END:VEVENT\r\n';
             }
           }
         });
-        ics += 'END:VCALENDAR';
+        ics += 'END:VCALENDAR\r\n';
         return ics;
       };
 
@@ -10381,6 +10388,67 @@ export default function App() {
       unsubscribeGallery();
       unsubscribeSettings();
       unsubscribeReplyTemplates();
+    };
+  }, []);
+
+  // Auto-sync iCal every 30 minutes
+  useEffect(() => {
+    let intervalId: any;
+    
+    const runSync = async () => {
+      try {
+        const docSnap = await getDoc(doc(db, 'settings', 'calendar_sync'));
+        if (docSnap.exists() && docSnap.data().urls && docSnap.data().urls.length > 0) {
+          const urls = docSnap.data().urls;
+          const response = await fetch('/api/calendar/sync', { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls })
+          });
+          
+          if (response.ok) {
+            const text = await response.text();
+            let data;
+            try {
+              data = JSON.parse(text);
+            } catch (e) {
+              console.warn('Auto iCal Sync: received non-JSON response.', text.substring(0, 50));
+              return;
+            }
+            if (data.events && data.events.length > 0) {
+              const batch = writeBatch(db);
+              const blockedSnapshot = await getDocs(query(collection(db, 'blocked_dates'), where('type', '==', 'external')));
+              blockedSnapshot.forEach(doc => batch.delete(doc.ref));
+              
+              data.events.forEach((event: any) => {
+                const docRef = doc(collection(db, 'blocked_dates'));
+                batch.set(docRef, {
+                  ...event,
+                  type: 'external',
+                  status: 'confirmed',
+                  checkIn: format(new Date(event.start), 'dd/MM/yyyy'),
+                  checkOut: format(new Date(event.end), 'dd/MM/yyyy'),
+                  updatedAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
+                });
+              });
+              await batch.commit();
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Auto iCal Sync error:', err);
+      }
+    };
+
+    // Run once after 1 minute, then every 30 mins
+    const timeoutId = setTimeout(() => {
+      runSync();
+      intervalId = setInterval(runSync, 30 * 60 * 1000);
+    }, 60000);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
     };
   }, []);
 
