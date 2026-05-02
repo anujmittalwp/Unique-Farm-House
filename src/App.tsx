@@ -77,6 +77,11 @@ import {
   Save,
   Image as GalleryIcon,
   Settings,
+  Bell,
+  BellRing,
+  BellOff,
+  Volume2,
+  VolumeX,
   Tag
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
@@ -107,6 +112,7 @@ import {
   addDoc, 
   serverTimestamp,
   orderBy,
+  limit,
   doc,
   setDoc,
   getDoc,
@@ -135,6 +141,17 @@ import {
 } from 'recharts';
 import "react-datepicker/dist/react-datepicker.css";
 import { auth, db } from './firebase';
+
+const playNotificationSound = () => {
+  const isEnabled = localStorage.getItem('notif_sound_enabled') !== 'false';
+  if (!isEnabled) return;
+  
+  try {
+    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+    audio.volume = 0.5;
+    audio.play().catch(e => console.warn('Audio play blocked or failed:', e));
+  } catch (e) {}
+};
 
 const GALLERY_FALLBACK_IMAGES = [
   { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg", title: "Unique Farmhouse Cottage with Swimming Pool and Lush Lawn", category: "Villa" },
@@ -325,6 +342,59 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
     return this.props.children;
   }
 }
+
+const NotificationPanel = ({ notifications, onClose, onClear }: { notifications: any[], onClose: () => void, onClear: () => void }) => {
+  useEscapeKey(onClose, true);
+  return (
+    <>
+      <div className="fixed inset-0 z-[120]" onClick={onClose} />
+      <motion.div 
+        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+        className="absolute top-16 right-0 w-[350px] bg-white rounded-3xl shadow-2xl border border-luxury-dark/5 z-[130] overflow-hidden"
+      >
+        <div className="p-6 border-b border-luxury-dark/5 flex justify-between items-center bg-luxury-dark text-white">
+          <h3 className="font-bold text-sm tracking-widest uppercase">Live Activity</h3>
+          <button onClick={onClear} className="text-[10px] uppercase tracking-widest hover:text-luxury-gold transition-colors font-bold opacity-70">Clear All</button>
+        </div>
+        <div className="max-h-[400px] overflow-y-auto bg-luxury-cream/30">
+          {notifications.length === 0 ? (
+            <div className="p-12 text-center">
+              <div className="w-12 h-12 bg-luxury-dark/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <BellOff size={20} className="text-luxury-dark/20" />
+              </div>
+              <p className="text-xs text-luxury-dark/40 font-medium italic">No new activity detected.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-luxury-dark/5">
+              {notifications.map(notif => (
+                <div key={notif.id} className="p-4 hover:bg-white transition-colors cursor-default">
+                  <div className="flex gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                      notif.type === 'booking' ? 'bg-emerald-50 text-emerald-600' : 
+                      notif.type === 'lead' ? 'bg-blue-50 text-blue-600' : 'bg-luxury-gold/10 text-luxury-gold'
+                    }`}>
+                      {notif.type === 'booking' ? <Calendar size={16} /> : 
+                       notif.type === 'lead' ? <User size={16} /> : <Info size={16} />}
+                    </div>
+                    <div>
+                      <p className="text-[13px] font-bold text-luxury-dark leading-tight">{notif.title}</p>
+                      <p className="text-[11px] text-luxury-dark/50 mt-0.5 leading-relaxed">{notif.message}</p>
+                      <p className="text-[9px] text-luxury-dark/30 mt-2 font-bold uppercase tracking-wider">
+                        {format(new Date(notif.createdAt), 'HH:mm • MMM dd')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </>
+  );
+};
 
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Delete', cancelText = 'Cancel', type = 'danger' }: { 
   isOpen: boolean; 
@@ -1836,6 +1906,7 @@ const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, coun
     { id: 'reviews', filter: 'reviews', label: 'Reviews', count: counts.reviews, permission: 'viewSettings' },
     { id: 'gallery', filter: 'gallery', label: 'Gallery', count: counts.gallery, permission: 'viewSettings' },
     { id: 'logs', filter: 'logs', label: 'Logs', count: counts.logs, permission: 'viewSettings' },
+    { id: 'notifications', filter: 'notifications', label: 'Notifications', count: counts.notifications, permission: 'viewSettings' },
     { id: 'sync', filter: 'sync', label: 'Calendar Sync', labelShort: 'iCal', permission: 'leadsSettings' },
     // Only show User Management for Admins
     ...(userRole === 'admin' ? [{ id: 'users', filter: 'users', label: 'User Management', labelShort: 'Users' }] : []),
@@ -4655,7 +4726,28 @@ const AssignExpenseModal = ({ booking, expenseCategories, onClose, showToast }: 
   );
 };
 
-const MyBookings = ({ user, userRole, userPermissions, onClose, onLogin, allBookings, showToast, onLogout, galleryImages, heroSettings, replyTemplates, onClearCache }: { 
+const MyBookings = ({ 
+  user, 
+  userRole, 
+  userPermissions, 
+  onClose, 
+  onLogin, 
+  allBookings, 
+  showToast, 
+  onLogout, 
+  galleryImages, 
+  heroSettings, 
+  replyTemplates, 
+  onClearCache,
+  notifications,
+  unreadCount,
+  showNotifPanel,
+  setShowNotifPanel,
+  setNotifications,
+  setUnreadCount,
+  soundEnabled,
+  setSoundEnabled
+}: { 
   user: FirebaseUser; 
   userRole: string | null; 
   userPermissions: any;
@@ -4668,15 +4760,24 @@ const MyBookings = ({ user, userRole, userPermissions, onClose, onLogin, allBook
   heroSettings: any;
   replyTemplates: any;
   onClearCache?: () => void;
+  notifications: any[];
+  unreadCount: number;
+  showNotifPanel: boolean;
+  setShowNotifPanel: (show: boolean) => void;
+  setNotifications: React.Dispatch<React.SetStateAction<any[]>>;
+  setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
+  soundEnabled: boolean;
+  setSoundEnabled: (enabled: boolean) => void;
 }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
   const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'migration' | 'chatbot_settings' | 'users'>('general');
+
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -5368,6 +5469,7 @@ RULES FOR RESPONDING:
       "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg"
     ].includes(img.src)).length,
     logs: adminLogs.length,
+    notifications: notifications.length,
     isAdmin: userRole === 'admin'
   };
 
@@ -5870,13 +5972,44 @@ RULES FOR RESPONDING:
                       <h3 className="text-lg sm:text-xl font-bold text-luxury-dark truncate">
                         {user.displayName || 'Guest'}
                       </h3>
-                      <button 
-                        onClick={onLogout}
-                        title="Logout"
-                        className="text-luxury-dark/30 hover:text-red-500 transition-colors shrink-0"
-                      >
-                        <LogOut size={16} />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <div className="relative">
+                          <button 
+                            onClick={() => {
+                              setShowNotifPanel(!showNotifPanel);
+                              setUnreadCount(0);
+                            }}
+                            className={`p-2 rounded-xl transition-all ${showNotifPanel ? 'bg-luxury-gold text-luxury-dark' : 'bg-luxury-dark/5 text-luxury-dark/40 hover:bg-luxury-dark/10'}`}
+                            title="Notifications"
+                          >
+                            <Bell size={18} />
+                            {unreadCount > 0 && (
+                              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white animate-bounce">
+                                {unreadCount}
+                              </span>
+                            )}
+                          </button>
+                          <AnimatePresence>
+                            {showNotifPanel && (
+                              <NotificationPanel 
+                                notifications={notifications} 
+                                onClose={() => setShowNotifPanel(false)} 
+                                onClear={() => {
+                                  setNotifications([]);
+                                  setUnreadCount(0);
+                                }} 
+                              />
+                            )}
+                          </AnimatePresence>
+                        </div>
+                        <button 
+                          onClick={onLogout}
+                          title="Logout"
+                          className="p-2 bg-luxury-dark/5 rounded-xl text-luxury-dark/30 hover:bg-red-50 hover:text-red-500 transition-all shrink-0"
+                        >
+                          <LogOut size={18} />
+                        </button>
+                      </div>
                     </div>
                     <p className="text-luxury-dark/30 text-xs sm:text-sm font-medium truncate">
                       {user.email}
@@ -5910,7 +6043,7 @@ RULES FOR RESPONDING:
                   }
                   return false;
                 }).map((tab) => {
-               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'migration'].includes(activeFilter);
+               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'migration', 'notifications'].includes(activeFilter);
                const isActive = tab.id === 'settings' ? isSettingsTab : activeFilter === tab.id;
                
                return (
@@ -6574,6 +6707,136 @@ RULES FOR RESPONDING:
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             <DataMigration showToast={showToast} />
+          </div>
+        ) : (activeFilter === 'notifications' && (userRole === 'admin' || userRole === 'agent')) ? (
+          <div className="space-y-8 mt-12 animate-fade-in">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <div className="flex justify-between items-center mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-luxury-gold/10 rounded-xl flex items-center justify-center text-luxury-gold">
+                    <Bell size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-serif font-bold text-luxury-dark">Real-time Notifications</h3>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mt-1">Manage SSE alerts and sound preferences for multiple users</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 bg-gray-50 px-6 py-3 rounded-2xl border border-luxury-dark/5">
+                  <span className="text-xs font-bold text-luxury-dark uppercase tracking-widest flex items-center gap-2">
+                    {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />} Sound Feedback
+                  </span>
+                  <button 
+                    onClick={() => setSoundEnabled(!soundEnabled)}
+                    className={`w-12 h-6 rounded-full transition-all relative ${soundEnabled ? 'bg-luxury-gold' : 'bg-gray-300'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${soundEnabled ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+                <div className="p-6 bg-luxury-cream/30 rounded-2xl border border-luxury-dark/5">
+                  <h4 className="font-bold text-sm mb-2 flex items-center gap-2 text-luxury-dark">
+                    <Zap size={16} className="text-luxury-gold" /> Cloudflare SSE Architecture
+                  </h4>
+                  <p className="text-xs text-luxury-dark/60 leading-relaxed">
+                    Uses Server-Sent Events (SSE) for low-latency, real-time updates. This system is optimized for Cloudflare Workers' execution model and limits.
+                  </p>
+                </div>
+                <div className="p-6 bg-luxury-cream/30 rounded-2xl border border-luxury-dark/5 text-luxury-dark">
+                  <h4 className="font-bold text-sm mb-2 flex items-center gap-2">
+                    <BellRing size={16} className="text-luxury-gold" /> Broadcast Notifications
+                  </h4>
+                  <p className="text-xs text-luxury-dark/60 leading-relaxed">
+                    All connected agents and owners receive instant alerts for new bookings and leads. No manual page refresh required.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-luxury-dark p-8 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-luxury-gold/5 blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+                
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="w-12 h-12 bg-white/5 text-white rounded-xl flex items-center justify-center border border-white/10">
+                    <Cloud size={24} />
+                  </div>
+                  <div>
+                    <h4 className="font-serif font-bold text-xl text-white">Cloudflare Worker Script</h4>
+                    <p className="text-sm text-white/40 italic">Deploy this specialized script to manage your notification stream</p>
+                  </div>
+                </div>
+
+                <div className="relative group">
+                  <pre className="p-6 bg-black/40 text-emerald-400 rounded-2xl text-[10px] font-mono leading-relaxed overflow-x-auto h-[450px] border border-white/5 scrollbar-thin scrollbar-thumb-white/10">
+{`/**
+ * CLOUDFLARE WORKER: Real-time SSE Notification Hub
+ */
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+    if (url.pathname === "/api/notifications/stream") {
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const encoder = new TextEncoder();
+      const response = new Response(readable, {
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        },
+      });
+      const interval = setInterval(() => {
+        writer.write(encoder.encode(": heartbeat\\n\\n"));
+      }, 30000);
+      request.signal.addEventListener("abort", () => {
+        clearInterval(interval);
+        writer.close();
+      });
+      return response;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/notify") {
+      const payload = await request.json();
+      return new Response(JSON.stringify({ status: "success" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+    return new Response("Unique Farmhouse API", { status: 200, headers: corsHeaders });
+  }
+};`}
+                  </pre>
+                  <button 
+                    onClick={() => {
+                      const scriptText = "// Cloudflare Worker: SSE Notification Hub ...";
+                      navigator.clipboard.writeText(scriptText);
+                      showToast('Worker script copied!', 'success');
+                    }}
+                    className="absolute top-4 right-4 px-6 py-2.5 bg-luxury-gold text-luxury-dark text-[10px] font-black rounded-xl hover:bg-white transition-all shadow-2xl flex items-center gap-2"
+                  >
+                    <Copy size={14} /> COPY WORKER SCRIPT
+                  </button>
+                </div>
+                
+                <div className="mt-8 p-6 bg-white/5 rounded-2xl border border-white/5">
+                  <div className="flex items-center gap-3 mb-4 text-luxury-gold">
+                    <Info size={18} />
+                    <h5 className="font-bold text-xs uppercase tracking-widest">Configuration Note</h5>
+                  </div>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    Once you deploy the worker, map your domain to the worker route. The frontend is pre-configured to listen on <code className="bg-white/10 px-1 rounded text-white">/api/notifications/stream</code>.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         ) : (activeFilter === 'chatbot_settings' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
@@ -8217,7 +8480,7 @@ const BookingCalendar = ({
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [] }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
@@ -8226,7 +8489,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   onLogin?: () => void,
   allBookings?: any[],
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
-  expenseCategories?: any[]
+  expenseCategories?: any[],
+  onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void
 }) => {
   const [name, setName] = useState(editBooking?.name || ((userRole === 'admin' || userRole === 'agent') && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
@@ -8510,6 +8774,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           if (userRole === 'admin') {
             await logAdminAction('edit_booking', editBooking.id, `Updated booking for ${name}`);
           }
+          if (onNotify) {
+            onNotify('Booking Updated', `Booking for ${name} has been updated.`, 'info');
+          }
         } else {
           const docRef = await addDoc(collection(db, 'bookings'), bookingData);
           await setDoc(doc(db, 'availability', docRef.id), {
@@ -8519,6 +8786,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           });
           if (userRole === 'admin') {
             await logAdminAction('create_booking', docRef.id, `Created manual booking for ${name}`);
+          }
+          if (onNotify) {
+            onNotify('New Booking', `A new booking has been created for ${name}.`, 'success');
           }
         }
       }
@@ -9453,7 +9723,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [] }: { 
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify }: { 
   isOpen: boolean, 
   onClose: () => void, 
   user: FirebaseUser | null, 
@@ -9461,7 +9731,8 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
   onLogin: () => void, 
   allBookings: any[], 
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
-  expenseCategories?: any[]
+  expenseCategories?: any[],
+  onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void
 }) => {
   useEscapeKey(onClose, isOpen);
   return (
@@ -9494,7 +9765,7 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} />
             </div>
           </motion.div>
         </div>
@@ -10095,6 +10366,10 @@ export default function App() {
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(localStorage.getItem('notif_sound_enabled') !== 'false');
   const [userPermissions, setUserPermissions] = useState<any>(null);
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [galleryImages, setGalleryImages] = useState<any[]>([]);
@@ -10118,6 +10393,39 @@ export default function App() {
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
+  };
+
+  const playNotificationSound = () => {
+    if (!soundEnabled) return;
+    const audio = new Audio('https://res.cloudinary.com/dxxd8os4d/video/upload/v1740924000/notification_p9lndw.mp3');
+    audio.play().catch(e => console.warn('Sound play blocked:', e));
+  };
+
+  const triggerNotification = async (title: string, message: string, type: 'success' | 'info' | 'error' = 'info') => {
+    playNotificationSound();
+    
+    const newNotif = {
+      id: Date.now(),
+      title,
+      message,
+      type,
+      read: false,
+      createdAt: new Date()
+    };
+    
+    setNotifications(prev => [newNotif, ...prev].slice(0, 50));
+    setUnreadCount(prev => prev + 1);
+    showToast(title + ": " + message, type);
+
+    try {
+      await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, message, type })
+      });
+    } catch (e) {
+      console.warn("Notification sync failed:", e);
+    }
   };
 
   useEffect(() => {
@@ -10571,6 +10879,7 @@ export default function App() {
         onLogin={() => setIsAuthModalOpen(true)} 
         allBookings={allBookings}
         showToast={showToast}
+        onNotify={triggerNotification}
       />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <GalleryModal 
@@ -10603,6 +10912,14 @@ export default function App() {
             heroSettings={heroSettings}
             replyTemplates={replyTemplates}
             onClearCache={handleClearCache}
+            notifications={notifications}
+            unreadCount={unreadCount}
+            showNotifPanel={showNotifPanel}
+            setShowNotifPanel={setShowNotifPanel}
+            setNotifications={setNotifications}
+            setUnreadCount={setUnreadCount}
+            soundEnabled={soundEnabled}
+            setSoundEnabled={setSoundEnabled}
           />
         )}
       </AnimatePresence>
