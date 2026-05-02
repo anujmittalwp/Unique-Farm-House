@@ -77,9 +77,6 @@ import {
   Save,
   Image as GalleryIcon,
   Settings,
-  Bell,
-  BellRing,
-  BellOff,
   Tag
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
@@ -1233,48 +1230,123 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
-      const response = await fetch('/api/calendar/sync', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls })
-      });
-      
-      let data;
-      const textResponse = await response.text();
+      let workerUrl = "";
       try {
-        data = JSON.parse(textResponse);
-      } catch (e) {
-        throw new Error(`Invalid response from server (Status: ${response.status}). Response may be HTML.`);
-      }
+         const proxySnap = await getDoc(doc(db, 'settings', 'gmail'));
+         if (proxySnap.exists()) workerUrl = proxySnap.data()?.workerUrl || '';
+      } catch(e) {}
+      
+      const allExternalEvents: any[] = [];
+      const ICAL = (await import('ical.js')).default;
+      
+      for (const item of urls) {
+        try {
+          // Fetch the external ICS content. If it fails due to CORS, fall back to worker proxy.
+          let response: any = null;
+          let lastError: any = null;
 
-      if (response.ok) {
-        if (data.events && data.events.length > 0) {
-          const batch = writeBatch(db);
-          // Delete old external blocked dates
-          const blockedSnapshot = await getDocs(query(collection(db, 'blocked_dates'), where('type', '==', 'external')));
-          blockedSnapshot.forEach(doc => batch.delete(doc.ref));
+          const fetchFromSource = async (u: string) => {
+            try {
+              const res = await fetch(u);
+              if (res.ok) return res;
+              throw new Error(`HTTP ${res.status}`);
+            } catch (err) {
+              throw err;
+            }
+          };
+
+          const fetchViaWorker = async (u: string) => {
+            if (!workerUrl) throw new Error("No worker configured");
+            return await fetch(workerUrl.replace(/\/+$/, '') + '/api/proxy/fetch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: u })
+            });
+          };
+
+          const proxies = [
+            async (u: string) => await fetchFromSource(u),
+            async (u: string) => await fetchViaWorker(u),
+            async (u: string) => await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(u)),
+            async (u: string) => await fetch('https://corsproxy.io/?' + encodeURIComponent(u)),
+            async (u: string) => await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)),
+          ];
+
+          for (const proxyFn of proxies) {
+            try {
+              const res = await proxyFn(item.url);
+              if (res && res.ok) {
+                response = res;
+                break;
+              }
+              if (res) console.warn(`Proxy failed with status ${res.status}`);
+            } catch (err) {
+              console.warn("Proxy attempt failed", err);
+              lastError = err;
+            }
+          }
           
-          // Add new ones
-          data.events.forEach((event: any) => {
-            const docRef = doc(collection(db, 'blocked_dates'));
-            batch.set(docRef, {
-              ...event,
-              type: 'external',
-              status: 'confirmed',
-              checkIn: format(new Date(event.start), 'dd/MM/yyyy'),
-              checkOut: format(new Date(event.end), 'dd/MM/yyyy'),
-              updatedAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
+          if (!response?.ok) {
+             throw new Error(`Failed to fetch calendar after trying all proxies. ${lastError?.message || 'Check your URL or network.'}`);
+          }
+
+          const textResponse = await response.text();
+          
+          if (!textResponse.includes('BEGIN:VCALENDAR')) {
+              throw new Error("Invalid ICS content received.");
+          }
+
+          const jcalData = ICAL.parse(textResponse);
+          const comp = new ICAL.Component(jcalData);
+          const vevents = comp.getAllSubcomponents("vevent");
+
+          vevents.forEach(event => {
+            const ev = new ICAL.Event(event);
+            // Ignore events that originated from our own system to prevent duplicates
+            if (ev.uid && ev.uid.includes('@uniquefarmhouse.com')) {
+              return; // skip our own events
+            }
+            
+            allExternalEvents.push({
+               source: item.name,
+               start: ev.startDate.toJSDate().toISOString(),
+               end: ev.endDate.toJSDate().toISOString(),
+               summary: ev.summary,
+               uid: ev.uid || Math.random().toString(36).substring(7)
             });
           });
-          await batch.commit();
+
+        } catch (e: any) {
+          console.error('Failed to sync ' + item.name, e);
+          showToast('Failed to sync ' + item.name + ': ' + e.message, 'error');
         }
-        showToast(`Sync completed! ${data.events?.length || 0} external events imported.`, 'success');
-      } else {
-        showToast(data.error || 'Sync failed', 'error');
       }
-    } catch (error) {
+
+      if (allExternalEvents.length > 0 || urls.length > 0) {
+        const batch = writeBatch(db);
+        // Delete old external blocked dates
+        const blockedSnapshot = await getDocs(query(collection(db, 'blocked_dates'), where('type', '==', 'external')));
+        blockedSnapshot.forEach(doc => batch.delete(doc.ref));
+        
+        // Add new ones
+        allExternalEvents.forEach((event: any) => {
+          const docRef = doc(collection(db, 'blocked_dates'));
+          batch.set(docRef, {
+            ...event,
+            type: 'external',
+            status: 'confirmed',
+            checkIn: format(new Date(event.start), 'dd/MM/yyyy'),
+            checkOut: format(new Date(event.end), 'dd/MM/yyyy'),
+            updatedAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
+          });
+        });
+        await batch.commit();
+      }
+      showToast(`Sync completed! ${allExternalEvents.length || 0} external events imported.`, 'success');
+
+    } catch (error: any) {
       console.error('Sync error:', error);
-      showToast('Network error during sync', 'error');
+      showToast(error.message || 'Network error during sync', 'error');
     } finally {
       setSyncing(false);
     }
@@ -1295,12 +1367,12 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
         <div className="flex gap-3">
           <input 
             readOnly
-            value={window.location.origin.includes('run.app') ? 'https://www.uniquefarms.in/api/calendar/export.ics' : `${window.location.origin}/api/calendar/export.ics`}
+            value="https://calender.a9812275402.workers.dev/export.ics"
             className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-xs font-mono text-luxury-dark/60"
           />
           <button 
             onClick={() => {
-              navigator.clipboard.writeText(window.location.origin.includes('run.app') ? 'https://www.uniquefarms.in/api/calendar/export.ics' : `${window.location.origin}/api/calendar/export.ics`);
+              navigator.clipboard.writeText("https://calender.a9812275402.workers.dev/export.ics");
               showToast('Export URL copied!', 'success');
             }}
             className="px-6 py-3 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all"
@@ -1308,13 +1380,96 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
             Copy URL
           </button>
         </div>
-        {window.location.origin.includes('run.app') && (
-          <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-             <p className="text-xs text-yellow-800 font-bold leading-relaxed">
-               ℹ️ Using Custom Domain: The URL above has been auto-configured to use your custom domain (www.uniquefarms.in). This is the correct URL to paste into Airbnb and Booking.com. Make sure your custom domain is pointing to your deployed backend!
-             </p>
+
+        <div className="mt-8 pt-8 border-t border-luxury-dark/5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-bold text-luxury-dark">Cloudflare Worker Sync + Notifications</h4>
+              <p className="text-[10px] text-luxury-dark/50 mt-1">Deploy this to handle calendar sync, email relay, and real-time alerts.</p>
+            </div>
+            <button 
+               onClick={() => {
+                  const code = `/** Unique Farmhouse Worker v3.0 **/
+let controllers = new Set();
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const headers = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers });
+    }
+
+    // 3. CORS PROXY ROUTE
+    if (url.pathname === '/api/proxy/fetch') {
+      try {
+        const bodyData = await request.json();
+        const targetUrl = bodyData.url;
+        const res = await fetch(targetUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/calendar, text/plain, */*"
+          }
+        });
+        const text = await res.text();
+        return new Response(text, {
+           headers: { ...headers, "Content-Type": res.headers.get("Content-Type") || "text/plain" }
+        });
+      } catch(e) {
+        return new Response("CORS Fetch failed", { status: 500, headers });
+      }
+    }
+    
+    // 4. CALENDAR EXPORT
+    if (url.pathname.includes('/export.ics')) {
+      const PROJECT_ID = "gen-lang-client-0648775775";
+      const DATABASE_ID = "ai-studio-f7380372-aa21-47e5-a700-4543b093cb2e";
+      const API_KEY = "AIzaSyBWtRZJYKaFyix-eY5Up2QQWoTB07y7zAk";
+      try {
+        const firestoreUrl = \`https://firestore.googleapis.com/v1/projects/\${PROJECT_ID}/databases/\${DATABASE_ID}/documents/public/calendar?key=\${API_KEY}\`;
+        const res = await fetch(firestoreUrl);
+        const data = await res.json();
+        let icsContent = data.fields?.icsData?.stringValue;
+        let lastUpdated = data.fields?.updatedAt?.stringValue || new Date().toUTCString();
+        if (!icsContent) {
+           icsContent = "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//Unique Farmhouse//Bookings//EN\\r\\nCALSCALE:GREGORIAN\\r\\nMETHOD:PUBLISH\\r\\nEND:VCALENDAR\\r\\n";
+        }
+        return new Response(icsContent, {
+          headers: {
+            ...headers,
+            "Content-Type": "text/calendar; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="calendar.ics"',
+            "Last-Modified": lastUpdated
+          }
+        });
+      } catch (e) {
+        return new Response("Error", { status: 500, headers });
+      }
+    }
+    
+    return new Response("Not Found", { status: 404, headers });
+  }
+};`;
+                  navigator.clipboard.writeText(code);
+                  showToast('Updated Worker code copied!', 'success');
+               }}
+               className="px-4 py-2 bg-luxury-gold text-luxury-dark font-bold text-[10px] uppercase rounded-lg hover:bg-luxury-dark hover:text-white transition-colors"
+            >
+               Copy Advanced Worker Script
+            </button>
           </div>
-        )}
+          <div className="p-3 bg-luxury-cream/50 rounded-xl border border-black/5">
+            <p className="text-[10px] text-luxury-dark/60 leading-relaxed italic">
+              <b>Notification Sync:</b> This script now supports Server-Sent Events (SSE). After deploying, ensure your Worker URL is saved in <b>Settings</b>.
+            </p>
+          </div>
+        </div>
+
       </div>
 
       <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
@@ -1682,7 +1837,6 @@ const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, coun
     { id: 'gallery', filter: 'gallery', label: 'Gallery', count: counts.gallery, permission: 'viewSettings' },
     { id: 'logs', filter: 'logs', label: 'Logs', count: counts.logs, permission: 'viewSettings' },
     { id: 'sync', filter: 'sync', label: 'Calendar Sync', labelShort: 'iCal', permission: 'leadsSettings' },
-    { id: 'notifications', filter: 'notifications', label: 'Notifications', count: counts.notifications },
     // Only show User Management for Admins
     ...(userRole === 'admin' ? [{ id: 'users', filter: 'users', label: 'User Management', labelShort: 'Users' }] : []),
     { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool', permission: 'leadsSettings' }
@@ -4520,15 +4674,13 @@ const MyBookings = ({ user, userRole, userPermissions, onClose, onLogin, allBook
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'notifications' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
-  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'notifications' | 'migration' | 'chatbot_settings' | 'users'>('general');
+  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'migration' | 'chatbot_settings' | 'users'>('general');
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [adminLogs, setAdminLogs] = useState<any[]>([]);
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [notificationFilter, setNotificationFilter] = useState<'all' | 'unread' | 'read'>('all');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<any | null>(null);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -4559,99 +4711,6 @@ const MyBookings = ({ user, userRole, userPermissions, onClose, onLogin, allBook
   const canDeleteSettingsAdmin = userRole === 'admin' || (userRole === 'agent' && userPermissions?.deleteSettings);
 
   const galleryCategories = ['Villa', 'Pool', 'Interiors', 'Dining', 'Activities', 'Amenities'];
-
-  // Push Notification States
-  const [isPushSupported] = useState('serviceWorker' in navigator && 'PushManager' in window);
-  const [pushPermission, setPushPermission] = useState(Notification.permission);
-  const [isSubscribingPush, setIsSubscribingPush] = useState(false);
-
-  const urlBase64ToUint8Array = (base64String: string) => {
-    const trimmed = base64String.trim();
-    // Keep only characters valid in URL-safe base64 or standard base64 plus padding
-    const sanitized = trimmed.replace(/[^A-Za-z0-9\-_=]/g, '');
-    const padding = '='.repeat((4 - sanitized.length % 4) % 4);
-    const base64 = (sanitized + padding)
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-    
-    try {
-      const rawData = window.atob(base64);
-      const outputArray = new Uint8Array(rawData.length);
-      for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
-      }
-      return outputArray;
-    } catch (e) {
-      console.error('Failed to decode base64 string:', base64);
-      throw e;
-    }
-  };
-
-  const subscribeToPushNotifications = async () => {
-    // Sync with browser permission before starting
-    const currentPermission = Notification.permission;
-    setPushPermission(currentPermission);
-
-    if (!isPushSupported) {
-      showToast('Push notifications are not supported in this browser.', 'error');
-      return;
-    }
-    
-    setIsSubscribingPush(true);
-    try {
-      let permission = Notification.permission;
-      if (permission === 'default') {
-        permission = await Notification.requestPermission();
-        setPushPermission(permission);
-      }
-      
-      if (permission !== 'granted') {
-        if (permission === 'denied') {
-          showToast('Notification permission denied. Please click the site icon/lock icon in your address bar and reset permission to "Allow".', 'error');
-        } else {
-          showToast('Notification permission denied.', 'error');
-        }
-        setIsSubscribingPush(false);
-        return;
-      }
-
-      const swRegistration = await navigator.serviceWorker.ready;
-      if (!swRegistration) {
-        throw new Error('Service worker not ready. Please try refreshing the page.');
-      }
-      
-      const response = await fetch('/api/push/public-key');
-      if (!response.ok) {
-        throw new Error('Failed to fetch public key from server.');
-      }
-      const vapidPublicKey = await response.text();
-      const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
-
-      const subscription = await swRegistration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: convertedVapidKey
-      });
-
-      const res = await fetch('/api/push/subscribe', {
-        method: 'POST',
-        body: JSON.stringify(subscription),
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (res.ok) {
-        showToast('Subscribed to Push Notifications successfully!', 'success');
-      } else {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(`Server Error: ${errorData.error || 'Failed to save subscription'}`);
-      }
-    } catch (err: any) {
-      console.error('Push Subscription Error:', err);
-      const errorMessage = err instanceof Error ? `${err.name}: ${err.message}` : 'Unknown error';
-      showToast(`Subscription failed: ${errorMessage}`, 'error');
-    } finally {
-      setIsSubscribingPush(false);
-    }
-  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
     const file = e.target.files?.[0];
@@ -5237,18 +5296,6 @@ RULES FOR RESPONDING:
   };
 
   useEffect(() => {
-    if (!user || (userRole !== 'admin' && userRole !== 'agent')) return;
-    const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      }, (error) => {
-        console.warn('Notifications fetch error (likely permission related):', error);
-        // We don't throw here to avoid crashing the whole admin panel if notifications fail
-      });
-      return () => unsubscribe();
-  }, [userRole]);
-
-  useEffect(() => {
     if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
     
     if (activeFilter === 'reviews' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewSettings))) {
@@ -5321,7 +5368,6 @@ RULES FOR RESPONDING:
       "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774586827/Unique_Farm_House_Bonfire3_rt2hoy.jpg"
     ].includes(img.src)).length,
     logs: adminLogs.length,
-    notifications: notifications.length,
     isAdmin: userRole === 'admin'
   };
 
@@ -5582,52 +5628,37 @@ RULES FOR RESPONDING:
     });
   }, [bookings, activeFilter, bookingFilter]);
 
-  const filteredNotifications = useMemo(() => {
-    return notifications.filter(notif => {
-      if (notificationFilter === 'unread') return !notif.read;
-      if (notificationFilter === 'read') return notif.read;
-      return true;
-    });
-  }, [notifications, notificationFilter]);
-
-  const handleMarkAllRead = async () => {
-    if (notifications.length === 0) return;
-    try {
-      const batch = writeBatch(db);
-      const unreadNotifications = notifications.filter(n => !n.read);
-      if (unreadNotifications.length === 0) return;
-      
-      unreadNotifications.forEach(notif => {
-        batch.update(doc(db, 'notifications', notif.id), { read: true });
-      });
-      await batch.commit();
-      showToast('All notifications marked as read', 'success');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'notifications');
-    }
-  };
-
   // Generate and save ICS calendar for external platforms
   useEffect(() => {
     if (userRole === 'admin') {
       const generateIcs = () => {
+        // Correct RFC 5545 format with CRLF (\r\n) line breaks
         let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n';
+        
         bookings.filter(b => b.status === 'confirmed').forEach(b => {
           if (b.checkIn && b.checkOut) {
             const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
             const checkOutDate = parse(b.checkOut, 'dd/MM/yyyy', new Date());
             
             if (isValid(checkInDate) && isValid(checkOutDate)) {
-              const endDate = checkOutDate <= checkInDate ? addDays(checkInDate, 1) : checkOutDate;
-              const start = format(checkInDate, 'yyyyMMdd');
-              const end = format(endDate, 'yyyyMMdd');
+              // Ensure proper UTC format YYYYMMDDTHHMMSSZ
+              // Standard Check-in 14:00, Check-out 11:00
+              const startDateTime = new Date(checkInDate);
+              startDateTime.setUTCHours(14, 0, 0, 0);
+              const endDateTime = new Date(checkOutDate);
+              endDateTime.setUTCHours(11, 0, 0, 0);
+
+              const formatUTC = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+              const dtstamp = formatUTC(new Date());
+              const dtstart = formatUTC(startDateTime);
+              const dtend = formatUTC(endDateTime);
               
               ics += 'BEGIN:VEVENT\r\n';
               ics += `UID:${b.id}@uniquefarmhouse.com\r\n`;
-              ics += `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z\r\n`;
-              ics += `DTSTART;VALUE=DATE:${start}\r\n`;
-              ics += `DTEND;VALUE=DATE:${end}\r\n`;
-              ics += `SUMMARY:Unique Farmhouse Booking\r\n`;
+              ics += `DTSTAMP:${dtstamp}\r\n`;
+              ics += `DTSTART:${dtstart}\r\n`;
+              ics += `DTEND:${dtend}\r\n`;
+              ics += `SUMMARY:Booked - Unique Farmhouse\r\n`;
               ics += 'END:VEVENT\r\n';
             }
           }
@@ -5637,7 +5668,7 @@ RULES FOR RESPONDING:
       };
 
       const icsData = generateIcs();
-      setDoc(doc(db, 'public', 'calendar'), { icsData, updatedAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss') }, { merge: true })
+      setDoc(doc(db, 'public', 'calendar'), { icsData, updatedAt: new Date().toUTCString() }, { merge: true })
         .catch(err => console.error('Failed to update public calendar:', err));
     }
   }, [bookings, userRole]);
@@ -5839,26 +5870,6 @@ RULES FOR RESPONDING:
                       <h3 className="text-lg sm:text-xl font-bold text-luxury-dark truncate">
                         {user.displayName || 'Guest'}
                       </h3>
-                      {(userRole === 'admin' || userRole === 'agent') && (
-                        <button 
-                          onClick={subscribeToPushNotifications}
-                          disabled={isSubscribingPush || !isPushSupported}
-                          title={
-                            pushPermission === 'granted' ? "Push Notifications Enabled" : 
-                            pushPermission === 'denied' ? "Notifications Blocked - Click to see how to enable" : 
-                            "Enable Push Notifications"
-                          }
-                          className={`shrink-0 transition-colors ${
-                            pushPermission === 'granted' ? 'text-emerald-500' : 
-                            pushPermission === 'denied' ? 'text-red-500 animate-pulse' : 
-                            'text-luxury-dark/30 hover:text-emerald-500'
-                          } ${isSubscribingPush ? 'animate-pulse' : ''}`}
-                        >
-                          {pushPermission === 'granted' ? <BellRing size={16} /> : 
-                           pushPermission === 'denied' ? <BellOff size={16} /> : 
-                           <Bell size={16} />}
-                        </button>
-                      )}
                       <button 
                         onClick={onLogout}
                         title="Logout"
@@ -5899,7 +5910,7 @@ RULES FOR RESPONDING:
                   }
                   return false;
                 }).map((tab) => {
-               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'notifications', 'migration'].includes(activeFilter);
+               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'migration'].includes(activeFilter);
                const isActive = tab.id === 'settings' ? isSettingsTab : activeFilter === tab.id;
                
                return (
@@ -6146,97 +6157,6 @@ RULES FOR RESPONDING:
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-        ) : (activeFilter === 'notifications' && (userRole === 'admin' || userRole === 'agent')) ? (
-          <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
-            
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex p-1 bg-luxury-dark/5 rounded-2xl w-full md:w-auto">
-                {(['all', 'unread', 'read'] as const).map(filter => (
-                  <button
-                    key={filter}
-                    onClick={() => setNotificationFilter(filter)}
-                    className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                      notificationFilter === filter 
-                        ? 'bg-white text-luxury-gold shadow-sm shadow-black/5' 
-                        : 'text-luxury-dark/40 hover:text-luxury-gold'
-                    }`}
-                  >
-                    {filter}
-                    {filter === 'unread' && notifications.filter(n => !n.read).length > 0 && (
-                      <span className="ml-2 px-1.5 py-0.5 bg-luxury-gold text-white rounded-full text-[8px]">
-                        {notifications.filter(n => !n.read).length}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              <button 
-                onClick={handleMarkAllRead}
-                disabled={notifications.filter(n => !n.read).length === 0}
-                className="w-full md:w-auto px-6 py-3 bg-luxury-dark text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                <CheckCircle2 size={16} />
-                Mark All as Read
-              </button>
-            </div>
-
-            <div className="space-y-4">
-            {filteredNotifications.map(notif => (
-              <div key={notif.id} className={`bg-white p-6 rounded-3xl border ${notif.read ? 'border-luxury-dark/5' : 'border-luxury-gold/30 shadow-lg shadow-luxury-gold/5'} transition-all`}>
-                <div className="flex justify-between items-start gap-4">
-                  <div className="flex gap-4">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${notif.type === 'update' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                      {notif.type === 'update' ? <RefreshCw size={24} /> : <Calendar size={24} />}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-luxury-dark text-lg">{notif.message}</h3>
-                      <p className="text-xs text-luxury-dark/40 mt-1">
-                        {notif.createdAt?.toDate ? format(notif.createdAt.toDate(), 'dd/MM/yyyy, HH:mm:ss') : 'Just now'}
-                      </p>
-                      {notif.details && (
-                        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-luxury-dark/5 p-4 rounded-2xl">
-                          <div>
-                            <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Guests</p>
-                            <p className="text-xs font-bold text-luxury-dark">{notif.details.dayGuestAdults || 0}A, {notif.details.dayGuestChildren?.length || 0}C (Day) / {notif.details.nightGuestAdults || 0}A, {notif.details.nightGuestChildren?.length || 0}C (Night)</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Dates</p>
-                            <p className="text-xs font-bold text-luxury-dark">{notif.details.checkIn} - {notif.details.checkOut}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Amount</p>
-                            <p className="text-xs font-bold text-luxury-dark">₹{(notif.details.totalAmount || 0).toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Contact</p>
-                            <p className="text-xs font-bold text-luxury-dark">{notif.details.mobile}</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {!notif.read && (
-                    <button 
-                      onClick={async () => {
-                        await setDoc(doc(db, 'notifications', notif.id), { ...notif, read: true });
-                      }}
-                      className="px-4 py-2 bg-luxury-gold/10 text-luxury-gold text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-luxury-gold hover:text-white transition-all"
-                    >
-                      Mark Read
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {filteredNotifications.length === 0 && (
-              <div className="py-24 text-center bg-luxury-dark/5 rounded-3xl border border-dashed border-luxury-dark/10">
-                <p className="text-luxury-dark/40 font-medium italic">No {notificationFilter !== 'all' ? notificationFilter : ''} notifications found.</p>
-              </div>
-            )}
           </div>
         </div>
         ) : (activeFilter === 'gallery' && (userRole === 'admin' || userRole === 'agent')) ? (
@@ -8590,21 +8510,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           if (userRole === 'admin') {
             await logAdminAction('edit_booking', editBooking.id, `Updated booking for ${name}`);
           }
-          // Store notification in Firestore
-          await addDoc(collection(db, 'notifications'), {
-            type: 'update',
-            bookingId: editBooking.id,
-            message: `Updated booking from ${name}`,
-            details: bookingData,
-            read: false,
-            createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
-          });
-          // Send notification
-          fetch('/api/notify/booking', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ booking: { ...bookingData, id: editBooking.id }, type: 'update' })
-          }).catch(err => console.error('Notification error:', err));
         } else {
           const docRef = await addDoc(collection(db, 'bookings'), bookingData);
           await setDoc(doc(db, 'availability', docRef.id), {
@@ -8615,21 +8520,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           if (userRole === 'admin') {
             await logAdminAction('create_booking', docRef.id, `Created manual booking for ${name}`);
           }
-          // Store notification in Firestore
-          await addDoc(collection(db, 'notifications'), {
-            type: 'create',
-            bookingId: docRef.id,
-            message: `New booking from ${name}`,
-            details: bookingData,
-            read: false,
-            createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
-          });
-          // Send notification
-          fetch('/api/notify/booking', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ booking: { ...bookingData, id: docRef.id }, type: 'create' })
-          }).catch(err => console.error('Notification error:', err));
         }
       }
 
@@ -10225,6 +10115,16 @@ export default function App() {
   }, [allGalleryImages, galleryCategory]);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  useEffect(() => {
+    // Scroll to top on route change
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
@@ -10288,11 +10188,6 @@ export default function App() {
   const handleCloseInstallPrompt = () => {
     setShowInstallPrompt(false);
     localStorage.setItem('install_prompt_dismissed', Date.now().toString());
-  };
-
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 5000);
   };
 
   const Toast = () => {
@@ -10400,39 +10295,99 @@ export default function App() {
         const docSnap = await getDoc(doc(db, 'settings', 'calendar_sync'));
         if (docSnap.exists() && docSnap.data().urls && docSnap.data().urls.length > 0) {
           const urls = docSnap.data().urls;
-          const response = await fetch('/api/calendar/sync', { 
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ urls })
-          });
           
-          if (response.ok) {
-            const text = await response.text();
-            let data;
+          const allExternalEvents: any[] = [];
+          const ICAL = (await import('ical.js')).default;
+          
+          let workerUrl = "";
+          try {
+             // grab the proxy URL from settings if possible, otherwise rely on fallback
+             const proxySnap = await getDoc(doc(db, 'settings', 'gmail'));
+             if (proxySnap.exists()) workerUrl = proxySnap.data()?.workerUrl || '';
+          } catch(e) {}
+
+          for (const item of urls) {
             try {
-              data = JSON.parse(text);
-            } catch (e) {
-              console.warn('Auto iCal Sync: received non-JSON response.', text.substring(0, 50));
-              return;
-            }
-            if (data.events && data.events.length > 0) {
-              const batch = writeBatch(db);
-              const blockedSnapshot = await getDocs(query(collection(db, 'blocked_dates'), where('type', '==', 'external')));
-              blockedSnapshot.forEach(doc => batch.delete(doc.ref));
+              let response: any = null;
               
-              data.events.forEach((event: any) => {
-                const docRef = doc(collection(db, 'blocked_dates'));
-                batch.set(docRef, {
-                  ...event,
-                  type: 'external',
-                  status: 'confirmed',
-                  checkIn: format(new Date(event.start), 'dd/MM/yyyy'),
-                  checkOut: format(new Date(event.end), 'dd/MM/yyyy'),
-                  updatedAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
+              const fetchFromSource = async (u: string) => {
+                try {
+                  const res = await fetch(u);
+                  if (res.ok) return res;
+                  throw new Error(`HTTP ${res.status}`);
+                } catch (err) {
+                  throw err;
+                }
+              };
+
+              const fetchViaWorker = async (u: string) => {
+                if (!workerUrl) throw new Error("No worker");
+                return await fetch(workerUrl.replace(/\/+$/, '') + '/api/proxy/fetch', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ url: u })
+                });
+              };
+
+              const proxies = [
+                async (u: string) => await fetchFromSource(u),
+                async (u: string) => await fetchViaWorker(u),
+                async (u: string) => await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(u)),
+                async (u: string) => await fetch('https://corsproxy.io/?' + encodeURIComponent(u)),
+                async (u: string) => await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)),
+              ];
+
+              for (const proxyFn of proxies) {
+                try {
+                  const res = await proxyFn(item.url);
+                  if (res && res.ok) {
+                    response = res;
+                    break;
+                  }
+                } catch (err) {}
+              }
+
+              if (!response?.ok) throw new Error("Status " + (response?.status || 'Unknown'));
+              
+              const textResponse = await response.text();
+              const jcalData = ICAL.parse(textResponse);
+              const comp = new ICAL.Component(jcalData);
+              const vevents = comp.getAllSubcomponents("vevent");
+
+              vevents.forEach(event => {
+                const ev = new ICAL.Event(event);
+                if (ev.uid && ev.uid.includes('@uniquefarmhouse.com')) return;
+                
+                allExternalEvents.push({
+                   source: item.name,
+                   start: ev.startDate.toJSDate().toISOString(),
+                   end: ev.endDate.toJSDate().toISOString(),
+                   summary: ev.summary,
+                   uid: ev.uid || Math.random().toString(36).substring(7)
                 });
               });
-              await batch.commit();
+            } catch (e: any) {
+              console.error('Auto-sync failed for ' + item.name, e);
             }
+          }
+
+          if (allExternalEvents.length > 0) {
+            const batch = writeBatch(db);
+            const blockedSnapshot = await getDocs(query(collection(db, 'blocked_dates'), where('type', '==', 'external')));
+            blockedSnapshot.forEach(doc => batch.delete(doc.ref));
+            
+            allExternalEvents.forEach((event: any) => {
+              const docRef = doc(collection(db, 'blocked_dates'));
+              batch.set(docRef, {
+                ...event,
+                type: 'external',
+                status: 'confirmed',
+                checkIn: format(new Date(event.start), 'dd/MM/yyyy'),
+                checkOut: format(new Date(event.end), 'dd/MM/yyyy'),
+                updatedAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
+              });
+            });
+            await batch.commit();
           }
         }
       } catch (err) {
@@ -10442,15 +10397,18 @@ export default function App() {
 
     // Run once after 1 minute, then every 30 mins
     const timeoutId = setTimeout(() => {
-      runSync();
-      intervalId = setInterval(runSync, 30 * 60 * 1000);
+      // Only run sync if user is admin or agent and has permissions
+      if (user && (userRole === 'admin' || userRole === 'agent')) {
+        runSync();
+        intervalId = setInterval(runSync, 30 * 60 * 1000);
+      }
     }, 60000);
 
     return () => {
       clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
     };
-  }, []);
+  }, [user, userRole]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {

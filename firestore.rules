@@ -57,7 +57,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((('email' in request.auth.token) && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com")) ||
+        ((('email' in request.auth.token) && (request.auth.token.email.toLower() == "anujkumarmittal@gmail.com")) ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'client') == 'admin'));
     }
@@ -75,7 +75,7 @@ service cloud.firestore {
     function isOwnerEmail() {
       return isAuthenticated() && 
         ('email' in request.auth.token) && 
-        (request.auth.token.email.lower() == "anujkumarmittal@gmail.com");
+        (request.auth.token.email.toLower() == "anujkumarmittal@gmail.com");
     }
 
     function isValidEmail(email) {
@@ -123,7 +123,7 @@ service cloud.firestore {
              data.bookedBy is string && data.bookedBy.size() <= 128 &&
              data.paymentMethod in ['upi', 'card', 'netbanking'] &&
              data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
-             isValidDateTimeString(data.createdAt) &&
+             (data.createdAt is timestamp || isValidDateTimeString(data.createdAt)) &&
              (!('name' in data) || (data.name is string && data.name.size() <= 128)) &&
              (!('mobile' in data) || (data.mobile is string && data.mobile.size() <= 20)) &&
              (!('email' in data) || (data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)))) &&
@@ -166,29 +166,23 @@ service cloud.firestore {
              data.keys().hasOnly(['checkIn', 'checkOut', 'status']);
     }
 
-    function isValidNotification(data) {
-      return data.keys().hasAll(['type', 'bookingId', 'message', 'details', 'read', 'createdAt']) &&
-             data.type in ['create', 'update', 'new_booking'] &&
-             data.bookingId is string &&
-             data.message is string &&
-             data.read is bool &&
-             data.details is map &&
-             data.keys().hasOnly(['type', 'bookingId', 'message', 'details', 'read', 'createdAt']);
-    }
-
     function isValidLead(data) {
-      return data.keys().hasAll(['name', 'email', 'status', 'createdAt']) &&
+      return data.keys().hasAll(['name', 'status', 'createdAt']) &&
              data.name is string && data.name.size() > 0 &&
-             data.email is string &&
-             data.status in ['new', 'contacted', 'converted', 'lost'] &&
+             data.status in ['new', 'contacted', 'converted', 'lost', 'converted_to_booking'] &&
+             (!('email' in data) || data.email is string) &&
              (!('phone' in data) || data.phone is string) &&
              (!('guests' in data) || (data.guests is string || data.guests is number)) &&
              (!('source' in data) || data.source is string) &&
              (!('metaLeadId' in data) || data.metaLeadId is string) &&
              (!('remarks' in data) || data.remarks is string) &&
+             (!('budget' in data) || (data.budget is string || data.budget is number)) &&
+             (!('city' in data) || data.city is string) &&
+             (!('bookingDate' in data) || data.bookingDate is string) &&
+             (!('bookingTime' in data) || data.bookingTime is string) &&
              (!('statusUpdatedAt' in data) || (data.statusUpdatedAt is timestamp || data.statusUpdatedAt == null)) &&
              (!('tags' in data) || data.tags is list) &&
-             data.keys().hasAny(['name', 'email', 'status', 'createdAt']);
+             (data.createdAt is timestamp || isValidDateTimeString(data.createdAt));
     }
 
     // ===============================================================
@@ -197,7 +191,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin() || isAgent();
-      allow list: if isAdmin() || isAgent() || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email == request.auth.token.email.lower());
+      allow list: if isAdmin() || isAgent() || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email == request.auth.token.email.toLower());
       allow create: if isAuthenticated() && (
         // Self-creation during login
         (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.uid == userId) ||
@@ -205,7 +199,7 @@ service cloud.firestore {
         (isAdmin() && isValidUser(request.resource.data))
       );
       allow update: if isAuthenticated() && (isAdmin() || (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role));
-      allow delete: if isAdmin() || isOwner(userId) || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email.lower() == request.auth.token.email.lower());
+      allow delete: if isAdmin() || isOwner(userId) || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email.toLower() == request.auth.token.email.toLower());
     }
 
     match /bookings/{bookingId} {
@@ -213,7 +207,7 @@ service cloud.firestore {
         isAdmin() ||
         (isAgent() && getPermissions().get('viewBookings', false) == true) ||
         resource.data.uid == request.auth.uid || 
-        (('email' in request.auth.token) && resource.data.email == request.auth.token.email.lower())
+        (('email' in request.auth.token) && resource.data.email == request.auth.token.email.toLower())
       );
       allow create: if (
         // Client can create a pending booking for themselves
@@ -295,19 +289,7 @@ service cloud.firestore {
       allow write: if isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true);
     }
 
-    match /notifications/{notificationId} {
-      allow read: if isAdmin() || isAgent();
-      allow create: if true; // Allow creation (usually from server, but client can also trigger)
-      allow update: if (isAdmin() || isAgent()) && isValidNotification(request.resource.data);
-      allow delete: if isAdmin() || isAgent();
-    }
-
     match /gallery/{imageId} {
-      allow read: if true;
-      allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
-    }
-
-    match /settings/vapid_keys {
       allow read: if true;
       allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
@@ -320,12 +302,6 @@ service cloud.firestore {
     match /settings/{settingId} {
       allow read: if true;
       allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
-    }
-
-    match /push_subscriptions/{subId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
     match /expense_categories/{categoryId} {
