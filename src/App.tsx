@@ -2854,13 +2854,23 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
   const uniqueTags = Array.from(new Set(leads.flatMap(l => (l.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t))))).sort();
 
   const filteredLeads = leads
-    .filter(l => filter === 'all' || l.status === filter)
+    .filter(l => {
+      const matchesStatus = filter === 'all' || l.status === filter;
+      const matchesScore = (filter === 'hot' && l.score === 'HOT') || (filter === 'warm' && l.score === 'WARM');
+      return matchesStatus || matchesScore;
+    })
     .filter(l => !selectedTag || (l.tags || []).includes(selectedTag))
     .sort((a, b) => {
       const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
       const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
       return dateB.getTime() - dateA.getTime();
     });
+
+  const getWhatsAppLink = (lead: any) => {
+    const cleanPhone = lead.phone.replace(/\D/g, '');
+    const message = `New Lead 🚨\nName: ${lead.name}\nDate: ${lead.bookingDate || 'N/A'}\nGuests: ${lead.guests || 'N/A'}\n\nHi ${lead.name}, thank you for your inquiry at Unique Farm House Noida! How can we help you today?`;
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+  };
 
   return (
     <div className="space-y-8 relative">
@@ -2874,7 +2884,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                   {id: 'new', label: 'New', count: leads.filter(l => l.status === 'new').length},
                   {id: 'contacted', label: 'Contacted', count: leads.filter(l => l.status === 'contacted').length},
                   {id: 'converted', label: 'Converted', count: leads.filter(l => l.status === 'converted').length},
-                  {id: 'lost', label: 'Lost', count: leads.filter(l => l.status === 'lost').length}
+                  {id: 'hot', label: '🔥 HOT', count: leads.filter(l => l.score === 'HOT').length},
+                  {id: 'warm', label: '⚡ WARM', count: leads.filter(l => l.score === 'WARM').length}
                 ].map(f => (
                 <button
                   key={f.id}
@@ -2971,11 +2982,20 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                       {formatDate(lead.createdAt)}
                     </td>
                     <td className="px-8 py-7">
-                      <p className="text-base font-bold text-luxury-dark leading-tight mb-1 group-hover/row:text-luxury-gold transition-colors">{lead.name}</p>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${lead.source === 'meta' ? 'bg-[#1877F2]/10 text-[#1877F2]' : 'bg-luxury-dark text-white'}`}>
-                          {lead.source === 'meta' ? 'Meta Lead' : lead.source}
-                        </span>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-base font-bold text-luxury-dark leading-tight group-hover/row:text-luxury-gold transition-colors">{lead.name}</p>
+                        {lead.score && (
+                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ring-1 ring-inset ${
+                            lead.score === 'HOT' ? 'bg-red-50 text-red-600 ring-red-100' : 
+                            lead.score === 'WARM' ? 'bg-amber-50 text-amber-600 ring-amber-100' :
+                            'bg-blue-50 text-blue-600 ring-blue-100'
+                          }`}>
+                            {lead.score === 'HOT' && '🔥 '}{lead.score}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[9px] text-luxury-dark/40 italic">
+                        {lead.phone}
                       </div>
                     </td>
                     <td className="px-8 py-7">
@@ -3075,8 +3095,19 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                       />
                     </td>
                     <td className="px-8 py-7">
-                      <select 
-                        value={lead.status || 'new'} 
+                      <div className="flex flex-col gap-2">
+                        {lead.automated && (
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <div className="flex gap-1">
+                              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Lead Scored" />
+                              <div className={`w-2 h-2 rounded-full ${lead.status === 'contacted' ? 'bg-emerald-500' : 'bg-luxury-dark/10'}`} title="Follow-up Day 1" />
+                              <div className="w-2 h-2 rounded-full bg-luxury-dark/10" title="Follow-up Day 2" />
+                            </div>
+                            <span className="text-[8px] font-black uppercase text-emerald-600 tracking-tighter">Automated</span>
+                          </div>
+                        )}
+                        <select 
+                          value={lead.status || 'new'} 
                         onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
                         disabled={!canEdit}
                         className={`text-[10px] font-black uppercase tracking-[0.2em] border-none rounded-2xl px-5 py-3 appearance-none outline-none transition-all shadow-lg ${
@@ -3093,7 +3124,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                         <option value="converted">CONVERTED</option>
                         <option value="lost">LOST LEAD</option>
                       </select>
-                    </td>
+                    </div>
+                  </td>
                     <td className="px-8 py-7 text-right">
                       {canDelete && (
                         <button 
@@ -7447,13 +7479,30 @@ export default {
 </motion.div>
 );
 };
-const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: { 
+const Navbar = ({ 
+  onBookNow, 
+  onLogin, 
+  user, 
+  userRole, 
+  onMyBookings,
+  unreadCount,
+  notifications,
+  onNotificationClick,
+  soundEnabled,
+  onToggleSound
+}: { 
   onBookNow: () => void; 
   onLogin: () => void;
-  user: FirebaseUser | null;
+  user: any;
   userRole: string | null;
   onMyBookings: () => void;
+  unreadCount: number;
+  notifications: any[];
+  onNotificationClick: () => void;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
 }) => {
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
@@ -7515,6 +7564,109 @@ const Navbar = ({ onBookNow, onLogin, user, userRole, onMyBookings }: {
 
           {user ? (
             <div className="flex items-center gap-4">
+              {(userRole === 'admin' || userRole === 'agent') && (
+                <div className="flex items-center gap-2 mr-2">
+                  <button 
+                    onClick={onToggleSound}
+                    className={`p-2 rounded-xl transition-all ${isNavSolid ? 'hover:bg-luxury-dark/5 text-luxury-dark/60' : 'hover:bg-white/10 text-white/60'}`}
+                    title={soundEnabled ? "Disable Notification Sound" : "Enable Notification Sound"}
+                  >
+                    {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+                  </button>
+                  
+                  <div className="relative">
+                    <button 
+                      onClick={() => setShowNotifPanel(!showNotifPanel)}
+                      className={`p-2 rounded-xl transition-all relative ${isNavSolid ? 'hover:bg-luxury-dark/5 text-luxury-dark/60' : 'hover:bg-white/10 text-white/60'}`}
+                    >
+                      {unreadCount > 0 ? (
+                        <BellRing size={18} className="text-luxury-gold animate-bounce" />
+                      ) : (
+                        <Bell size={18} />
+                      )}
+                      {unreadCount > 0 && (
+                        <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center border-2 border-white">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </button>
+
+                    <AnimatePresence>
+                      {showNotifPanel && (
+                        <>
+                          <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowNotifPanel(false)}
+                            className="fixed inset-0 z-40"
+                          />
+                          <motion.div 
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                            className="absolute top-full right-0 mt-4 w-80 bg-white rounded-[2rem] shadow-2xl border border-luxury-dark/5 overflow-hidden z-50"
+                          >
+                            <div className="p-5 border-b border-luxury-dark/5 flex justify-between items-center bg-luxury-dark text-white">
+                              <h5 className="text-xs font-bold uppercase tracking-widest">Notifications</h5>
+                              <button 
+                                onClick={() => {
+                                  // In a real app, clear all notifications in Firestore
+                                  // setNotifications([]);
+                                }}
+                                className="text-[9px] font-bold opacity-60 hover:opacity-100"
+                              >
+                                Mark all as read
+                              </button>
+                            </div>
+                            <div className="max-h-[400px] overflow-y-auto no-scrollbar">
+                              {notifications.length > 0 ? (
+                                notifications.map((notif: any) => (
+                                  <div 
+                                    key={notif.id} 
+                                    className={`p-4 border-b border-luxury-dark/5 hover:bg-luxury-cream/30 transition-colors cursor-pointer ${!notif.read ? 'bg-luxury-gold/5' : ''}`}
+                                  >
+                                    <div className="flex gap-3">
+                                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                                        notif.type === 'lead' ? 'bg-red-100 text-red-600' : 
+                                        notif.type === 'booking' ? 'bg-emerald-100 text-emerald-600' : 
+                                        'bg-blue-100 text-blue-600'
+                                      }`}>
+                                        {notif.type === 'lead' ? <Zap size={14} /> : <Calendar size={14} />}
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-bold text-luxury-dark">{notif.title}</p>
+                                        <p className="text-[10px] text-luxury-dark/60 mt-0.5 line-clamp-2">{notif.message}</p>
+                                        <p className="text-[9px] text-luxury-dark/30 mt-2 font-medium">
+                                          {format(new Date(notif.createdAt), 'hh:mm a, MMM dd')}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="p-10 text-center">
+                                  <Bell className="mx-auto text-luxury-dark/10 mb-3" size={24} />
+                                  <p className="text-xs text-luxury-dark/30 italic">No new notifications</p>
+                                </div>
+                              )}
+                            </div>
+                            <button 
+                              onClick={() => {
+                                onMyBookings();
+                                setShowNotifPanel(false);
+                              }}
+                              className="w-full py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark bg-luxury-cream/50 hover:bg-luxury-gold transition-colors"
+                            >
+                              View All Updates
+                            </button>
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              )}
               <button 
                 onClick={onMyBookings}
                 className={`flex items-center gap-2 text-sm font-medium hover:text-luxury-gold transition-colors ${isNavSolid ? 'text-luxury-dark' : 'text-white'}`}
@@ -10386,7 +10538,9 @@ export default function App() {
     const connectToSSE = () => {
       // Use Cloudflare Worker URL if provided, otherwise fallback to local proxy
       const workerUrl = import.meta.env.VITE_WORKER_URL || "";
-      const streamUrl = workerUrl ? `${workerUrl}/api/notifications/stream` : "/api/notifications/stream";
+      const streamUrl = workerUrl 
+        ? `${workerUrl}/api/notifications/stream?userId=${user.uid}` 
+        : `/api/notifications/stream?userId=${user.uid}`;
       
       eventSource = new EventSource(streamUrl);
 
@@ -10956,6 +11110,11 @@ export default function App() {
         user={user}
         userRole={userRole}
         onMyBookings={() => setIsDashboardOpen(true)}
+        unreadCount={unreadCount}
+        notifications={notifications}
+        onNotificationClick={() => setShowNotifPanel(!showNotifPanel)}
+        soundEnabled={soundEnabled}
+        onToggleSound={() => setSoundEnabled(!soundEnabled)}
       />
       <main>
         <Routes>

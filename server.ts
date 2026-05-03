@@ -11,7 +11,10 @@ import nodemailer from "nodemailer";
 import * as dotenv from "dotenv";
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit, setLogLevel } from 'firebase/firestore';
-import admin from 'firebase-admin';
+import { initializeApp as initializeAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
+import { FieldValue as AdminFieldValue } from 'firebase-admin/firestore';
+import { Firestore as AdminFirestore } from '@google-cloud/firestore';
+import type { App as AdminApp } from 'firebase-admin/app';
 
 dotenv.config();
 
@@ -26,22 +29,32 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || '(default)');
 
 // Initialize Firebase Admin lazily for background listeners (bypasses security rules)
-let adminApp: admin.app.App | null = null;
-let adminDb: admin.firestore.Firestore | null = null;
+let adminApp: AdminApp | null = null;
+let adminDb: AdminFirestore | null = null;
 
 function getAdminDb() {
   if (!adminDb) {
     try {
-      if (admin.apps.length === 0) {
-        adminApp = admin.initializeApp({
+      const apps = getAdminApps();
+      if (apps.length === 0) {
+        adminApp = initializeAdminApp({
           projectId: firebaseConfig.projectId,
         });
+        console.log(`[Firebase Admin] Initialized with projectId: ${firebaseConfig.projectId}`);
       } else {
-        adminApp = admin.app();
+        adminApp = apps[0];
       }
-      adminDb = admin.firestore(firebaseConfig.firestoreDatabaseId || '(default)');
+      
+      const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+      console.log(`[Firebase Admin] Connecting to database: ${databaseId} using @google-cloud/firestore`);
+      
+      // Use @google-cloud/firestore directly for better named database support and credential discovery
+      adminDb = new AdminFirestore({
+        projectId: firebaseConfig.projectId,
+        databaseId: databaseId === '(default)' ? undefined : databaseId,
+      });
     } catch (err) {
-      console.warn("Firebase Admin failed to initialize. Background listeners may not work.", err);
+      console.warn("Firebase Admin failed to initialize. Background tasks like push notifications will be disabled.", err);
       return null;
     }
   }
@@ -116,7 +129,7 @@ async function startServer() {
       if (aDb) {
         await aDb.collection('push_subscriptions').doc(subId).set({
           subscription,
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
+          createdAt: AdminFieldValue.serverTimestamp()
         }, { merge: true });
       }
       res.status(201).json({});
@@ -169,21 +182,39 @@ async function startServer() {
   });
 
   // SSE Clients storage (Compatible with ReadableStream)
-  let clients: any[] = [];
+  interface SSEClient {
+    controller: ReadableStreamDefaultController;
+    userId: string;
+    role: string;
+  }
+  let clients: SSEClient[] = [];
   let leadsUnsubscribe: (() => void) | null = null;
   let bookingsUnsubscribe: (() => void) | null = null;
   let stopListenersTimeout: any = null;
 
-  // Broadcast to all connected SSE clients
-  const broadcast = async (payload: any) => {
-    // 1. Local Broadcast
-    clients.forEach(client => {
+  // Broadcast to SSE clients with role filtering
+  const broadcast = async (payload: any, docData?: any) => {
+    // 1. Local Broadcast with Filtering
+    for (const client of clients) {
       try {
-        client.enqueue(`data: ${JSON.stringify(payload)}\n\n`);
+        let shouldSend = true;
+
+        // Filtering logic:
+        // - Admins get everything
+        // - Agents only get what's assigned to them (if doc has assignedTo)
+        if (client.role === 'agent' && docData && docData.assignedTo) {
+          if (docData.assignedTo !== client.userId) {
+            shouldSend = false;
+          }
+        }
+
+        if (shouldSend) {
+          client.controller.enqueue(`data: ${JSON.stringify(payload)}\n\n`);
+        }
       } catch (e) {
         console.error('[SSE] Local Broadcast error:', e);
       }
-    });
+    }
 
     // 2. Forward to Cloudflare Worker if configured
     const workerUrl = process.env.VITE_WORKER_URL; // Using VITE_ prefix for consistency or just WORKER_URL
@@ -220,14 +251,53 @@ async function startServer() {
     const adminBookingsRef = aDb.collection('bookings');
 
     let initialLeads = true;
-    leadsUnsubscribe = adminLeadsRef.orderBy('createdAt', 'desc').limit(1).onSnapshot((snapshot) => {
+    leadsUnsubscribe = adminLeadsRef.orderBy('createdAt', 'desc').limit(1).onSnapshot(async (snapshot) => {
       if (initialLeads) { initialLeads = false; return; }
-      snapshot.docChanges().forEach(change => {
+      
+      for (const change of snapshot.docChanges()) {
         if (change.type === 'added') {
           const data = change.doc.data();
-          broadcast({ type: 'lead', title: 'New Lead', message: `Lead from ${data.name || 'someone'}`, data });
+          const leadId = change.doc.id;
+          
+          console.log(`[Automation] New lead detected: ${leadId}`);
+          
+          // 1. Calculate Score
+          let score = 'WARM';
+          const guests = parseInt(data.guests) || 0;
+          if (guests > 10) score = 'HOT';
+          
+          if (data.bookingDate) {
+            const leadDate = new Date(data.bookingDate);
+            const today = new Date();
+            const diffTime = Math.abs(leadDate.getTime() - today.getTime());
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays <= 3) score = 'HOT';
+          }
+
+          // 2. Update Lead with Score and Status
+          try {
+            await adminLeadsRef.doc(leadId).update({ 
+              score, 
+              status: data.status || 'new',
+              automated: true 
+            });
+          } catch (e) {
+            console.error(`[Automation] Update error for ${leadId}:`, e);
+          }
+
+          // 3. Trigger Notifications (Real-time & WhatsApp Alert)
+          broadcast({ 
+            type: 'lead', 
+            title: `New ${score} Lead! 🚨`, 
+            message: `Name: ${data.name || 'someone'}\nGuests: ${data.guests || 'N/A'}\nDate: ${data.bookingDate || 'N/A'}`,
+            data: { ...data, id: leadId, score } 
+          }, { ...data, score });
+
+          // 4. Schedule Follow-ups (using the helper defined above)
+          scheduleFollowUp(leadId, data, 1, "Hi, just checking if you're still interested 😊");
+          scheduleFollowUp(leadId, data, 2, "Last slots available, confirm soon ⚡");
         }
-      });
+      }
     }, (err) => {
       if (err.message?.indexOf('CANCELLED') === -1) {
         console.error('[SSE] Leads listener error:', err);
@@ -240,7 +310,7 @@ async function startServer() {
       snapshot.docChanges().forEach(change => {
         if (change.type === 'added') {
           const data = change.doc.data();
-          broadcast({ type: 'booking', title: 'New Booking', message: `Booking by ${data.name || 'Guest'}`, data });
+          broadcast({ type: 'booking', title: 'New Booking', message: `Booking by ${data.name || 'Guest'}`, data }, data);
         }
       });
     }, (err) => {
@@ -266,8 +336,27 @@ async function startServer() {
   };
 
 
-  // SSE Endpoint with ReadableStream
-  app.get("/api/notifications/stream", (req, res) => {
+  // SSE Endpoint with ReadableStream and Role Detection
+  app.get("/api/notifications/stream", async (req, res) => {
+    const userId = req.query.userId as string;
+    if (!userId) {
+      return res.status(401).send("Unauthorized: userId required");
+    }
+
+    // Detect user role from firestore
+    let userRole = 'user';
+    const aDb = getAdminDb();
+    if (aDb) {
+      try {
+        const userDoc = await aDb.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          userRole = userDoc.data()?.role || 'user';
+        }
+      } catch (e) {
+        console.warn(`[SSE] Role check failed for ${userId}:`, e);
+      }
+    }
+
     // Set proper headers for SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -275,18 +364,21 @@ async function startServer() {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.flushHeaders();
 
-    let controller: ReadableStreamDefaultController | null = null;
+    let clientObj: SSEClient | null = null;
+
     const stream = new ReadableStream({
       start(ctrl) {
-        controller = ctrl;
-        clients.push(ctrl);
+        clientObj = { controller: ctrl, userId, role: userRole };
+        clients.push(clientObj);
         setupFirestoreListeners();
         
         // Initial connection message
-        ctrl.enqueue(`: connected\n\n`);
+        ctrl.enqueue(`: connected as ${userRole}\n\n`);
       },
       cancel() {
-        clients = clients.filter(c => c !== controller);
+        if (clientObj) {
+          clients = clients.filter(c => c !== clientObj);
+        }
         stopFirestoreListeners();
       }
     });
@@ -311,9 +403,9 @@ async function startServer() {
 
     // Heartbeat to keep connection alive
     const heartbeatInterval = setInterval(() => {
-      if (controller) {
+      if (clientObj?.controller) {
         try {
-          controller.enqueue(': heartbeat\n\n');
+          clientObj.controller.enqueue(': heartbeat\n\n');
         } catch (e) {
           clearInterval(heartbeatInterval);
         }
@@ -324,25 +416,83 @@ async function startServer() {
 
     req.on('close', () => {
       clearInterval(heartbeatInterval);
-      clients = clients.filter(c => c !== controller);
+      if (clientObj) {
+        clients = clients.filter(c => c !== clientObj);
+      }
       stopFirestoreListeners();
       reader.cancel();
     });
   });
 
+  // --- Lead Automation ---
+  const scheduleFollowUp = async (leadId: string, leadData: any, day: number, message: string) => {
+    const delay = day * 24 * 60 * 60 * 1000;
+    
+    setTimeout(async () => {
+      const aDb = getAdminDb();
+      if (!aDb) return;
+      try {
+        console.log(`[Automation] Sending ${day} day follow-up for lead ${leadId}`);
+        await aDb.collection('notifications').add({
+          type: 'followup',
+          title: `Follow-up Sent (Day ${day})`,
+          message: `Scheduled message for ${leadData.name}: "${message}"`,
+          leadId,
+          createdAt: AdminFieldValue.serverTimestamp()
+        });
+        
+        broadcast({
+          type: 'info',
+          title: 'Auto Follow-up Sent',
+          message: `Day ${day} follow-up sent to ${leadData.name}`,
+          data: { leadId, day }
+        });
+      } catch (e) {
+        console.error(`[Automation] Follow-up error for ${leadId}:`, e);
+      }
+    }, delay);
+  };
+
+  const processLeadAutomation = async (leadId: string, leadData: any) => {
+    let score = 'WARM';
+    const guests = parseInt(leadData.guests) || 0;
+    if (guests > 10) score = 'HOT';
+    
+    if (leadData.date) {
+      const leadDate = new Date(leadData.date);
+      const today = new Date();
+      const diffTime = Math.abs(leadDate.getTime() - today.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays <= 3) score = 'HOT';
+    }
+
+    const aDb = getAdminDb();
+    if (aDb) {
+      await aDb.collection('leads').doc(leadId).update({ score });
+    }
+
+    scheduleFollowUp(leadId, leadData, 1, "Hi, just checking if you're still interested 😊");
+    scheduleFollowUp(leadId, leadData, 2, "Last slots available, confirm soon ⚡");
+  };
+
   // Generic Notification Endpoint (linked to triggerNotification in client)
   app.post("/api/notify", async (req, res) => {
-    const { title, message, type } = req.body;
+    const { title, message, type, leadId, leadData } = req.body;
     const payload = { 
       type: type || 'info', 
       title: title || 'System Notification', 
       message: message || 'No details',
-      createdAt: new Date().toISOString() 
+      createdAt: new Date().toISOString(),
+      leadId
     };
 
     try {
+      if (type === 'lead' && leadId && leadData) {
+        processLeadAutomation(leadId, leadData).catch(e => console.error('Automation error:', e));
+      }
+
       // Broadcast to all SSE clients
-      broadcast(payload);
+      broadcast(payload, leadData);
 
       // Also send Push if needed
       sendPushToAllAdmins({
