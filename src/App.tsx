@@ -153,6 +153,91 @@ const playNotificationSound = () => {
   } catch (e) {}
 };
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, "+")
+    .replace(/_/g, "/");
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+const PushReminder = ({ onEnable, onDismiss }: { onEnable: () => void, onDismiss: () => void }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 100 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 100 }}
+      className="fixed bottom-6 right-6 z-[150] max-w-sm w-full"
+    >
+      <div className="p-6 bg-luxury-dark border border-luxury-gold/30 rounded-3xl shadow-2xl backdrop-blur-xl">
+        <div className="flex gap-4">
+          <div className="w-12 h-12 bg-luxury-gold/20 rounded-2xl flex items-center justify-center shrink-0">
+            <BellRing className="text-luxury-gold" size={24} />
+          </div>
+          <div className="flex-1">
+            <h4 className="text-white font-bold text-lg mb-1">Turn on Notifications</h4>
+            <p className="text-white/60 text-sm leading-relaxed mb-4">
+              Get real-time updates for new leads, bookings, and important alerts directly on your device.
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={onEnable}
+                className="flex-1 py-3 px-4 bg-luxury-gold hover:bg-white text-luxury-dark font-black text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+              >
+                Enable Now
+              </button>
+              <button 
+                onClick={onDismiss}
+                className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+              >
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+const PushBlockedReminder = ({ onDismiss }: { onDismiss: () => void }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 100 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 100 }}
+      className="fixed bottom-6 right-6 z-[150] max-w-sm w-full"
+    >
+      <div className="p-6 bg-red-900/90 border border-red-500/30 rounded-3xl shadow-2xl backdrop-blur-xl">
+        <div className="flex gap-4">
+          <div className="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center shrink-0">
+            <BellOff className="text-red-400" size={24} />
+          </div>
+          <div className="flex-1">
+            <h4 className="text-white font-bold text-lg mb-1">Notifications Blocked</h4>
+            <p className="text-white/60 text-sm leading-relaxed mb-4">
+              You've blocked notifications. Please enable them in your browser settings (click lock icon next to URL) to receive real-time alerts.
+            </p>
+            <button 
+              onClick={onDismiss}
+              className="w-full py-3 px-4 bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+            >
+              Understand
+            </button>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 const GALLERY_FALLBACK_IMAGES = [
   { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599341/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn1_sizw31.jpg", title: "Unique Farmhouse Cottage with Swimming Pool and Lush Lawn", category: "Villa" },
   { src: "https://res.cloudinary.com/dxxd8os4d/image/upload/q_auto/f_auto/v1774599343/Unique_Farm_House_Cottage_And_Swimming_Pool_And_Lawn6_q2gqyu.jpg", title: "Scenic Lawn View of Unique Farmhouse Property", category: "Villa" },
@@ -8906,7 +8991,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         securityDeposit,
         expenses,
         paymentStatus: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'part-paid' : 'unpaid'),
-        createdAt: editBooking ? editBooking.createdAt : format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
+        createdAt: editBooking ? editBooking.createdAt : new Date().toISOString(),
         name,
         mobile,
         email,
@@ -10524,6 +10609,71 @@ export default function App() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(localStorage.getItem('notif_sound_enabled') !== 'false');
+  const [showPushReminder, setShowPushReminder] = useState(false);
+  const [showPushBlockedReminder, setShowPushBlockedReminder] = useState(false);
+
+  const registerPushNotifications = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      console.warn('Push notifications not supported');
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        const registration = await navigator.serviceWorker.ready;
+        
+        // Fetch public key from server
+        const keyResponse = await fetch('/api/push/public-key');
+        if (!keyResponse.ok) throw new Error('Failed to fetch public key');
+        const vapidPublicKey = await keyResponse.text();
+        
+        try {
+          const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+          });
+
+          await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(subscription)
+          });
+          
+          setShowPushReminder(false);
+          setShowPushBlockedReminder(false);
+          showToast('Notifications enabled successfully!', 'success');
+        } catch (subErr) {
+          console.warn('Subscription error (possibly already active):', subErr);
+          setShowPushReminder(false);
+        }
+      } else if (permission === 'denied') {
+        setShowPushReminder(false);
+        setShowPushBlockedReminder(true);
+      }
+    } catch (error) {
+      console.error('Error registering push notifications:', error);
+      showToast('Could not enable notifications.', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      const isDismissed = localStorage.getItem('push_reminder_dismissed');
+      const isDismissedRecently = isDismissed && (Date.now() - parseInt(isDismissed)) < (24 * 60 * 60 * 1000);
+
+      // Give it a moment after load
+      const timer = setTimeout(() => {
+        if (Notification.permission === 'default' && !isDismissedRecently) {
+          setShowPushReminder(true);
+        } else if (Notification.permission === 'denied' && !isDismissedRecently) {
+          setShowPushBlockedReminder(true);
+        }
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('notif_sound_enabled', String(soundEnabled));
@@ -11249,6 +11399,23 @@ export default function App() {
             onInstall={handleInstallClick} 
             onClose={handleCloseInstallPrompt} 
             isIOS={isIOS}
+          />
+        )}
+        {showPushReminder && (
+          <PushReminder 
+            onEnable={registerPushNotifications} 
+            onDismiss={() => {
+              setShowPushReminder(false);
+              localStorage.setItem('push_reminder_dismissed', Date.now().toString());
+            }} 
+          />
+        )}
+        {showPushBlockedReminder && (
+          <PushBlockedReminder 
+            onDismiss={() => {
+              setShowPushBlockedReminder(false);
+              localStorage.setItem('push_reminder_dismissed', Date.now().toString());
+            }} 
           />
         )}
       </AnimatePresence>

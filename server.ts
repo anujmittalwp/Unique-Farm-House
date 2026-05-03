@@ -12,9 +12,9 @@ import * as dotenv from "dotenv";
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit, setLogLevel } from 'firebase/firestore';
 import { initializeApp as initializeAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
-import { FieldValue as AdminFieldValue } from 'firebase-admin/firestore';
-import { Firestore as AdminFirestore } from '@google-cloud/firestore';
+import { getFirestore as getAdminFirestore, FieldValue as AdminFieldValue } from 'firebase-admin/firestore';
 import type { App as AdminApp } from 'firebase-admin/app';
+import type { Firestore as AdminFirestore } from 'firebase-admin/firestore';
 
 dotenv.config();
 
@@ -46,13 +46,9 @@ function getAdminDb() {
       }
       
       const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
-      console.log(`[Firebase Admin] Connecting to database: ${databaseId} using @google-cloud/firestore`);
+      console.log(`[Firebase Admin] Connecting to database: ${databaseId} using getAdminFirestore`);
       
-      // Use @google-cloud/firestore directly for better named database support and credential discovery
-      adminDb = new AdminFirestore({
-        projectId: firebaseConfig.projectId,
-        databaseId: databaseId === '(default)' ? undefined : databaseId,
-      });
+      adminDb = getAdminFirestore(adminApp, databaseId);
     } catch (err) {
       console.warn("Firebase Admin failed to initialize. Background tasks like push notifications will be disabled.", err);
       return null;
@@ -251,7 +247,7 @@ async function startServer() {
     const adminBookingsRef = aDb.collection('bookings');
 
     let initialLeads = true;
-    leadsUnsubscribe = adminLeadsRef.orderBy('createdAt', 'desc').limit(1).onSnapshot(async (snapshot) => {
+    leadsUnsubscribe = adminLeadsRef.orderBy('createdAt', 'desc').limit(5).onSnapshot(async (snapshot) => {
       if (initialLeads) { initialLeads = false; return; }
       
       for (const change of snapshot.docChanges()) {
@@ -305,11 +301,12 @@ async function startServer() {
     });
 
     let initialBookings = true;
-    bookingsUnsubscribe = adminBookingsRef.orderBy('createdAt', 'desc').limit(1).onSnapshot((snapshot) => {
+    bookingsUnsubscribe = adminBookingsRef.orderBy('createdAt', 'desc').limit(5).onSnapshot((snapshot) => {
       if (initialBookings) { initialBookings = false; return; }
       snapshot.docChanges().forEach(change => {
         if (change.type === 'added') {
           const data = change.doc.data();
+          console.log(`[SSE] New booking detected: ${change.doc.id}`);
           broadcast({ type: 'booking', title: 'New Booking', message: `Booking by ${data.name || 'Guest'}`, data }, data);
         }
       });
