@@ -10,9 +10,12 @@ import webpush from "web-push";
 import nodemailer from "nodemailer";
 import * as dotenv from "dotenv";
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit, setLogLevel } from 'firebase/firestore';
 
 dotenv.config();
+
+// Silence noisy Firestore logs in Node.js
+setLogLevel('error');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -135,9 +138,16 @@ async function startServer() {
   let sseClients: any[] = [];
   let leadsUnsubscribe: (() => void) | null = null;
   let bookingsUnsubscribe: (() => void) | null = null;
+  let stopListenersTimeout: any = null;
 
   // Listen for Firestore changes on server and push to SSE
   const setupFirestoreListeners = () => {
+    // Clear any pending stop timeout
+    if (stopListenersTimeout) {
+      clearTimeout(stopListenersTimeout);
+      stopListenersTimeout = null;
+    }
+
     if (leadsUnsubscribe || bookingsUnsubscribe) return; // Already listening
 
     console.log('[SSE] Starting Firestore listeners...');
@@ -153,7 +163,11 @@ async function startServer() {
           broadcast({ type: 'lead', title: 'New Lead', message: `Lead from ${data.name || 'someone'}`, data });
         }
       });
-    }, (err) => console.error('[SSE] Leads listener error:', err));
+    }, (err) => {
+      if (err.code !== 'cancelled' && err.message?.indexOf('CANCELLED') === -1) {
+        console.error('[SSE] Leads listener error:', err);
+      }
+    });
 
     let initialBookings = true;
     bookingsUnsubscribe = onSnapshot(query(bookingsRef, orderBy('createdAt', 'desc'), limit(1)), (snapshot) => {
@@ -164,14 +178,29 @@ async function startServer() {
           broadcast({ type: 'booking', title: 'New Booking', message: `Booking by ${data.name || 'Guest'}`, data });
         }
       });
-    }, (err) => console.error('[SSE] Bookings listener error:', err));
+    }, (err) => {
+      if (err.code !== 'cancelled' && err.message?.indexOf('CANCELLED') === -1) {
+        console.error('[SSE] Bookings listener error:', err);
+      }
+    });
   };
 
   const stopFirestoreListeners = () => {
+    // Only stop if no clients are connected
     if (sseClients.length === 0) {
-      console.log('[SSE] No more clients. Stopping Firestore listeners...');
-      if (leadsUnsubscribe) { leadsUnsubscribe(); leadsUnsubscribe = null; }
-      if (bookingsUnsubscribe) { bookingsUnsubscribe(); bookingsUnsubscribe = null; }
+      // Clear any existing timeout
+      if (stopListenersTimeout) clearTimeout(stopListenersTimeout);
+
+      // Start a grace period before actually stopping the listeners
+      // This prevents rapid reconnect cycles (e.g. on page refresh) from killing the stream
+      stopListenersTimeout = setTimeout(() => {
+        if (sseClients.length === 0) {
+          console.log('[SSE] Grace period over. Stopping Firestore listeners...');
+          if (leadsUnsubscribe) { leadsUnsubscribe(); leadsUnsubscribe = null; }
+          if (bookingsUnsubscribe) { bookingsUnsubscribe(); bookingsUnsubscribe = null; }
+        }
+        stopListenersTimeout = null;
+      }, 30000); // 30 seconds grace period
     }
   };
 
