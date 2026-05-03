@@ -6276,7 +6276,7 @@ RULES FOR RESPONDING:
                     </div>
                     <div>
                       <p className="font-bold text-luxury-dark">{review.userName}</p>
-                      <p className="text-[10px] text-luxury-dark/40">{review.createdAt.split(',')[0]}</p>
+                      <p className="text-[10px] text-luxury-dark/40">{(review.createdAt || '').includes(',') ? review.createdAt.split(',')[0] : (review.createdAt || '').split('T')[0]}</p>
                     </div>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
@@ -7098,7 +7098,7 @@ export default {
                           </div>
                           <div className="space-y-1">
                             <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
-                            <p className="font-bold text-luxury-dark">{(booking.createdAt || '').split(',')[0]}</p>
+                            <p className="font-bold text-luxury-dark">{(booking.createdAt || '').includes(',') ? booking.createdAt.split(',')[0] : (booking.createdAt || '').split('T')[0]}</p>
                           </div>
                           {(userRole === 'admin' || userRole === 'agent') && (
                             <div className="space-y-1">
@@ -7361,7 +7361,7 @@ export default {
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
-                      <p className="font-bold text-luxury-dark">{booking.createdAt.split(',')[0]}</p>
+                      <p className="font-bold text-luxury-dark">{(booking.createdAt || '').includes(',') ? booking.createdAt.split(',')[0] : (booking.createdAt || '').split('T')[0]}</p>
                     </div>
                     {userRole === 'admin' && (
                       <div className="space-y-1">
@@ -8875,7 +8875,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const handleBookNow = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validation
+    console.log('handleBookNow triggered');
     const newErrors: {[key: string]: string} = {};
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -8948,12 +8948,12 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       console.log('Validation errors:', newErrors);
-      showToast('Please fix the errors in the form', 'error');
+      showToast('Please fix the errors: ' + Object.values(newErrors).join(', '), 'error');
       return;
     }
     
     setErrors({});
-    handleFinalConfirm();
+    await handleFinalConfirm();
   };
 
   const handleFinalConfirm = async () => {
@@ -9048,12 +9048,20 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         `*Total Amount:* ₹${totalAmount.toLocaleString()}%0A` +
         `*Payment Method:* ${paymentMethod.toUpperCase()}`;
       
-      window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
-      
       setSuccess(true);
+      
+      try {
+        window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
+      } catch (popupErr) {
+        console.warn('Popup blocked or failed to open WhatsApp:', popupErr);
+      }
     } catch (err) {
+      console.error('Final confirm error:', err);
       handleFirestoreError(err, editBooking ? OperationType.UPDATE : OperationType.CREATE, editBooking ? `bookings/${editBooking.id}` : 'bookings');
-      showToast(`Failed to ${editBooking ? 'update' : 'save'} booking. Please try again.`, 'error');
+      
+      // Detailed error toast
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      showToast(`Failed to ${editBooking ? 'update' : 'save'} booking: ${errorMsg}`, 'error');
     } finally {
       setLoading(false);
     }

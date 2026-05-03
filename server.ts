@@ -247,7 +247,7 @@ async function startServer() {
     const adminBookingsRef = aDb.collection('bookings');
 
     let initialLeads = true;
-    leadsUnsubscribe = adminLeadsRef.orderBy('createdAt', 'desc').limit(5).onSnapshot(async (snapshot) => {
+    leadsUnsubscribe = adminLeadsRef.onSnapshot(async (snapshot) => {
       if (initialLeads) { initialLeads = false; return; }
       
       for (const change of snapshot.docChanges()) {
@@ -256,6 +256,12 @@ async function startServer() {
           const leadId = change.doc.id;
           
           console.log(`[Automation] New lead detected: ${leadId}`);
+          
+          // Trigger Push Notification
+          sendPushToAllAdmins({
+            title: `New Lead: ${data.name || 'Anonymous'}`,
+            body: `Phone: ${data.phone || 'N/A'} | Guests: ${data.guests || '?'}`
+          }).catch(e => console.error('[Automation] Push error for new lead:', e));
           
           // 1. Calculate Score
           let score = 'WARM';
@@ -301,13 +307,19 @@ async function startServer() {
     });
 
     let initialBookings = true;
-    bookingsUnsubscribe = adminBookingsRef.orderBy('createdAt', 'desc').limit(5).onSnapshot((snapshot) => {
+    bookingsUnsubscribe = adminBookingsRef.onSnapshot((snapshot) => {
       if (initialBookings) { initialBookings = false; return; }
       snapshot.docChanges().forEach(change => {
         if (change.type === 'added') {
           const data = change.doc.data();
           console.log(`[SSE] New booking detected: ${change.doc.id}`);
           broadcast({ type: 'booking', title: 'New Booking', message: `Booking by ${data.name || 'Guest'}`, data }, data);
+          
+          // Trigger Push Notification automatically from server
+          sendPushToAllAdmins({
+            title: `New Booking: ${data.name || 'Guest'}`,
+            body: `Check-In: ${data.checkIn || '?'} | Total: ₹${(data.totalAmount || 0).toLocaleString()}`
+          }).catch(e => console.error('[SSE] Push error for new booking:', e));
         }
       });
     }, (err) => {

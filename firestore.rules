@@ -87,7 +87,10 @@ service cloud.firestore {
     }
 
     function isValidDateTimeString(dateTimeStr) {
-      return dateTimeStr is string && dateTimeStr.matches("^\\d{1,2}/\\d{1,2}/\\d{4}, \\d{1,2}:\\d{2}:\\d{2}( [ap]m)?$");
+      return dateTimeStr is string && (
+        dateTimeStr.matches("^\\d{1,2}/\\d{1,2}/\\d{4}, \\d{1,2}:\\d{2}:\\d{2}( [ap]m)?$") || 
+        dateTimeStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*$")
+      );
     }
 
     // ===============================================================
