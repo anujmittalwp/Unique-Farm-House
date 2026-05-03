@@ -10,7 +10,7 @@ import webpush from "web-push";
 import nodemailer from "nodemailer";
 import * as dotenv from "dotenv";
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit } from 'firebase/firestore';
 
 dotenv.config();
 
@@ -131,7 +131,102 @@ async function startServer() {
     }
   });
 
-  // Admin Email Notification
+  // SSE Clients storage
+  let sseClients: any[] = [];
+  let leadsUnsubscribe: (() => void) | null = null;
+  let bookingsUnsubscribe: (() => void) | null = null;
+
+  // Listen for Firestore changes on server and push to SSE
+  const setupFirestoreListeners = () => {
+    if (leadsUnsubscribe || bookingsUnsubscribe) return; // Already listening
+
+    console.log('[SSE] Starting Firestore listeners...');
+    const leadsRef = collection(db, 'leads');
+    const bookingsRef = collection(db, 'bookings');
+
+    let initialLeads = true;
+    leadsUnsubscribe = onSnapshot(query(leadsRef, orderBy('createdAt', 'desc'), limit(1)), (snapshot) => {
+      if (initialLeads) { initialLeads = false; return; }
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          broadcast({ type: 'lead', title: 'New Lead', message: `Lead from ${data.name || 'someone'}`, data });
+        }
+      });
+    }, (err) => console.error('[SSE] Leads listener error:', err));
+
+    let initialBookings = true;
+    bookingsUnsubscribe = onSnapshot(query(bookingsRef, orderBy('createdAt', 'desc'), limit(1)), (snapshot) => {
+      if (initialBookings) { initialBookings = false; return; }
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          broadcast({ type: 'booking', title: 'New Booking', message: `Booking by ${data.name || 'Guest'}`, data });
+        }
+      });
+    }, (err) => console.error('[SSE] Bookings listener error:', err));
+  };
+
+  const stopFirestoreListeners = () => {
+    if (sseClients.length === 0) {
+      console.log('[SSE] No more clients. Stopping Firestore listeners...');
+      if (leadsUnsubscribe) { leadsUnsubscribe(); leadsUnsubscribe = null; }
+      if (bookingsUnsubscribe) { bookingsUnsubscribe(); bookingsUnsubscribe = null; }
+    }
+  };
+
+  const broadcast = (data: any) => {
+    sseClients.forEach(client => {
+      try {
+        client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+      } catch (e) {
+        console.error('[SSE] Broadcast error to client:', client.id, e);
+      }
+    });
+  };
+
+  // SSE Endpoint
+  app.get("/api/notifications/stream", (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const clientId = Date.now();
+    const newClient = { id: clientId, res };
+    sseClients.push(newClient);
+
+    // Setup listeners if this is the first client
+    setupFirestoreListeners();
+
+    req.on('close', () => {
+      sseClients = sseClients.filter(c => c.id !== clientId);
+      stopFirestoreListeners();
+    });
+
+    // Keep connection alive
+    const keepAlive = setInterval(() => {
+      res.write(': keep-alive\n\n');
+    }, 30000);
+
+    req.on('close', () => clearInterval(keepAlive));
+  });
+
+  // Generic Notification Endpoint (linked to triggerNotification in client)
+  app.post("/api/notify", async (req, res) => {
+    const { title, message } = req.body;
+    try {
+      sendPushToAllAdmins({
+        title: title || 'System Notification',
+        body: message || 'No details'
+      }).catch(e => console.error('Push error:', e));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Proxy Endpoint for external requests
   app.post("/api/proxy/fetch", async (req, res) => {
     try {
       const { url } = req.body;

@@ -4746,7 +4746,8 @@ const MyBookings = ({
   setNotifications,
   setUnreadCount,
   soundEnabled,
-  setSoundEnabled
+  setSoundEnabled,
+  onNotify
 }: { 
   user: FirebaseUser; 
   userRole: string | null; 
@@ -4768,6 +4769,7 @@ const MyBookings = ({
   setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
   soundEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;
+  onNotify: (title: string, message: string, type?: 'success' | 'info' | 'error') => void;
 }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -5896,7 +5898,7 @@ RULES FOR RESPONDING:
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} />
+              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} />
             </div>
           </div>
         ) : reviewingBooking ? (
@@ -5923,7 +5925,7 @@ RULES FOR RESPONDING:
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{(userRole === 'admin' || userRole === 'agent') ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} />
+              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} />
             </div>
           </div>
         ) : (
@@ -10370,6 +10372,59 @@ export default function App() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(localStorage.getItem('notif_sound_enabled') !== 'false');
+
+  useEffect(() => {
+    localStorage.setItem('notif_sound_enabled', String(soundEnabled));
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    if (!user || (userRole !== 'admin' && userRole !== 'agent')) return;
+
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: any = null;
+
+    const connectToSSE = () => {
+      eventSource = new EventSource("/api/notifications/stream");
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // Avoid duplicate UI triggers if the user already saw a toast from local capture
+          // But usually server push is more reliable for multi-user sync
+          setNotifications(prev => [{
+            id: Date.now(),
+            ...data,
+            read: false,
+            createdAt: new Date()
+          }, ...prev].slice(0, 50));
+          
+          setUnreadCount(prev => prev + 1);
+          showToast(data.title + ": " + data.message, 'success');
+          if (soundEnabled) {
+            const audio = new Audio('https://res.cloudinary.com/dxxd8os4d/video/upload/v1740924000/notification_p9lndw.mp3');
+            audio.play().catch(e => console.warn('Sound play blocked:', e));
+          }
+        } catch (e) {
+          console.error("SSE parse error:", e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        console.warn("SSE connection lost. Reconnecting in 5s...");
+        eventSource?.close();
+        reconnectTimeout = setTimeout(connectToSSE, 5000);
+      };
+    };
+
+    connectToSSE();
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, [user, userRole, soundEnabled]);
+
   const [userPermissions, setUserPermissions] = useState<any>(null);
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [galleryImages, setGalleryImages] = useState<any[]>([]);
@@ -10593,6 +10648,54 @@ export default function App() {
       unsubscribeReplyTemplates();
     };
   }, []);
+
+  // Global Real-time Notification Listener for Admins/Agents
+  useEffect(() => {
+    if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
+
+    // Listen for new leads
+    const qLeads = query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(10));
+    // Listen for new bookings
+    const qBookings = query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(10));
+
+    let initialLeadsLoad = true;
+    let initialBookingsLoad = true;
+
+    const unsubscribeLeads = onSnapshot(qLeads, (snapshot) => {
+      if (initialLeadsLoad) {
+        initialLeadsLoad = false;
+        return;
+      }
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          const lead = change.doc.data();
+          // Avoid duplicate notification if we added it ourselves
+          if (lead.uid === user.uid) return;
+          triggerNotification('New Lead Received', `From ${lead.name || 'Anonymous'} via ${lead.source || 'Direct'}`, 'success');
+        }
+      });
+    }, (error) => console.error("Leads notification error:", error));
+
+    const unsubscribeBookings = onSnapshot(qBookings, (snapshot) => {
+      if (initialBookingsLoad) {
+        initialBookingsLoad = false;
+        return;
+      }
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          const booking = change.doc.data();
+          // Avoid duplicate notification if we added it ourselves
+          if (booking.uid === user.uid) return;
+          triggerNotification('New Booking Request', `By ${booking.name || 'Guest'} for ${booking.checkIn}`, 'success');
+        }
+      });
+    }, (error) => console.error("Bookings notification error:", error));
+
+    return () => {
+      unsubscribeLeads();
+      unsubscribeBookings();
+    };
+  }, [user?.uid, userRole]);
 
   // Auto-sync iCal every 30 minutes
   useEffect(() => {
@@ -10920,6 +11023,7 @@ export default function App() {
             setUnreadCount={setUnreadCount}
             soundEnabled={soundEnabled}
             setSoundEnabled={setSoundEnabled}
+            onNotify={triggerNotification}
           />
         )}
       </AnimatePresence>
