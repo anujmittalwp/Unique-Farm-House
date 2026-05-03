@@ -10384,7 +10384,11 @@ export default function App() {
     let reconnectTimeout: any = null;
 
     const connectToSSE = () => {
-      eventSource = new EventSource("/api/notifications/stream");
+      // Use Cloudflare Worker URL if provided, otherwise fallback to local proxy
+      const workerUrl = import.meta.env.VITE_WORKER_URL || "";
+      const streamUrl = workerUrl ? `${workerUrl}/api/notifications/stream` : "/api/notifications/stream";
+      
+      eventSource = new EventSource(streamUrl);
 
       eventSource.onmessage = (event) => {
         try {

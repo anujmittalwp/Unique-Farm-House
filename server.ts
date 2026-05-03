@@ -11,6 +11,7 @@ import nodemailer from "nodemailer";
 import * as dotenv from "dotenv";
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit, setLogLevel } from 'firebase/firestore';
+import admin from 'firebase-admin';
 
 dotenv.config();
 
@@ -23,6 +24,29 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8'));
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || '(default)');
+
+// Initialize Firebase Admin lazily for background listeners (bypasses security rules)
+let adminApp: admin.app.App | null = null;
+let adminDb: admin.firestore.Firestore | null = null;
+
+function getAdminDb() {
+  if (!adminDb) {
+    try {
+      if (admin.apps.length === 0) {
+        adminApp = admin.initializeApp({
+          projectId: firebaseConfig.projectId,
+        });
+      } else {
+        adminApp = admin.app();
+      }
+      adminDb = admin.firestore(firebaseConfig.firestoreDatabaseId || '(default)');
+    } catch (err) {
+      console.warn("Firebase Admin failed to initialize. Background listeners may not work.", err);
+      return null;
+    }
+  }
+  return adminDb;
+}
 
 const resend = new Resend(process.env.RESEND_API_KEY || 're_4zWip7uS_HvzE8i5v91eudf2KKS5Hmyp1');
 
@@ -49,14 +73,19 @@ async function startServer() {
   // === Push Notification Setup ===
   let vapidKeys = { publicKey: '', privateKey: '' };
   try {
-    const vapidDocRef = doc(db, 'settings', 'vapid_keys');
-    const vapidDoc = await getDoc(vapidDocRef);
-    if (!vapidDoc.exists() || !vapidDoc.data().publicKey || !vapidDoc.data().privateKey) {
-      vapidKeys = webpush.generateVAPIDKeys();
-      await setDoc(vapidDocRef, vapidKeys);
-      console.log('Generated and saved new VAPID keys for push notifications.');
+    const aDb = getAdminDb();
+    if (aDb) {
+      const vapidDocRef = aDb.collection('settings').doc('vapid_keys');
+      const vapidDoc = await vapidDocRef.get();
+      if (!vapidDoc.exists || !vapidDoc.data()?.publicKey || !vapidDoc.data()?.privateKey) {
+        vapidKeys = webpush.generateVAPIDKeys();
+        await vapidDocRef.set(vapidKeys);
+        console.log('Generated and saved new VAPID keys for push notifications.');
+      } else {
+        vapidKeys = vapidDoc.data() as any;
+      }
     } else {
-      vapidKeys = vapidDoc.data() as any;
+      vapidKeys = webpush.generateVAPIDKeys();
     }
   } catch (err) {
     console.warn("Failed to load/generate VAPID keys from firestore:", err);
@@ -83,10 +112,13 @@ async function startServer() {
       }
       // Attempt to save to firestore
       const subId = Buffer.from(subscription.endpoint).toString('base64').replace(/[^a-zA-Z0-9]/g, '');
-      await setDoc(doc(db, 'push_subscriptions', subId), {
-        subscription,
-        createdAt: serverTimestamp()
-      }, { merge: true });
+      const aDb = getAdminDb();
+      if (aDb) {
+        await aDb.collection('push_subscriptions').doc(subId).set({
+          subscription,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
       res.status(201).json({});
     } catch (err) {
       console.error('Error saving subscription:', err);
@@ -96,8 +128,10 @@ async function startServer() {
 
   // Helper to send push
   async function sendPushToAllAdmins(payload: any) {
+    const aDb = getAdminDb();
+    if (!aDb) return;
     try {
-      const subsSnapshot = await getDocs(collection(db, 'push_subscriptions'));
+      const subsSnapshot = await aDb.collection('push_subscriptions').get();
       const promises = subsSnapshot.docs.map(async (docSnap) => {
         const sub = docSnap.data().subscription;
         try {
@@ -105,7 +139,7 @@ async function startServer() {
         } catch (err: any) {
           if (err.statusCode === 404 || err.statusCode === 410) {
              console.log('Subscription expired. Deleting...');
-             await deleteDoc(docSnap.ref); // Delete expired subscription
+             await docSnap.ref.delete(); // Delete expired subscription
           } else {
              console.error('Error sending push notification:', err);
           }
@@ -134,11 +168,37 @@ async function startServer() {
     }
   });
 
-  // SSE Clients storage
-  let sseClients: any[] = [];
+  // SSE Clients storage (Compatible with ReadableStream)
+  let clients: any[] = [];
   let leadsUnsubscribe: (() => void) | null = null;
   let bookingsUnsubscribe: (() => void) | null = null;
   let stopListenersTimeout: any = null;
+
+  // Broadcast to all connected SSE clients
+  const broadcast = async (payload: any) => {
+    // 1. Local Broadcast
+    clients.forEach(client => {
+      try {
+        client.enqueue(`data: ${JSON.stringify(payload)}\n\n`);
+      } catch (e) {
+        console.error('[SSE] Local Broadcast error:', e);
+      }
+    });
+
+    // 2. Forward to Cloudflare Worker if configured
+    const workerUrl = process.env.VITE_WORKER_URL; // Using VITE_ prefix for consistency or just WORKER_URL
+    if (workerUrl) {
+      try {
+        await fetch(`${workerUrl}/api/notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (e) {
+        console.error('[SSE] Cloudflare Forward error:', e);
+      }
+    }
+  };
 
   // Listen for Firestore changes on server and push to SSE
   const setupFirestoreListeners = () => {
@@ -151,11 +211,16 @@ async function startServer() {
     if (leadsUnsubscribe || bookingsUnsubscribe) return; // Already listening
 
     console.log('[SSE] Starting Firestore listeners...');
-    const leadsRef = collection(db, 'leads');
-    const bookingsRef = collection(db, 'bookings');
+    const aDb = getAdminDb();
+    if (!aDb) {
+      console.warn('[SSE] Cannot start listeners: adminDb not available');
+      return;
+    }
+    const adminLeadsRef = aDb.collection('leads');
+    const adminBookingsRef = aDb.collection('bookings');
 
     let initialLeads = true;
-    leadsUnsubscribe = onSnapshot(query(leadsRef, orderBy('createdAt', 'desc'), limit(1)), (snapshot) => {
+    leadsUnsubscribe = adminLeadsRef.orderBy('createdAt', 'desc').limit(1).onSnapshot((snapshot) => {
       if (initialLeads) { initialLeads = false; return; }
       snapshot.docChanges().forEach(change => {
         if (change.type === 'added') {
@@ -164,13 +229,13 @@ async function startServer() {
         }
       });
     }, (err) => {
-      if (err.code !== 'cancelled' && err.message?.indexOf('CANCELLED') === -1) {
+      if (err.message?.indexOf('CANCELLED') === -1) {
         console.error('[SSE] Leads listener error:', err);
       }
     });
 
     let initialBookings = true;
-    bookingsUnsubscribe = onSnapshot(query(bookingsRef, orderBy('createdAt', 'desc'), limit(1)), (snapshot) => {
+    bookingsUnsubscribe = adminBookingsRef.orderBy('createdAt', 'desc').limit(1).onSnapshot((snapshot) => {
       if (initialBookings) { initialBookings = false; return; }
       snapshot.docChanges().forEach(change => {
         if (change.type === 'added') {
@@ -179,7 +244,7 @@ async function startServer() {
         }
       });
     }, (err) => {
-      if (err.code !== 'cancelled' && err.message?.indexOf('CANCELLED') === -1) {
+      if (err.message?.indexOf('CANCELLED') === -1) {
         console.error('[SSE] Bookings listener error:', err);
       }
     });
@@ -187,69 +252,105 @@ async function startServer() {
 
   const stopFirestoreListeners = () => {
     // Only stop if no clients are connected
-    if (sseClients.length === 0) {
-      // Clear any existing timeout
+    if (clients.length === 0) {
       if (stopListenersTimeout) clearTimeout(stopListenersTimeout);
-
-      // Start a grace period before actually stopping the listeners
-      // This prevents rapid reconnect cycles (e.g. on page refresh) from killing the stream
       stopListenersTimeout = setTimeout(() => {
-        if (sseClients.length === 0) {
+        if (clients.length === 0) {
           console.log('[SSE] Grace period over. Stopping Firestore listeners...');
           if (leadsUnsubscribe) { leadsUnsubscribe(); leadsUnsubscribe = null; }
           if (bookingsUnsubscribe) { bookingsUnsubscribe(); bookingsUnsubscribe = null; }
         }
         stopListenersTimeout = null;
-      }, 30000); // 30 seconds grace period
+      }, 30000);
     }
   };
 
-  const broadcast = (data: any) => {
-    sseClients.forEach(client => {
-      try {
-        client.res.write(`data: ${JSON.stringify(data)}\n\n`);
-      } catch (e) {
-        console.error('[SSE] Broadcast error to client:', client.id, e);
-      }
-    });
-  };
 
-  // SSE Endpoint
+  // SSE Endpoint with ReadableStream
   app.get("/api/notifications/stream", (req, res) => {
+    // Set proper headers for SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.flushHeaders();
 
-    const clientId = Date.now();
-    const newClient = { id: clientId, res };
-    sseClients.push(newClient);
-
-    // Setup listeners if this is the first client
-    setupFirestoreListeners();
-
-    req.on('close', () => {
-      sseClients = sseClients.filter(c => c.id !== clientId);
-      stopFirestoreListeners();
+    let controller: ReadableStreamDefaultController | null = null;
+    const stream = new ReadableStream({
+      start(ctrl) {
+        controller = ctrl;
+        clients.push(ctrl);
+        setupFirestoreListeners();
+        
+        // Initial connection message
+        ctrl.enqueue(`: connected\n\n`);
+      },
+      cancel() {
+        clients = clients.filter(c => c !== controller);
+        stopFirestoreListeners();
+      }
     });
 
-    // Keep connection alive
-    const keepAlive = setInterval(() => {
-      res.write(': keep-alive\n\n');
-    }, 30000);
+    // Pipe the stream to the response
+    const reader = stream.getReader();
+    const processStream = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+      } catch (err) {
+        console.error('[SSE] Stream error:', err);
+      } finally {
+        res.end();
+      }
+    };
 
-    req.on('close', () => clearInterval(keepAlive));
+    processStream();
+
+    // Heartbeat to keep connection alive
+    const heartbeatInterval = setInterval(() => {
+      if (controller) {
+        try {
+          controller.enqueue(': heartbeat\n\n');
+        } catch (e) {
+          clearInterval(heartbeatInterval);
+        }
+      } else {
+        clearInterval(heartbeatInterval);
+      }
+    }, 20000);
+
+    req.on('close', () => {
+      clearInterval(heartbeatInterval);
+      clients = clients.filter(c => c !== controller);
+      stopFirestoreListeners();
+      reader.cancel();
+    });
   });
 
   // Generic Notification Endpoint (linked to triggerNotification in client)
   app.post("/api/notify", async (req, res) => {
-    const { title, message } = req.body;
+    const { title, message, type } = req.body;
+    const payload = { 
+      type: type || 'info', 
+      title: title || 'System Notification', 
+      message: message || 'No details',
+      createdAt: new Date().toISOString() 
+    };
+
     try {
+      // Broadcast to all SSE clients
+      broadcast(payload);
+
+      // Also send Push if needed
       sendPushToAllAdmins({
-        title: title || 'System Notification',
-        body: message || 'No details'
+        title: payload.title,
+        body: payload.message
       }).catch(e => console.error('Push error:', e));
-      res.json({ success: true });
+
+      res.json({ success: true, receivers: clients.length });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -665,13 +766,18 @@ async function startServer() {
 
       // Always check Firestore if no explicit config provided to allow UI settings to override
       try {
-        const gmailDoc = await getDoc(doc(db, 'settings', 'gmail'));
-        if (gmailDoc.exists()) {
-          const data = gmailDoc.data();
-          gmailUser = (data.user || gmailUser).trim();
-          gmailPass = (data.pass || gmailPass).trim();
-          workerUrl = (data.workerUrl || workerUrl).trim();
-          workerSecret = (data.workerSecret || workerSecret).trim();
+        const aDb = getAdminDb();
+        if (aDb) {
+          const gmailDoc = await aDb.collection('settings').doc('gmail').get();
+          if (gmailDoc.exists) {
+            const data = gmailDoc.data();
+            if (data) {
+              gmailUser = (data.user || gmailUser).trim();
+              gmailPass = (data.pass || gmailPass).trim();
+              workerUrl = (data.workerUrl || workerUrl).trim();
+              workerSecret = (data.workerSecret || workerSecret).trim();
+            }
+          }
         }
       } catch (dbErr) {
         console.warn("[Gmail] Could not fetch Gmail config from Firestore:", dbErr);
@@ -786,12 +892,17 @@ async function startServer() {
 
       // Check Firestore configuration
       try {
-        const gmailDoc = await getDoc(doc(db, 'settings', 'gmail'));
-        if (gmailDoc.exists()) {
-          const data = gmailDoc.data();
-          if (data.user) user = data.user.trim();
-          if (data.pass) pass = data.pass.trim();
-          if (data.workerSecret) configuredSecret = data.workerSecret.trim();
+        const aDb = getAdminDb();
+        if (aDb) {
+          const gmailDoc = await aDb.collection('settings').doc('gmail').get();
+          if (gmailDoc.exists) {
+            const data = gmailDoc.data();
+            if (data) {
+              if (data.user) user = data.user.trim();
+              if (data.pass) pass = data.pass.trim();
+              if (data.workerSecret) configuredSecret = data.workerSecret.trim();
+            }
+          }
         }
       } catch (e) {
         console.warn("Could not read Firestore config", e);
