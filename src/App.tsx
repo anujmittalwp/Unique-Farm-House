@@ -82,13 +82,14 @@ import {
   BellOff,
   Volume2,
   VolumeX,
-  Tag
+  Tag,
+  ExternalLink,
+  Maximize2,
+  Table
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 import { Blog, BlogPost } from './Blog';
 import { BlogAdmin } from './BlogAdmin';
-import { Chatbot } from './Chatbot';
-import { ChatbotSettingsAdmin } from './ChatbotSettingsAdmin';
 import PrivacyPolicy from './PrivacyPolicy';
 import { getAI, safeAiCall } from './lib/ai';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -121,11 +122,13 @@ import {
   updateDoc,
   or,
   writeBatch,
-  increment
+  increment,
+  getDocFromServer
 } from 'firebase/firestore';
 import { format, addDays, parse, isValid } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import Papa from 'papaparse';
+import { ElegantLeadsDashboard } from './ElegantLeadsDashboard';
 import { 
   BarChart, 
   Bar, 
@@ -1385,105 +1388,24 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
-      let workerUrl = "";
-      try {
-         const proxySnap = await getDoc(doc(db, 'settings', 'gmail'));
-         if (proxySnap.exists()) workerUrl = proxySnap.data()?.workerUrl || '';
-      } catch(e) {}
-      
-      const allExternalEvents: any[] = [];
-      const ICAL = (await import('ical.js')).default;
-      
-      for (const item of urls) {
-        try {
-          // Fetch the external ICS content. If it fails due to CORS, fall back to worker proxy.
-          let response: any = null;
-          let lastError: any = null;
+      const response = await fetch('/api/calendar/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls })
+      });
 
-          const fetchFromSource = async (u: string) => {
-            try {
-              const res = await fetch(u);
-              if (res.ok) return res;
-              throw new Error(`HTTP ${res.status}`);
-            } catch (err) {
-              throw err;
-            }
-          };
-
-          const fetchViaWorker = async (u: string) => {
-            if (!workerUrl) throw new Error("No worker configured");
-            return await fetch(workerUrl.replace(/\/+$/, '') + '/api/proxy/fetch', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: u })
-            });
-          };
-
-          const proxies = [
-            async (u: string) => await fetchFromSource(u),
-            async (u: string) => await fetchViaWorker(u),
-            async (u: string) => await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(u)),
-            async (u: string) => await fetch('https://corsproxy.io/?' + encodeURIComponent(u)),
-            async (u: string) => await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)),
-          ];
-
-          for (const proxyFn of proxies) {
-            try {
-              const res = await proxyFn(item.url);
-              if (res && res.ok) {
-                response = res;
-                break;
-              }
-              if (res) console.warn(`Proxy failed with status ${res.status}`);
-            } catch (err) {
-              console.warn("Proxy attempt failed", err);
-              lastError = err;
-            }
-          }
-          
-          if (!response?.ok) {
-             throw new Error(`Failed to fetch calendar after trying all proxies. ${lastError?.message || 'Check your URL or network.'}`);
-          }
-
-          const textResponse = await response.text();
-          
-          if (!textResponse.includes('BEGIN:VCALENDAR')) {
-              throw new Error("Invalid ICS content received.");
-          }
-
-          const jcalData = ICAL.parse(textResponse);
-          const comp = new ICAL.Component(jcalData);
-          const vevents = comp.getAllSubcomponents("vevent");
-
-          vevents.forEach(event => {
-            const ev = new ICAL.Event(event);
-            // Ignore events that originated from our own system to prevent duplicates
-            if (ev.uid && ev.uid.includes('@uniquefarmhouse.com')) {
-              return; // skip our own events
-            }
-            
-            allExternalEvents.push({
-               source: item.name,
-               start: ev.startDate.toJSDate().toISOString(),
-               end: ev.endDate.toJSDate().toISOString(),
-               summary: ev.summary,
-               uid: ev.uid || Math.random().toString(36).substring(7)
-            });
-          });
-
-        } catch (e: any) {
-          console.error('Failed to sync ' + item.name, e);
-          showToast('Failed to sync ' + item.name + ': ' + e.message, 'error');
-        }
+      if (!response.ok) {
+        throw new Error(`Server Sync failed with status ${response.status}`);
       }
+
+      const result = await response.json();
+      const allExternalEvents = result.events || [];
 
       if (allExternalEvents.length > 0 || urls.length > 0) {
         const batch = writeBatch(db);
-        // Delete old external blocked dates
         const blockedSnapshot = await getDocs(query(collection(db, 'blocked_dates'), where('type', '==', 'external')));
         blockedSnapshot.forEach(doc => batch.delete(doc.ref));
         
-        // Add new ones
         allExternalEvents.forEach((event: any) => {
           const docRef = doc(collection(db, 'blocked_dates'));
           batch.set(docRef, {
@@ -1496,18 +1418,21 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
           });
         });
         await batch.commit();
+        showToast(`Sync completed! ${allExternalEvents.length} external events imported.`, 'success');
+      } else {
+        showToast('Sync completed! No new events found.', 'info');
       }
-      showToast(`Sync completed! ${allExternalEvents.length || 0} external events imported.`, 'success');
-
     } catch (error: any) {
       console.error('Sync error:', error);
-      showToast(error.message || 'Network error during sync', 'error');
+      showToast(`Sync failed: ${error.message}`, 'error');
     } finally {
       setSyncing(false);
     }
   };
 
   if (loading) return <div className="py-24 text-center"><p className="text-luxury-dark/40 italic">Loading settings...</p></div>;
+
+  const exportUrl = `${window.location.origin}/api/calendar/export.ics`;
 
   return (
     <div className="space-y-8">
@@ -1522,12 +1447,12 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
         <div className="flex gap-3">
           <input 
             readOnly
-            value="https://calender.a9812275402.workers.dev/export.ics"
+            value={exportUrl}
             className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-xs font-mono text-luxury-dark/60"
           />
           <button 
             onClick={() => {
-              navigator.clipboard.writeText("https://calender.a9812275402.workers.dev/export.ics");
+              navigator.clipboard.writeText(exportUrl);
               showToast('Export URL copied!', 'success');
             }}
             className="px-6 py-3 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all"
@@ -1783,9 +1708,11 @@ const DataMigration = ({ showToast }: { showToast: (msg: string, type?: 'success
 
   const collections = [
     { id: 'bookings', label: 'Bookings', icon: <Calendar size={24} className="text-[#C8A45D]" /> },
+    { id: 'blocked_dates', label: 'Blocked Dates', icon: <Lock size={24} className="text-[#C8A45D]" /> },
     { id: 'blogs', label: 'Blogs', icon: <BookOpen size={24} className="text-[#C8A45D]" /> },
     { id: 'reviews', label: 'Reviews', icon: <Star size={24} className="text-[#C8A45D]" /> },
-    { id: 'leads', label: 'Leads', icon: <Users size={24} className="text-[#C8A45D]" /> }
+    { id: 'leads', label: 'Leads', icon: <Users size={24} className="text-[#C8A45D]" /> },
+    { id: 'users', label: 'User Accounts', icon: <Shield size={24} className="text-[#C8A45D]" /> }
   ];
 
   return (
@@ -1987,7 +1914,6 @@ const PasswordUpdateModal = ({ onClose, showToast }: { onClose: () => void; show
 const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, counts, userRole, userPermissions }: any) => {
   const tabs = [
     { id: 'settings', filter: 'general', label: 'General' },
-    { id: 'chatbot_settings', filter: 'chatbot_settings', label: 'Chatbot AI', labelShort: 'AI Bot' },
     { id: 'reviews', filter: 'reviews', label: 'Reviews', count: counts.reviews, permission: 'viewSettings' },
     { id: 'gallery', filter: 'gallery', label: 'Gallery', count: counts.gallery, permission: 'viewSettings' },
     { id: 'logs', filter: 'logs', label: 'Logs', count: counts.logs, permission: 'viewSettings' },
@@ -2254,6 +2180,9 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     bookingTime: ''
   });
   const [isAddingLead, setIsAddingLead] = useState(false);
+  const [viewType, setViewType] = useState<'kanban' | 'table'>('kanban');
+  const [selectedLeadForExpand, setSelectedLeadForExpand] = useState<any>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const openReplyModal = (type: 'email' | 'whatsapp', contact: string, name: string, leadId?: string) => {
     setReplyType(type);
@@ -2462,33 +2391,50 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
     const fetchSyncSettings = async () => {
       try {
-        const docSnap = await getDoc(doc(db, 'settings', 'leadSync'));
-        if (docSnap.exists() && docSnap.data().csvUrl) {
-          const data = docSnap.data();
-          const url = data.csvUrl;
-          setCsvUrl(url || '');
-          if (url) {
-            // Auto-sync on load if URL exists
-            performSync(url, true);
+        // Try getting from leadSync document first
+        let url = '';
+        try {
+          const docSnap = await getDoc(doc(db, 'settings', 'leadSync'));
+          if (docSnap.exists()) {
+            url = docSnap.data().csvUrl || '';
           }
+        } catch (e) {
+          console.warn("Failed to get leadSync from cache, trying server...", e);
+          const serverSnap = await getDocFromServer(doc(db, 'settings', 'leadSync')).catch(() => null);
+          if (serverSnap?.exists()) {
+            url = serverSnap.data().csvUrl || '';
+          }
+        }
+
+        if (url) {
+          setCsvUrl(url);
+          performSync(url, true);
         } else {
-          // Auto-set the user's requested sheet as default if not set
+          // Auto-set the user's requested sheet as default if not found
           const defaultUrl = 'https://docs.google.com/spreadsheets/d/1LCCoy0A8YkI3wcKBeEYOxkDxEEkRtfnfXGOvuepFSC0/export?format=csv';
           setCsvUrl(defaultUrl);
           performSync(defaultUrl, true);
         }
 
-        const metaSnap = await getDoc(doc(db, 'settings', 'metaSync'));
-        if (metaSnap.exists()) {
-          const data = metaSnap.data();
-          setMetaPageId(data.pageId || '');
-          setMetaToken(data.accessToken || '');
-          if (data.pageId && data.accessToken) {
-            performMetaSync(data.pageId, data.accessToken, true);
+        // Try getting metaSync
+        try {
+          const metaSnap = await getDoc(doc(db, 'settings', 'metaSync')).catch(() => 
+            getDocFromServer(doc(db, 'settings', 'metaSync'))
+          );
+          
+          if (metaSnap.exists()) {
+            const data = metaSnap.data();
+            setMetaPageId(data.pageId || '');
+            setMetaToken(data.accessToken || '');
+            if (data.pageId && data.accessToken) {
+              performMetaSync(data.pageId, data.accessToken, true);
+            }
           }
+        } catch (e) {
+          console.warn("Failed to fetch meta settings", e);
         }
       } catch (err) {
-        console.error("Failed to fetch lead sync settings", err);
+        console.error("Critical error in fetchSyncSettings", err);
       }
     };
     fetchSyncSettings();
@@ -2795,44 +2741,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     }
   };
 
-  // Auto-update stale contacted leads to lost
-  useEffect(() => {
-    if (userRole === 'admin' && leads.length > 0) {
-      const oneWeekAgo = new Date();
-      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-
-      const staleLeads = leads.filter(lead => {
-        if (lead.status !== 'contacted') return false;
-        
-        // Use statusUpdatedAt if available, otherwise fallback to createdAt
-        const timestamp = lead.statusUpdatedAt || lead.createdAt;
-        if (!timestamp) return false;
-        
-        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-        return date < oneWeekAgo;
-      });
-
-      if (staleLeads.length > 0) {
-        const updateStaleLeads = async () => {
-          const batch = writeBatch(db);
-          staleLeads.forEach(lead => {
-            batch.update(doc(db, 'leads', lead.id), { 
-              status: 'lost',
-              statusUpdatedAt: serverTimestamp(),
-              remarks: (lead.remarks ? lead.remarks + '\n' : '') + 'Auto-marked as lost (stale contacted lead)'
-            });
-          });
-          try {
-            await batch.commit();
-            console.log(`Auto-updated ${staleLeads.length} stale leads to lost`);
-          } catch (err) {
-            console.error('Failed to auto-update stale leads:', err);
-          }
-        };
-        updateStaleLeads();
-      }
-    }
-  }, [leads, userRole]);
+  // handleUpdateStatus is already defined and server handles stale leads now.
 
   const handleUpdateRemarks = async (leadId: string, remarks: string) => {
     try {
@@ -2945,6 +2854,17 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       return matchesStatus || matchesScore;
     })
     .filter(l => !selectedTag || (l.tags || []).includes(selectedTag))
+    .filter(l => {
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      return (
+        l.name?.toLowerCase().includes(term) ||
+        l.phone?.toLowerCase().includes(term) ||
+        l.email?.toLowerCase().includes(term) ||
+        l.city?.toLowerCase().includes(term) ||
+        l.remarks?.toLowerCase().includes(term)
+      );
+    })
     .sort((a, b) => {
       const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
       const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
@@ -2958,419 +2878,20 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
   };
 
   return (
-    <div className="space-y-8 relative">
-      <div className="bg-white rounded-[2rem] border border-luxury-dark/5 shadow-sm p-6 sm:p-8">
-        <div className="flex flex-col gap-8">
-          {/* Top Row: Status Filters & Actions */}
-          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
-            <div className="flex gap-2 w-full xl:w-auto overflow-x-auto no-scrollbar max-w-full pb-2 xl:pb-0">
-              {[
-                  {id: 'all', label: 'All', count: leads.length},
-                  {id: 'new', label: 'New', count: leads.filter(l => l.status === 'new').length},
-                  {id: 'contacted', label: 'Contacted', count: leads.filter(l => l.status === 'contacted').length},
-                  {id: 'converted', label: 'Converted', count: leads.filter(l => l.status === 'converted').length},
-                  {id: 'hot', label: '🔥 HOT', count: leads.filter(l => l.score === 'HOT').length},
-                  {id: 'warm', label: '⚡ WARM', count: leads.filter(l => l.score === 'WARM').length}
-                ].map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => {
-                    setFilter(f.id);
-                    setSelectedTag(''); // Reset tag filter when changing status
-                  }}
-                  className={`px-6 py-3 rounded-full text-[10px] font-bold uppercase tracking-[0.2em] transition-all whitespace-nowrap shrink-0 flex items-center gap-3 active:scale-95 ${
-                    filter === f.id 
-                      ? 'bg-[#141414] text-white shadow-[0_10px_20px_rgba(0,0,0,0.15)] scale-105' 
-                      : 'bg-[#F5F5F5] text-luxury-dark/40 hover:bg-[#E8E8E8] hover:text-luxury-dark'
-                  }`}
-                >
-                  {f.label}
-                  <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black ${filter === f.id ? 'bg-white/20 text-white' : 'bg-black/10 text-luxury-dark/60'}`}>
-                     {f.count}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-end">
-              {canExport && (
-                <button
-                  onClick={handleExportLeads}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-luxury-dark/5 text-luxury-dark rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark/10 transition-colors whitespace-nowrap"
-                >
-                  <Download size={14} />
-                  Export
-                </button>
-              )}
-              {canAdd && (
-                <button
-                  onClick={() => setManualModalOpen(true)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-luxury-dark text-white rounded-[1rem] text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-md whitespace-nowrap"
-                >
-                  <Plus size={14} />
-                  Add Lead
-                </button>
-              )}
-              {canEditSettings && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setMetaModalOpen(true)}
-                    className="p-2.5 bg-[#1877F2]/10 text-[#1877F2] rounded-xl hover:bg-[#1877F2]/20 transition-all active:scale-95"
-                    title="Meta Sync"
-                  >
-                    <RefreshCw size={14} className={isMetaSyncing ? 'animate-spin' : ''} />
-                  </button>
-                  <button
-                    onClick={() => setGmailModalOpen(true)}
-                    className="p-2.5 bg-[#DB4437]/10 text-[#DB4437] rounded-xl hover:bg-[#DB4437]/20 transition-all active:scale-95"
-                    title="Gmail Settings"
-                  >
-                    <Mail size={14} />
-                  </button>
-                  <button
-                    onClick={() => setSyncModalOpen(true)}
-                    className="p-2.5 bg-[#0F9D58]/10 text-[#0F9D58] rounded-xl hover:bg-[#0F9D58]/20 transition-all active:scale-95"
-                    title="Google Sheets Sync"
-                  >
-                    <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      {/* Desktop View */}
-      <div className="hidden xl:block bg-white rounded-[2.5rem] border border-luxury-dark/5 shadow-[0_20px_50px_rgba(0,0,0,0.02)] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[#141414] text-white">
-                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Date</th>
-                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Lead Info</th>
-                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Direct Action</th>
-                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Inquiry Details</th>
-                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Categorization</th>
-                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Intelligence</th>
-                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60">Lifecycle</th>
-                <th className="px-8 py-6 text-[10px] font-bold uppercase tracking-[0.3em] opacity-60 text-right">Delete</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-luxury-dark/5">
-              {filteredLeads.map(lead => {
-                const isSent = lead.emailSent || lead.whatsappSent;
-                return (
-                  <tr key={lead.id} className="hover:bg-luxury-cream/20 transition-all group/row">
-                    <td className="px-8 py-7 text-xs font-bold text-luxury-dark/40 italic">
-                      {formatDate(lead.createdAt)}
-                    </td>
-                    <td className="px-8 py-7">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-base font-bold text-luxury-dark leading-tight group-hover/row:text-luxury-gold transition-colors">{lead.name}</p>
-                        {lead.score && (
-                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ring-1 ring-inset ${
-                            lead.score === 'HOT' ? 'bg-red-50 text-red-600 ring-red-100' : 
-                            lead.score === 'WARM' ? 'bg-amber-50 text-amber-600 ring-amber-100' :
-                            'bg-blue-50 text-blue-600 ring-blue-100'
-                          }`}>
-                            {lead.score === 'HOT' && '🔥 '}{lead.score}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-[9px] text-luxury-dark/40 italic">
-                        {lead.phone}
-                      </div>
-                    </td>
-                    <td className="px-8 py-7">
-                      <div className="flex items-center gap-3">
-                        {lead.email && (
-                          <button 
-                            onClick={() => openReplyModal('email', lead.email, lead.name, lead.id)}
-                            className={`p-3 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-sm hover:shadow-md ${lead.emailSent ? 'bg-red-50 text-red-500 border border-red-100' : 'bg-luxury-dark/5 text-luxury-dark hover:bg-luxury-gold hover:text-white'}`}
-                            title="Gmail Integration"
-                          >
-                            <Mail size={16} strokeWidth={2.5} />
-                          </button>
-                        )}
-                        {(lead.phone || lead.mobile) && (
-                          <button 
-                            onClick={() => openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name, lead.id)}
-                            className={`p-3 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-sm hover:shadow-md ${lead.whatsappSent ? 'bg-red-50 text-red-500 border border-red-100' : 'bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white'}`}
-                            title="WhatsApp Connect"
-                          >
-                            <Phone size={16} strokeWidth={2.5} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-8 py-7">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap gap-2 text-[11px] font-bold text-luxury-dark">
-                          {lead.budget && (
-                            <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-100">
-                              <IndianRupee size={10} /> {lead.budget}
-                            </span>
-                          )}
-                          {lead.guests && (
-                            <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-100">
-                              <Users size={10} /> {lead.guests.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()).replace('Then', 'Than')}
-                            </span>
-                          )}
-                          {lead.bookingDate && (
-                            <span className="flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded-lg border border-purple-100">
-                              <Calendar size={10} /> {lead.bookingDate} {lead.bookingTime && ` at ${lead.bookingTime}`}
-                            </span>
-                          )}
-                        </div>
-                        {lead.city && (
-                          <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em] text-luxury-dark/30">
-                            <MapPin size={10} className="text-luxury-gold" />
-                            {lead.city}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-8 py-7">
-                      <div className="flex flex-col gap-3 min-w-[160px]">
-                        <select 
-                          value={(lead.tags || []).find((t: string) => ['Relevent', 'Non Relevent'].includes(t)) || ''}
-                          onChange={(e) => handleUpdateRelevancy(lead.id, e.target.value, lead.tags || [])}
-                          disabled={!canEdit}
-                          className={`text-[10px] font-black uppercase tracking-[0.15em] border-2 rounded-xl px-4 py-3 appearance-none outline-none transition-all shadow-sm ${
-                            !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
-                          } ${
-                            (lead.tags || []).includes('Relevent') ? 'bg-emerald-500 text-white border-emerald-500' :
-                            (lead.tags || []).includes('Non Relevent') ? 'bg-red-500 text-white border-red-500' :
-                            'bg-white text-luxury-dark border-luxury-dark/10 hover:border-luxury-gold'
-                          }`}
-                        >
-                          <option value="" className="text-luxury-dark">Select Level</option>
-                          <option value="Relevent">✨ Relevent</option>
-                          <option value="Non Relevent">⚠️ Non Relevent</option>
-                        </select>
-                        
-                        <div className="flex flex-wrap gap-1.5">
-                          {(lead.tags || []).filter((t: string) => !['Relevent', 'Non Relevent'].includes(t)).map((tag: string) => (
-                            <span 
-                              key={tag} 
-                              className="px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest bg-luxury-gold/10 text-luxury-dark/60 border border-luxury-gold/10"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-8 py-7">
-                      <textarea 
-                        defaultValue={lead.remarks || ''}
-                        onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            (e.target as HTMLTextAreaElement).blur();
-                          }
-                        }}
-                        disabled={!canEdit}
-                        placeholder={canEdit ? "Enter lead intelligence..." : "N/A"}
-                        rows={2}
-                        className={`text-xs border-2 border-transparent rounded-[1.5rem] px-5 py-3 w-full min-w-[220px] outline-none transition-all resize-none shadow-inner bg-[#F5F5F5] text-luxury-dark placeholder:text-luxury-dark/20 ${!canEdit ? 'opacity-70 cursor-not-allowed' : 'focus:bg-white focus:border-luxury-gold focus:shadow-md'}`}
-                      />
-                    </td>
-                    <td className="px-8 py-7">
-                      <div className="flex flex-col gap-2">
-                        {lead.automated && (
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <div className="flex gap-1">
-                              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Lead Scored" />
-                              <div className={`w-2 h-2 rounded-full ${lead.status === 'contacted' ? 'bg-emerald-500' : 'bg-luxury-dark/10'}`} title="Follow-up Day 1" />
-                              <div className="w-2 h-2 rounded-full bg-luxury-dark/10" title="Follow-up Day 2" />
-                            </div>
-                            <span className="text-[8px] font-black uppercase text-emerald-600 tracking-tighter">Automated</span>
-                          </div>
-                        )}
-                        <select 
-                          value={lead.status || 'new'} 
-                        onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                        disabled={!canEdit}
-                        className={`text-[10px] font-black uppercase tracking-[0.2em] border-none rounded-2xl px-5 py-3 appearance-none outline-none transition-all shadow-lg ${
-                          !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer hover:scale-105'
-                        } ${
-                          lead.status === 'converted' ? 'bg-[#10B981] text-white' :
-                          lead.status === 'contacted' ? 'bg-[#3B82F6] text-white' :
-                          lead.status === 'lost' ? 'bg-red-500 text-white' :
-                           'bg-[#F59E0B] text-white'
-                        }`}
-                      >
-                        <option value="new">NEW INQUIRY</option>
-                        <option value="contacted">CONTACTED</option>
-                        <option value="converted">CONVERTED</option>
-                        <option value="lost">LOST LEAD</option>
-                      </select>
-                    </div>
-                  </td>
-                    <td className="px-8 py-7 text-right">
-                      {canDelete && (
-                        <button 
-                          onClick={() => setLeadToDelete(lead.id)} 
-                          className="w-12 h-12 inline-flex items-center justify-center rounded-2xl bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-95 group/del"
-                        >
-                          <Trash2 size={18} className="group-hover/del:scale-110 transition-transform" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {filteredLeads.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-6 py-24 text-center">
-                     <div className="w-16 h-16 bg-luxury-dark/5 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Users className="text-luxury-dark/20" size={24} />
-                     </div>
-                     <p className="text-luxury-dark/60 font-medium">No leads found.</p>
-                     <p className="text-sm text-luxury-dark/40 mt-1">Adjust your filters or add a new lead.</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Mobile/Tablet Card View */}
-      <div className="xl:hidden grid grid-cols-1 md:grid-cols-2 gap-6">
-        {filteredLeads.map(lead => {
-          const isSent = lead.emailSent || lead.whatsappSent;
-          return (
-            <div key={lead.id} className="bg-white rounded-[2.5rem] p-8 border border-luxury-dark/5 shadow-lg relative overflow-hidden group">
-               <div className="absolute top-0 right-0 w-24 h-24 -mr-12 -mt-12 bg-luxury-gold/5 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700" />
-               
-               <div className="flex justify-between items-start relative z-10 mb-6">
-                 <div>
-                   <h3 className="text-xl font-bold text-luxury-dark group-hover:text-luxury-gold transition-colors">{lead.name}</h3>
-                   <div className="flex items-center gap-2 mt-1">
-                     <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${lead.source === 'meta' ? 'bg-[#1877F2]/10 text-[#1877F2]' : 'bg-luxury-dark text-white'}`}>
-                        {lead.source === 'meta' ? 'Meta Lead' : lead.source}
-                     </span>
-                     <span className="text-[9px] font-bold text-luxury-dark/30 uppercase tracking-widest italic">{formatDate(lead.createdAt)}</span>
-                   </div>
-                 </div>
-                 <select 
-                    value={lead.status || 'new'} 
-                    onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                    disabled={!canEdit}
-                    className={`text-[9px] font-black uppercase tracking-[0.2em] border-none rounded-xl px-4 py-2 appearance-none outline-none shadow-sm ${
-                        !canEdit ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer active:scale-95 transition-transform'
-                    } ${
-                      lead.status === 'converted' ? 'bg-[#10B981] text-white' :
-                      lead.status === 'contacted' ? 'bg-[#3B82F6] text-white' :
-                      lead.status === 'lost' ? 'bg-red-500 text-white' :
-                      'bg-[#F59E0B] text-white'
-                    }`}
-                  >
-                    <option value="new">NEW</option>
-                    <option value="contacted">CONTACT</option>
-                    <option value="converted">WON</option>
-                    <option value="lost">LOST</option>
-                 </select>
-               </div>
-
-               <div className="grid grid-cols-2 gap-3 relative z-10 mb-6">
-                  {lead.email && (
-                    <button 
-                      onClick={() => canEdit && openReplyModal('email', lead.email, lead.name, lead.id)}
-                      className={`flex flex-col items-center justify-center p-4 rounded-2xl transition-all active:scale-95 border-2 ${lead.emailSent ? 'bg-red-50 text-red-500 border-red-100' : 'bg-luxury-cream/50 text-luxury-dark border-transparent hover:border-luxury-gold hover:bg-white'}`}
-                    >
-                      <Mail size={20} strokeWidth={2.5} className="mb-2" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Email</span>
-                    </button>
-                  )}
-                  {(lead.phone || lead.mobile) && (
-                    <button 
-                      onClick={() => canEdit && openReplyModal('whatsapp', lead.phone || lead.mobile, lead.name, lead.id)}
-                      className={`flex flex-col items-center justify-center p-4 rounded-2xl transition-all active:scale-95 border-2 ${lead.whatsappSent ? 'bg-red-50 text-red-500 border-red-100' : 'bg-[#25D366]/5 text-[#25D366] border-transparent hover:border-[#25D366] hover:bg-white'}`}
-                    >
-                      <Phone size={20} strokeWidth={2.5} className="mb-2" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">WhatsApp</span>
-                    </button>
-                  )}
-               </div>
-
-               <div className="bg-[#F9F9F9] rounded-[2rem] p-6 space-y-4 relative z-10 shadow-inner">
-                  <div className="flex flex-wrap gap-3">
-                    {lead.budget && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm border border-luxury-dark/5">
-                        <IndianRupee size={12} className="text-emerald-500" />
-                        <span className="text-xs font-bold text-luxury-dark">{lead.budget}</span>
-                      </div>
-                    )}
-                    {lead.guests && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm border border-luxury-dark/5">
-                        <Users size={12} className="text-blue-500" />
-                        <span className="text-xs font-bold text-luxury-dark">{lead.guests.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()).replace('Then', 'Than')}</span>
-                      </div>
-                    )}
-                    {lead.bookingDate && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm border border-luxury-dark/5">
-                        <Calendar size={12} className="text-purple-500" />
-                        <span className="text-xs font-bold text-luxury-dark">{lead.bookingDate} {lead.bookingTime && ` at ${lead.bookingTime}`}</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {lead.city && (
-                    <div className="flex items-center gap-2 text-xs font-bold text-luxury-dark/40">
-                       <MapPin size={14} className="text-luxury-gold" />
-                       {lead.city}
-                    </div>
-                  )}
-
-                  <div className="pt-4 border-t border-luxury-dark/5">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-luxury-dark/20">Lead Intelligence</p>
-                    <textarea 
-                      defaultValue={lead.remarks || ''}
-                      onBlur={(e) => handleUpdateRemarks(lead.id, e.target.value)}
-                      disabled={!canEdit}
-                      placeholder="Add key insights..."
-                      rows={2}
-                      className="w-full bg-white border-2 border-transparent focus:border-luxury-gold rounded-xl px-4 py-3 text-xs outline-none transition-all resize-none shadow-sm text-luxury-dark placeholder:text-luxury-dark/20"
-                    />
-                  </div>
-               </div>
-
-               <div className="flex justify-between items-center relative z-10 pt-4">
-                  <div className="flex flex-wrap gap-1">
-                    {(lead.tags || []).map((tag: string) => (
-                      <span key={tag} className="px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-luxury-gold/10 text-luxury-dark/60">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  {canDelete && (
-                    <button 
-                      onClick={() => setLeadToDelete(lead.id)} 
-                      className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-               </div>
-            </div>
-          );
-        })}
-        {filteredLeads.length === 0 && (
-          <div className="col-span-full py-24 text-center bg-white rounded-[2rem] border border-luxury-dark/5 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-            <div className="w-16 h-16 bg-luxury-dark/5 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Users className="text-luxury-dark/20" size={24} />
-            </div>
-            <p className="text-luxury-dark/60 font-medium">No leads found.</p>
-            <p className="text-sm text-luxury-dark/40 mt-1">Adjust your filters or add a new lead.</p>
-          </div>
-        )}
-      </div>
+    <div className="space-y-8 relative font-modern">
+      <ElegantLeadsDashboard 
+        leads={leads}
+        showToast={showToast}
+        userRole={userRole}
+        userPermissions={userPermissions}
+        onAddLead={() => setManualModalOpen(true)}
+        onExport={handleExportLeads}
+        onOpenSync={() => setSyncModalOpen(true)}
+        onOpenMetaSync={() => setMetaModalOpen(true)}
+        onOpenGmailSettings={() => setGmailModalOpen(true)}
+        onDeleteLead={(id) => setLeadToDelete(id)}
+        onReply={openReplyModal}
+      />
 
       {leadToDelete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -4045,6 +3566,186 @@ export default {
                 </button>
               </div>
             </form>
+          </motion.div>
+        </div>
+      )}
+
+      {selectedLeadForExpand && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-2 sm:p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 30 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-[2rem] sm:rounded-[3rem] w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+          >
+            {/* Modal Header */}
+            <div className="p-8 pb-4 flex justify-between items-start border-b border-luxury-dark/5">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <h2 className="text-3xl font-serif font-bold text-luxury-dark">{selectedLeadForExpand.name}</h2>
+                  {selectedLeadForExpand.score && (
+                    <span className={`px-4 py-1 rounded-full text-[10px] font-black tracking-widest border ${
+                      selectedLeadForExpand.score === 'HOT' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-amber-50 text-amber-600 border-amber-200'
+                    }`}>
+                      {selectedLeadForExpand.score === 'HOT' && '🔥 '}{selectedLeadForExpand.score} LEAD
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-4 text-xs font-medium text-luxury-dark/40">
+                  <div className="flex items-center gap-2">
+                    <Clock size={14} className="text-luxury-gold" />
+                    Inquired: {formatDate(selectedLeadForExpand.createdAt)}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Tag size={14} className="text-luxury-gold" />
+                    Source: <span className="uppercase font-bold text-luxury-dark/60">{selectedLeadForExpand.source}</span>
+                  </div>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedLeadForExpand(null)}
+                className="p-3 bg-luxury-dark/5 text-luxury-dark hover:bg-luxury-dark hover:text-white rounded-2xl transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+              {/* Quick Actions */}
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => openReplyModal('email', selectedLeadForExpand.email, selectedLeadForExpand.name, selectedLeadForExpand.id)}
+                  className={`flex flex-col items-center justify-center p-6 rounded-3xl transition-all border-2 ${selectedLeadForExpand.emailSent ? 'bg-red-50 border-red-100 text-red-600' : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white'}`}
+                >
+                  <Mail size={24} className="mb-2" />
+                  <span className="text-xs font-bold uppercase tracking-widest">Send Email</span>
+                  <span className="text-[9px] mt-1 opacity-60">{selectedLeadForExpand.email || 'No Email'}</span>
+                </button>
+                <button 
+                  onClick={() => openReplyModal('whatsapp', selectedLeadForExpand.phone, selectedLeadForExpand.name, selectedLeadForExpand.id)}
+                  className={`flex flex-col items-center justify-center p-6 rounded-3xl transition-all border-2 ${selectedLeadForExpand.whatsappSent ? 'bg-red-50 border-red-100 text-red-600' : 'bg-green-50 border-green-100 text-green-600 hover:bg-green-600 hover:text-white'}`}
+                >
+                  <Phone size={24} className="mb-2" />
+                  <span className="text-xs font-bold uppercase tracking-widest">WhatsApp</span>
+                  <span className="text-[9px] mt-1 opacity-60">{selectedLeadForExpand.phone || 'No Phone'}</span>
+                </button>
+              </div>
+
+              {/* Inquiry Details */}
+              <div className="bg-luxury-cream p-8 rounded-[2.5rem] border border-luxury-gold/10">
+                <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-luxury-dark/20 mb-6 flex items-center gap-2">
+                  <Target size={14} className="text-luxury-gold" />
+                  Inquiry Specifications
+                </h4>
+                <div className="grid grid-cols-2 gap-y-6 gap-x-8">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-luxury-dark/30">Budget</p>
+                    <p className="text-lg font-bold text-luxury-dark flex items-center gap-2">
+                      <IndianRupee size={16} className="text-emerald-500" />
+                      {selectedLeadForExpand.budget || 'N/A'}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-luxury-dark/30">Guests</p>
+                    <p className="text-lg font-bold text-luxury-dark flex items-center gap-2">
+                      <Users size={16} className="text-blue-500" />
+                      {selectedLeadForExpand.guests?.replace(/_/g, ' ') || 'N/A'}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-luxury-dark/30">Booking Date</p>
+                    <p className="text-lg font-bold text-luxury-dark flex items-center gap-2">
+                      <Calendar size={16} className="text-purple-500" />
+                      {selectedLeadForExpand.bookingDate || 'N/A'} {selectedLeadForExpand.bookingTime && `@ ${selectedLeadForExpand.bookingTime}`}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-luxury-dark/30">Location</p>
+                    <p className="text-lg font-bold text-luxury-dark flex items-center gap-2">
+                      <MapPin size={16} className="text-luxury-gold" />
+                      {selectedLeadForExpand.city || 'N/A'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Intelligence & Remarks */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-luxury-dark/20 flex items-center gap-2">
+                  <Sparkles size={14} className="text-luxury-gold" />
+                  Lead Intelligence (AI Analysis)
+                </h4>
+                <div className="bg-white border-2 border-luxury-dark/5 p-6 rounded-[2rem] shadow-sm italic text-luxury-dark/70 text-sm leading-relaxed relative">
+                   <div className="absolute top-0 right-8 -mt-2 bg-luxury-gold text-white px-3 py-0.5 rounded-full text-[8px] font-black uppercase">Active Analysis</div>
+                   {selectedLeadForExpand.remarks || "No intelligence gathered for this lead yet. AI will update this based on cross-channel interactions."}
+                </div>
+              </div>
+
+              {/* Categorization */}
+              <div className="space-y-4">
+                 <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-luxury-dark/20 flex items-center gap-2">
+                  <LayoutGrid size={14} className="text-luxury-gold" />
+                  Tags & Categorization
+                </h4>
+                <div className="flex flex-wrap gap-2">
+                  {(selectedLeadForExpand.tags || []).map((tag: string) => (
+                    <span key={tag} className="px-4 py-1.5 bg-luxury-gold/10 text-luxury-dark/60 rounded-xl text-xs font-bold uppercase tracking-widest border border-luxury-gold/10">
+                      {tag}
+                    </span>
+                  ))}
+                  {(!selectedLeadForExpand.tags || selectedLeadForExpand.tags.length === 0) && (
+                    <p className="text-xs text-luxury-dark/30 italic">No tags associated with this lead.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Lifecycle Controller */}
+              <div className="p-8 bg-luxury-dark text-white rounded-[2.5rem] flex flex-col sm:flex-row items-center justify-between gap-6 shadow-xl shadow-luxury-dark/10">
+                <div>
+                  <h4 className="text-xl font-serif font-bold mb-1">Lead Lifecycle</h4>
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Manage sales pipeline status</p>
+                </div>
+                <div className="flex gap-2">
+                  {['new', 'contacted', 'converted', 'lost'].map(status => (
+                    <button
+                      key={status}
+                      onClick={() => {
+                        handleUpdateStatus(selectedLeadForExpand.id, status);
+                        setSelectedLeadForExpand({...selectedLeadForExpand, status});
+                      }}
+                      className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all ${
+                        selectedLeadForExpand.status === status 
+                          ? 'bg-luxury-gold text-white shadow-lg' 
+                          : 'bg-white/10 text-white/40 hover:bg-white/20'
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            {/* Modal Footer */}
+            <div className="p-8 pt-0 flex gap-4">
+               <button 
+                  onClick={() => setSelectedLeadForExpand(null)}
+                  className="flex-1 py-5 bg-luxury-cream text-luxury-dark rounded-3xl font-black uppercase tracking-[0.3em] text-[10px] hover:bg-luxury-dark hover:text-white transition-all shadow-sm active:scale-95"
+               >
+                 Close
+               </button>
+               {canDelete && (
+                 <button 
+                   onClick={() => {
+                     setLeadToDelete(selectedLeadForExpand.id);
+                     setSelectedLeadForExpand(null);
+                   }}
+                   className="w-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all active:scale-95 border border-red-100"
+                 >
+                   <Trash2 size={20} />
+                 </button>
+               )}
+            </div>
           </motion.div>
         </div>
       )}
@@ -5409,85 +5110,6 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
     if (userRole === 'admin') {
       // Auto-sync on dashboard load (silent)
       syncGoogleReviews(true);
-
-      // Auto-migrate the chatbot settings to encompass new exhaustive facts
-      const migrateChatbotPrompt = async () => {
-        try {
-          const hasMigratedFullDetails = localStorage.getItem('migrated_full_details_chatbot_v2');
-          if (!hasMigratedFullDetails) {
-            const docRef = doc(db, 'settings', 'chatbot_settings');
-            
-            // Apply new luxury exhaustive prompt
-            const NEW_PROMPT = `You are the exclusive Guest Experience Concierge for "Unique Farmhouse Noida", a premium luxury getaway.
-
-Your tone is elegant, exceptionally warm, highly hospitable, and deeply respectful. You use welcoming phrases like "I would be delighted to assist you," "It is a pleasure to connect with you," and "We deeply look forward to hosting your retreat."
-
-CRITICAL RULE (NO EXCEPTIONS):
-Before you answer any detailed questions (pricing, availability, amenities), you MUST politely collect the guest's details to "ensure we provide a perfectly tailored experience".
-1. Full Name
-2. Mobile Number
-3. Email Address
-4. Total number of guests expected
-
-Once (and ONLY once) you have collected all 4 of these details, you MUST call the "save_lead" tool immediately. After saving the lead, enthusiastically answer all their questions using the facts below. If questions are just a simple "Hi", reply warmly and gently guide them to share their details first. If they provide partial details, gracefully ask for the remaining ones.
-
-HERE ARE THE EXACT FACTS ABOUT UNIQUE FARMHOUSE NOIDA. ALWAYS use these facts:
-
-📍 Premium Location & Connectivity:
-- Location: Sector 135, Noida. A serene escape effortlessly accessible from Noida, Delhi, and Gurgaon.
-- Direct Concierge / WhatsApp: +91 7503001001
-- Web Experience: www.uniquefarms.in
-
-💰 Tariffs & Value:
-- Pricing: Day Soirées and Overnight stays start from ₹15,000. Final pricing scales seamlessly with guest capacity.
-- Weekends: Weekend retreats (Fri-Sun) carry a premium of approximately 25% over weekday rates.
-- Securing your Dates: A 50% advance secures your exclusive booking. The remaining 50% balance is requested ONE WEEK prior to your arrival.
-- Security Deposit: A nominal ₹5,000 refundable security deposit is collected at check-in.
-
-⏰ Retreat Timings:
-- Day Soirée (Party Booking): 11:30 AM to 6:00 PM
-- Overnight Stay: Check-in at 2:00 PM, Check-out at a relaxed 11:00 AM
-
-🛏️ The Villa & Accommodations:
-- The Property: A sprawling, elegant 4-bedroom (4 BHK) luxury villa.
-- Overnight Capacity: We comfortably accommodate 12 guests overnight with luxurious 3-occupancy per room.
-- Extra Guests/Mattresses: Complimentary extra mattresses for up to 15 guests. Beyond 15 guests, extra premium mattresses are available at ₹1,000 per mattress.
-
-🍽️ Culinary Options:
-- Dining Packages: To offer complete culinary freedom, we do not mandate an in-house food package.
-- The Kitchen: For overnight stays (up to 12 people), you are welcome to bring a private chef to craft your meals in our fully equipped kitchen. (Note: Kitchen not intended for massive party catering).
-- Delivery: Zomato, Swiggy, and all premium food delivery partners deliver right to our gates.
-
-🎉 Elite Entertainment, Amenities & Policies:
-- Private Pool: 24/7 unhindered access to our pristine swimming pool. Dive in anytime.
-- Music & Celebration: Let the music play seamlessly! We allow DJs and music full-night with no restrictions.
-- Recreation: Complimentary high-speed Wi-Fi and seamless Power Backup available.
-- Games: Indoor (Carrom board, Chess, Ludo, Cards) and Outdoor (Cricket, Badminton, Ball games) available.
-- Enhancements: BBQ, Bonfire, and bespoke Decoration services are available on a chargeable basis. Alternatively, guests are welcome to bring their own decorators.
-- Beverages/Alcohol: You are welcome to responsibly enjoy your own alcohol. (Standard event license required only if setting up a commercial bar counter for 50+ guests).
-- Pets: A warm welcome to your furry companions! Pet-friendly (₹5,000 charge, kindly inform us prior).
-- Staff: A dedicated caretaker is available 24/7 on the property to ensure a flawless hospitality experience.
-
-RULES FOR RESPONDING:
-1. Be concise but politely conversational (2-3 sentences max per thought).
-2. Mirror the guest's language (English, Hindi, or Hinglish) gracefully.
-3. For final bookings, warmly invite them to use the "Book Now" feature on our website or immediately connect on WhatsApp (+91 7503001001).
-4. Do NOT invent prices or policies. You represent the exact facts above.
-5. Limit markdown formatting (bullet points, bolding) to keep conversation flowing naturally.`;
-
-            await setDoc(docRef, {
-              key: 'chatbot_settings',
-              value: NEW_PROMPT,
-              updatedAt: serverTimestamp()
-            }, { merge: true });
-            
-            localStorage.setItem('migrated_full_details_chatbot_v2', 'true');
-          }
-        } catch (e) {
-          console.error("Failed to auto-migrate chatbot prompt", e);
-        }
-      };
-      migrateChatbotPrompt();
     }
   }, [userRole]);
 
@@ -5637,10 +5259,28 @@ RULES FOR RESPONDING:
 
   const handleUpdateUserRole = async (userId: string, role: string) => {
     try {
-      await updateDoc(doc(db, 'users', userId), {
+      const updateData: any = {
         role,
         updatedAt: serverTimestamp()
-      });
+      };
+
+      // Set default permissions for agents if they don't have any
+      if (role === 'agent') {
+        const userRef = doc(db, 'users', userId);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists() && (!userSnap.data().permissions || Object.keys(userSnap.data().permissions).length === 0)) {
+          updateData.permissions = {
+            viewBookings: true,
+            viewLeads: true,
+            editLeads: true,
+            addLeads: true,
+            viewBlogs: true,
+            viewSettings: false // Default off for settings
+          };
+        }
+      }
+
+      await updateDoc(doc(db, 'users', userId), updateData);
       showToast(`User role updated to ${role}`, 'success');
       await logAdminAction('update_user_role', userId, `Role changed to ${role}`);
     } catch (error) {
@@ -6956,11 +6596,6 @@ export default {
                 </div>
               </div>
             </div>
-          </div>
-        ) : (activeFilter === 'chatbot_settings' && (userRole === 'admin' || userRole === 'agent')) ? (
-          <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
-            <ChatbotSettingsAdmin showToast={showToast} canEditSettingsAdmin={canEditSettingsAdmin} />
           </div>
         ) : (userRole === 'admin' || userRole === 'agent') ? (
           <div className="space-y-8">
@@ -11019,84 +10654,26 @@ export default function App() {
     
     const runSync = async () => {
       try {
-        const docSnap = await getDoc(doc(db, 'settings', 'calendar_sync'));
+        const docRef = doc(db, 'settings', 'calendar_sync');
+        const docSnap = await getDoc(docRef).catch(() => 
+          getDocFromServer(docRef)
+        );
+
         if (docSnap.exists() && docSnap.data().urls && docSnap.data().urls.length > 0) {
           const urls = docSnap.data().urls;
           
-          const allExternalEvents: any[] = [];
-          const ICAL = (await import('ical.js')).default;
-          
-          let workerUrl = "";
-          try {
-             // grab the proxy URL from settings if possible, otherwise rely on fallback
-             const proxySnap = await getDoc(doc(db, 'settings', 'gmail'));
-             if (proxySnap.exists()) workerUrl = proxySnap.data()?.workerUrl || '';
-          } catch(e) {}
+          const response = await fetch('/api/calendar/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls })
+          });
 
-          for (const item of urls) {
-            try {
-              let response: any = null;
-              
-              const fetchFromSource = async (u: string) => {
-                try {
-                  const res = await fetch(u);
-                  if (res.ok) return res;
-                  throw new Error(`HTTP ${res.status}`);
-                } catch (err) {
-                  throw err;
-                }
-              };
-
-              const fetchViaWorker = async (u: string) => {
-                if (!workerUrl) throw new Error("No worker");
-                return await fetch(workerUrl.replace(/\/+$/, '') + '/api/proxy/fetch', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ url: u })
-                });
-              };
-
-              const proxies = [
-                async (u: string) => await fetchFromSource(u),
-                async (u: string) => await fetchViaWorker(u),
-                async (u: string) => await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(u)),
-                async (u: string) => await fetch('https://corsproxy.io/?' + encodeURIComponent(u)),
-                async (u: string) => await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)),
-              ];
-
-              for (const proxyFn of proxies) {
-                try {
-                  const res = await proxyFn(item.url);
-                  if (res && res.ok) {
-                    response = res;
-                    break;
-                  }
-                } catch (err) {}
-              }
-
-              if (!response?.ok) throw new Error("Status " + (response?.status || 'Unknown'));
-              
-              const textResponse = await response.text();
-              const jcalData = ICAL.parse(textResponse);
-              const comp = new ICAL.Component(jcalData);
-              const vevents = comp.getAllSubcomponents("vevent");
-
-              vevents.forEach(event => {
-                const ev = new ICAL.Event(event);
-                if (ev.uid && ev.uid.includes('@uniquefarmhouse.com')) return;
-                
-                allExternalEvents.push({
-                   source: item.name,
-                   start: ev.startDate.toJSDate().toISOString(),
-                   end: ev.endDate.toJSDate().toISOString(),
-                   summary: ev.summary,
-                   uid: ev.uid || Math.random().toString(36).substring(7)
-                });
-              });
-            } catch (e: any) {
-              console.error('Auto-sync failed for ' + item.name, e);
-            }
+          if (!response.ok) {
+            throw new Error(`Server sync failed: ${response.status}`);
           }
+
+          const result = await response.json();
+          const allExternalEvents = result.events || [];
 
           if (allExternalEvents.length > 0) {
             const batch = writeBatch(db);
@@ -11145,7 +10722,11 @@ export default function App() {
         if (currentUser) {
           // Fetch user role
           try {
-            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+            const userRef = doc(db, 'users', currentUser.uid);
+            const userDoc = await getDoc(userRef).catch(() => 
+              getDocFromServer(userRef)
+            );
+            
             if (userDoc.exists()) {
               const userData = userDoc.data();
               const isSuperAdmin = currentUser.email && currentUser.email.toLowerCase() === 'anujkumarmittal@gmail.com';
@@ -11433,9 +11014,6 @@ export default function App() {
         onClose={() => setIsWelcomeModalOpen(false)} 
         onBookNow={openBookingModal}
       />
-
-      {/* AI Chatbot */}
-      <Chatbot />
     </div>
     </ErrorBoundary>
   );

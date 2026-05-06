@@ -172,7 +172,7 @@ service cloud.firestore {
     function isValidLead(data) {
       return data.keys().hasAll(['name', 'status', 'createdAt']) &&
              data.name is string && data.name.size() > 0 &&
-             data.status in ['new', 'contacted', 'converted', 'lost', 'converted_to_booking'] &&
+             data.status in ['new', 'contacted', 'converted', 'lost', 'converted_to_booking', 'hot'] &&
              (!('email' in data) || data.email is string) &&
              (!('phone' in data) || data.phone is string) &&
              (!('guests' in data) || (data.guests is string || data.guests is number)) &&
@@ -185,6 +185,8 @@ service cloud.firestore {
              (!('bookingTime' in data) || data.bookingTime is string) &&
              (!('statusUpdatedAt' in data) || (data.statusUpdatedAt is timestamp || data.statusUpdatedAt == null)) &&
              (!('tags' in data) || data.tags is list) &&
+             (!('date' in data) || data.date is string) &&
+             (!('occasion' in data) || data.occasion is string) &&
              (data.createdAt is timestamp || isValidDateTimeString(data.createdAt));
     }
 

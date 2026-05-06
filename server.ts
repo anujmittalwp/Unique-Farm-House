@@ -37,6 +37,7 @@ function getAdminDb() {
     try {
       const apps = getAdminApps();
       if (apps.length === 0) {
+        // AI Studio: Explicitly pass projectId to avoid using incorrect default project
         adminApp = initializeAdminApp({
           projectId: firebaseConfig.projectId,
         });
@@ -46,8 +47,9 @@ function getAdminDb() {
       }
       
       const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
-      console.log(`[Firebase Admin] Connecting to database: ${databaseId} using getAdminFirestore`);
+      console.log(`[Firebase Admin] Connecting to database: ${databaseId}`);
       
+      // Explicitly use getAdminFirestore with databaseId
       adminDb = getAdminFirestore(adminApp, databaseId);
     } catch (err) {
       console.warn("Firebase Admin failed to initialize. Background tasks like push notifications will be disabled.", err);
@@ -433,7 +435,7 @@ async function startServer() {
     });
   });
 
-  // --- Lead Automation ---
+  // --- Lead Automation & Maintenance ---
   const scheduleFollowUp = async (leadId: string, leadData: any, day: number, message: string) => {
     const delay = day * 24 * 60 * 60 * 1000;
     
@@ -441,6 +443,10 @@ async function startServer() {
       const aDb = getAdminDb();
       if (!aDb) return;
       try {
+        // Re-check status before sending
+        const leadDoc = await aDb.collection('leads').doc(leadId).get();
+        if (!leadDoc.exists || leadDoc.data()?.status !== 'new') return;
+
         console.log(`[Automation] Sending ${day} day follow-up for lead ${leadId}`);
         await aDb.collection('notifications').add({
           type: 'followup',
@@ -461,6 +467,43 @@ async function startServer() {
       }
     }, delay);
   };
+
+  // Run lead maintenance every 1 hour
+  setInterval(async () => {
+    const aDb = getAdminDb();
+    if (!aDb) return;
+    
+    console.log('[Automation] Running lead maintenance cycle...');
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const staleLeads = await aDb.collection('leads')
+        .where('status', 'in', ['new', 'contacted'])
+        .where('createdAt', '<', sevenDaysAgo)
+        .get();
+
+      if (staleLeads.empty) return;
+
+      const batch = aDb.batch();
+      staleLeads.docs.forEach(doc => {
+        batch.update(doc.ref, { 
+          status: 'lost', 
+          remarks: (doc.data().remarks || '') + '\n[Auto] Marked as lost due to inactivity (7+ days)' 
+        });
+        console.log(`[Automation] Mark lead ${doc.id} as lost (stale)`);
+      });
+      await batch.commit();
+      
+      if (staleLeads.size > 0) {
+        broadcast({
+          type: 'info',
+          title: 'Leads Cleaned Up',
+          message: `${staleLeads.size} stale leads auto-marked as Lost.`,
+        });
+      }
+    } catch (e) {
+      console.error('[Automation] Lead maintenance error:', e);
+    }
+  }, 1000 * 60 * 60); // Every 1 hour
 
   const processLeadAutomation = async (leadId: string, leadData: any) => {
     let score = 'WARM';
@@ -766,20 +809,98 @@ async function startServer() {
 
       for (const item of urls) {
         try {
-          const events = await nodeIcal.fromURL(item.url);
-          Object.values(events).forEach(event => {
-            if (event.type === 'VEVENT') {
-              // Ignore events that originated from our own system to prevent duplicates
-              if (event.uid && event.uid.includes('@uniquefarmhouse.com')) {
-                return;
-              }
-              allExternalEvents.push({
-                source: item.name,
-                start: event.start,
-                end: event.end,
-                summary: event.summary,
-                uid: event.uid || Math.random().toString(36).substring(7),
+          const rawUrl = (item.url || '').trim();
+          if (!rawUrl) continue;
+
+          const normalizedUrl = rawUrl.startsWith('webcal://') 
+            ? 'https://' + rawUrl.substring(9) 
+            : rawUrl;
+
+          console.log(`[Sync] Fetching ${item.name}: ${normalizedUrl}`);
+
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 15000);
+
+          let response;
+          try {
+            response = await fetch(normalizedUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'text/calendar,text/plain,*/*'
+              },
+              signal: controller.signal
+            });
+          } catch (fetchErr: any) {
+            console.error(`[Sync] ${item.name} fetch error:`, fetchErr.message);
+            continue;
+          } finally {
+            clearTimeout(timeout);
+          }
+
+          if (response && (response.status === 400 || response.status === 403)) {
+            console.warn(`[Sync] ${item.name} status ${response.status}, retrying with Wget headers...`);
+            const retryController = new AbortController();
+            const retryTimeout = setTimeout(() => retryController.abort(), 10000);
+            try {
+              const isMMT = normalizedUrl.toLowerCase().includes('makemytrip') || 
+                            normalizedUrl.toLowerCase().includes('goibibo') || 
+                            item.name.toLowerCase().includes('mmt');
+              
+              // For MMT/Goibibo, use very basic headers to avoid triggering bot detection that blocks "modern" synthetic browsers
+              const retryUrl = normalizedUrl.split('#')[0];
+              
+              response = await fetch(retryUrl, {
+                headers: { 
+                  'User-Agent': 'Wget/1.21.1',
+                  'Accept': '*/*',
+                  'Connection': 'keep-alive',
+                  ...(isMMT ? { 'Referer': 'https://www.makemytrip.com/' } : {})
+                },
+                redirect: 'follow',
+                signal: retryController.signal
               });
+            } catch (e) {
+              console.error(`[Sync] ${item.name} retry failed:`, e);
+            } finally {
+              clearTimeout(retryTimeout);
+            }
+          }
+
+          if (!response || !response.ok) {
+            console.error(`[Sync] ${item.name} failed with status ${response?.status || 'unknown'}. URL: ${normalizedUrl}`);
+            try {
+               const errorBody = await response?.text();
+               if (errorBody) console.error(`[Sync] Error body snippet: ${errorBody.substring(0, 150)}`);
+            } catch (e) {}
+            continue;
+          }
+
+          const textResponse = await response.text();
+          const trimmed = textResponse.trim();
+          if (!trimmed.toUpperCase().includes('BEGIN:VCALENDAR')) {
+            console.warn(`[Sync Error] Invalid content for ${item.name} (${normalizedUrl}). Content length: ${trimmed.length}.`);
+            continue;
+          }
+
+          const events = nodeIcal.parseICS(trimmed);
+          Object.values(events).forEach(event => {
+            try {
+              if (event.type === 'VEVENT') {
+                if (event.uid && event.uid.includes('@uniquefarmhouse.com')) {
+                  return;
+                }
+                if (!event.start || !event.end) return;
+
+                allExternalEvents.push({
+                  source: item.name,
+                  start: event.start,
+                  end: event.end,
+                  summary: event.summary || 'Blocked',
+                  uid: event.uid || Math.random().toString(36).substring(7),
+                });
+              }
+            } catch (err) {
+              console.warn(`[Server Sync] Skipping malformed event in ${item.name}:`, err);
             }
           });
         } catch (e) {
