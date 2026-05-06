@@ -359,10 +359,21 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                                 setEditingDetail({ id: lead.id, field: 'bookingDate' });
                                 setEditDetailValue(lead.bookingDate || '');
                               }}
-                              className="flex items-center gap-2 text-xs font-bold text-luxury-dark/70 hover:text-luxury-gold cursor-pointer transition-colors"
+                              className="flex flex-col gap-0.5 group/dbdate"
                             >
-                              <Calendar size={14} className="text-luxury-gold shrink-0" />
-                              {lead.bookingDate ? format(new Date(lead.bookingDate), 'MMM dd, yyyy') : <span className="text-luxury-gold/40 italic">Set Date</span>}
+                              <div className="flex items-center gap-2 text-xs font-bold text-luxury-dark/70 group-hover/dbdate:text-luxury-gold cursor-pointer transition-colors leading-none">
+                                <Calendar size={14} className="text-luxury-gold shrink-0" />
+                                {lead.bookingDate ? format(new Date(lead.bookingDate), 'MMM dd, yyyy') : <span className="text-luxury-gold/40 italic">Set Date</span>}
+                              </div>
+                              {lead.bookingDate && (
+                                <span className={`text-[9px] font-bold ml-5 uppercase tracking-widest leading-none ${
+                                  ['Friday', 'Saturday'].includes(format(new Date(lead.bookingDate), 'EEEE')) 
+                                  ? 'text-red-500' 
+                                  : 'text-luxury-dark/30'
+                                }`}>
+                                  {format(new Date(lead.bookingDate), 'EEEE')}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -417,9 +428,20 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">
-                          <Calendar size={12} className="shrink-0 text-luxury-dark/20" />
-                          {lead.createdAt ? format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'MMM dd, yyyy') : 'N/A'}
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest leading-none">
+                            <Calendar size={12} className="shrink-0 text-luxury-dark/20" />
+                            {lead.createdAt ? format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'MMM dd, yyyy') : 'N/A'}
+                          </div>
+                          {lead.createdAt && (
+                            <span className={`text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none ${
+                              ['Friday', 'Saturday'].includes(format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'EEEE'))
+                              ? 'text-red-500/60'
+                              : 'text-luxury-dark/20'
+                            }`}>
+                              {format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'EEEE')}
+                            </span>
+                          )}
                         </div>
 
                         {/* Row 3 */}
