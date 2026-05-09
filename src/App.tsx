@@ -5580,29 +5580,51 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
 
   const [paymentInputs, setPaymentInputs] = useState<{[key: string]: string}>({});
 
-  const handleUpdatePayment = async (bookingId: string, totalAmount: number) => {
+  const handleUpdatePayment = async (bookingId: string, booking: any) => {
     const amount = parseFloat(paymentInputs[bookingId]);
-    if (isNaN(amount)) return;
+    const note = paymentNotes[bookingId] || '';
+    if (isNaN(amount) || amount <= 0) return;
+
+    const newPayment = {
+      amount,
+      note: note || 'Payment Received',
+      date: new Date().toISOString(),
+      method: 'manual'
+    };
+
+    const updatedPayments = [...(booking.payments || []), newPayment];
+    const totalPaid = updatedPayments.reduce((sum, p) => sum + p.amount, 0);
+    const totalAmount = booking.totalAmount || 0;
 
     let status: 'unpaid' | 'part-paid' | 'paid' = 'unpaid';
-    if (amount >= totalAmount) status = 'paid';
-    else if (amount > 0) status = 'part-paid';
+    if (totalPaid >= totalAmount) status = 'paid';
+    else if (totalPaid > 0) status = 'part-paid';
 
     try {
       await setDoc(doc(db, 'bookings', bookingId), { 
-        amountPaid: amount,
+        payments: updatedPayments,
+        amountPaid: totalPaid,
         paymentStatus: status
       }, { merge: true });
-      await logAdminAction('update_payment', bookingId, `Updated payment to ₹${amount} (${status})`);
+      await logAdminAction('update_payment', bookingId, `Added payment of ₹${amount}. Total: ₹${totalPaid}`);
+      
       setPaymentInputs(prev => {
         const next = {...prev};
         delete next[bookingId];
         return next;
       });
+      setPaymentNotes(prev => {
+        const next = {...prev};
+        delete next[bookingId];
+        return next;
+      });
+      showToast('Payment added successfully', 'success');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `bookings/${bookingId}`);
     }
   };
+
+  const [paymentNotes, setPaymentNotes] = useState<{[key: string]: string}>({});
 
   const handleExportBookings = () => {
     const csv = Papa.unparse(filteredBookings.map(b => ({
@@ -6745,33 +6767,85 @@ export default {
 
                         {(userRole === 'admin' || (userRole === 'agent' && userPermissions?.editBookings)) && (
                           <div className="mt-8 pt-8 border-t border-luxury-dark/5">
-                            <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-4">Management Actions</p>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                              <div className="space-y-2">
-                                <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold">Update Payment Received</label>
-                                <div className="flex gap-2">
-                                  <div className="relative flex-1">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-luxury-dark/40 text-xs">₹</span>
+                            <div className="flex flex-col lg:flex-row gap-8">
+                              {/* New Payment Ledger Section */}
+                              <div className="flex-1 space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold flex items-center gap-2">
+                                    <History size={12} className="text-luxury-gold" />
+                                    Payment Ledger
+                                  </p>
+                                  <p className="text-[10px] font-bold text-luxury-dark/20 uppercase tracking-widest">
+                                    {booking.payments?.length || 0} Entries
+                                  </p>
+                                </div>
+                                
+                                <div className="bg-luxury-dark/[0.02] rounded-2xl border border-luxury-dark/5 overflow-hidden">
+                                  {booking.payments && booking.payments.length > 0 ? (
+                                    <div className="divide-y divide-luxury-dark/5">
+                                      {booking.payments.map((p: any, idx: number) => (
+                                        <div key={idx} className="p-3 flex items-center justify-between hover:bg-white transition-colors">
+                                          <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                                              <IndianRupee size={12} />
+                                            </div>
+                                            <div>
+                                              <p className="text-xs font-bold text-luxury-dark">₹{p.amount.toLocaleString()}</p>
+                                              <p className="text-[9px] text-luxury-dark/40 font-medium uppercase tracking-wider">{p.note}</p>
+                                            </div>
+                                          </div>
+                                          <p className="text-[9px] text-luxury-dark/30 font-mono">
+                                            {format(new Date(p.date), 'dd MMM, HH:mm')}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="p-8 text-center">
+                                      <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest italic">No payment entries found</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Add Payment Form */}
+                              <div className="w-full lg:w-[320px] space-y-4">
+                                <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold">Record Installment</p>
+                                <div className="bg-white p-5 rounded-2xl border border-luxury-gold/20 shadow-sm space-y-4">
+                                  <div className="space-y-2">
+                                    <div className="relative">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-luxury-dark/40 text-xs font-bold">₹</span>
+                                      <input 
+                                        type="number"
+                                        placeholder="Amount"
+                                        value={paymentInputs[booking.id] || ''}
+                                        onChange={(e) => setPaymentInputs(prev => ({...prev, [booking.id]: e.target.value}))}
+                                        className="w-full pl-7 pr-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold text-sm font-bold shadow-inner"
+                                      />
+                                    </div>
                                     <input 
-                                      type="number"
-                                      placeholder="Amount"
-                                      value={paymentInputs[booking.id] ?? (booking.amountPaid || '')}
-                                      onChange={(e) => setPaymentInputs(prev => ({...prev, [booking.id]: e.target.value}))}
-                                      className="w-full pl-7 pr-4 py-2 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold text-xs font-bold"
+                                      type="text"
+                                      placeholder="Installment Detail (e.g. Advance)"
+                                      value={paymentNotes[booking.id] || ''}
+                                      onChange={(e) => setPaymentNotes(prev => ({...prev, [booking.id]: e.target.value}))}
+                                      className="w-full px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold text-[10px] font-bold tracking-wider"
                                     />
                                   </div>
                                   <button 
-                                    onClick={() => handleUpdatePayment(booking.id, booking.totalAmount)}
-                                    className="px-4 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all"
+                                    onClick={() => handleUpdatePayment(booking.id, booking)}
+                                    disabled={!paymentInputs[booking.id]}
+                                    className="w-full py-3 bg-luxury-dark text-white text-[10px] font-bold rounded-xl hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:active:scale-100 uppercase tracking-[0.2em]"
                                   >
-                                    Update
+                                    Add Payment
                                   </button>
                                 </div>
                               </div>
-                              
-                              <div className="space-y-2">
-                                <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold">Status Actions</label>
+                            </div>
+
+                            {/* Status and Danger Zone */}
+                            <div className="mt-8 pt-8 border-t border-luxury-dark/5">
+                              <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-4">Operational Status</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="flex gap-2">
                                   <button 
                                     onClick={async () => {
@@ -6784,7 +6858,7 @@ export default {
                                       }
                                     }}
                                     disabled={booking.status === 'confirmed'}
-                                    className="flex-1 px-3 py-2 bg-emerald-600 text-white text-[10px] font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                                    className="flex-1 px-3 py-2 bg-emerald-600 text-white text-[10px] font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50 uppercase tracking-widest"
                                   >
                                     Confirm
                                   </button>
@@ -6799,27 +6873,21 @@ export default {
                                       }
                                     }}
                                     disabled={booking.status === 'cancelled'}
-                                    className="flex-1 px-3 py-2 bg-red-600 text-white text-[10px] font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50"
+                                    className="flex-1 px-3 py-2 bg-red-600 text-white text-[10px] font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 uppercase tracking-widest"
                                   >
                                     Cancel
                                   </button>
                                 </div>
-                              </div>
-
-                              <div className="space-y-2 md:col-span-2">
-                                <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold">Danger Zone</label>
-                                <div className="flex gap-2">
-                                  <button 
-                                    onClick={() => {
-                                      setBookingToDelete(booking);
-                                      setIsConfirmModalOpen(true);
-                                    }}
-                                    disabled={userRole === 'agent' && !userPermissions?.deleteBookings}
-                                    className="w-full px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    <Trash2 size={12} /> Delete Booking
-                                  </button>
-                                </div>
+                                <button 
+                                  onClick={() => {
+                                    setBookingToDelete(booking);
+                                    setIsConfirmModalOpen(true);
+                                  }}
+                                  disabled={userRole === 'agent' && !userPermissions?.deleteBookings}
+                                  className="w-full px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest"
+                                >
+                                  <Trash2 size={12} /> Delete Booking
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -7004,6 +7072,40 @@ export default {
                         <p className="font-bold text-luxury-dark">{booking.bookedBy || 'client'}</p>
                       </div>
                     )}
+                  </div>
+
+                  {/* Client View Payment History */}
+                  <div className="mt-8 pt-8 border-t border-luxury-dark/5 space-y-4">
+                    <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold flex items-center gap-2">
+                      <History size={12} className="text-luxury-gold" />
+                      Payment History
+                    </p>
+                    <div className="bg-luxury-dark/[0.02] rounded-2xl border border-luxury-dark/5 overflow-hidden">
+                      {booking.payments && booking.payments.length > 0 ? (
+                        <div className="divide-y divide-luxury-dark/5">
+                          {booking.payments.map((p: any, idx: number) => (
+                            <div key={idx} className="p-3 flex items-center justify-between hover:bg-white transition-colors">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                                  <IndianRupee size={12} />
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-luxury-dark">₹{p.amount.toLocaleString()}</p>
+                                  <p className="text-[9px] text-luxury-dark/40 font-medium uppercase tracking-wider">{p.note}</p>
+                                </div>
+                              </div>
+                              <p className="text-[9px] text-luxury-dark/30 font-mono">
+                                {format(new Date(p.date), 'dd MMM, yyyy')}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-8 text-center">
+                          <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest italic">No payment history available yet</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -8631,6 +8733,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         mobile,
         email,
         occasion,
+        payments: editBooking?.payments || [],
         bookedBy: (userRole === 'admin' || userRole === 'agent') ? (bookedBy || (isAdminBooking ? (userRole === 'admin' ? 'admin_for_client' : 'agent_for_client') : 'admin_personal')) : 'client',
         paymentMethod: paymentMethod
       };

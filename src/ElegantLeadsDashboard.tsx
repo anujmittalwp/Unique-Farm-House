@@ -68,6 +68,8 @@ interface Lead {
   score?: 'HOT' | 'WARM' | 'COLD';
   metaLeadId?: string;
   occasion?: string;
+  followUpDate?: string;
+  followUpRemarks?: string;
 }
 
 interface ElegantLeadsDashboardProps {
@@ -118,7 +120,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     contacted: leads.filter(l => l.status === 'contacted').length,
     converted: leads.filter(l => l.status === 'converted').length,
     lost: leads.filter(l => l.status === 'lost').length,
-    hot: leads.filter(l => l.score === 'HOT' || l.status === 'hot').length
+    hot: leads.filter(l => l.score === 'HOT' || l.status === 'hot').length,
+    followUpsToday: leads.filter(l => l.followUpDate === format(new Date(), 'yyyy-MM-dd')).length
   };
 
   const filteredLeads = leads.filter(lead => {
@@ -193,12 +196,14 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
           <p className="text-luxury-dark/55 font-medium">Manage your high-value enquiries with precision.</p>
         </div>
         
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full md:w-auto">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 w-full md:w-auto">
           {[
             { label: 'Total Enquiries', value: stats.total, icon: Users, color: 'text-luxury-dark' },
-            { label: 'Fresh Leads', value: stats.new, icon: Zap, color: 'text-blue-600' },
-            { label: 'Successful', value: stats.converted, icon: CheckCircle2, color: 'text-emerald-600' },
-            { label: 'High Priority', value: stats.hot, icon: TrendingUp, color: 'text-red-500' }
+            { label: 'New Leads', value: stats.new, icon: Zap, color: 'text-blue-600' },
+            { label: 'Contacted Leads', value: stats.contacted, icon: Phone, color: 'text-amber-500' },
+            { label: 'Follow-ups Today', value: stats.followUpsToday, icon: Clock, color: 'text-indigo-600' },
+            { label: 'Converted', value: stats.converted, icon: CheckCircle2, color: 'text-emerald-600' },
+            { label: 'Lost', value: stats.lost, icon: XCircle, color: 'text-red-500' }
           ].map((stat, i) => (
             <div key={i} className="bg-white p-4 rounded-3xl border border-luxury-dark/5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center gap-3 mb-1">
@@ -222,7 +227,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
             <div className="flex bg-white p-1 rounded-2xl border border-luxury-dark/5 shadow-sm overflow-x-auto w-full max-w-fit">
               {[
                 { id: 'all', label: 'All' },
-                { id: 'new', label: 'New' },
+                { id: 'new', label: 'New Leads' },
                 { id: 'contacted', label: 'Contacted' },
                 { id: 'converted', label: 'Converted' },
                 { id: 'lost', label: 'Lost' }
@@ -311,6 +316,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
             <thead>
               <tr className="bg-gray-50/50 border-b border-luxury-dark/5">
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Lead Profile & Event Details</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Next Follow-up</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Remarks</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Live Status</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30 text-right">Actions</th>
@@ -491,6 +497,84 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                           <Clock size={12} className="shrink-0 text-blue-500" />
                           {lead.createdAt ? format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'MMM dd, yyyy hh:mm a') : 'N/A'}
                         </div>
+                      </div>
+                    </td>
+
+                    {/* Next Follow-up */}
+                    <td className="px-6 py-6 min-w-[200px]">
+                      <div className="flex flex-col gap-3">
+                        {editingDetail?.id === lead.id && editingDetail?.field === 'followUpDate' ? (
+                          <input 
+                            type="date"
+                            autoFocus
+                            value={editDetailValue}
+                            onChange={(e) => setEditDetailValue(e.target.value)}
+                            onBlur={() => handleUpdateDetail(lead.id, 'followUpDate', editDetailValue)}
+                            className="text-[11px] bg-white border border-indigo-200 rounded-xl px-3 py-2 outline-none w-full shadow-sm"
+                          />
+                        ) : (
+                          <div 
+                            onClick={() => {
+                              setEditingDetail({ id: lead.id, field: 'followUpDate' });
+                              setEditDetailValue(lead.followUpDate || '');
+                            }}
+                            className="flex flex-col gap-1 cursor-pointer group/follow"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Clock size={14} className={
+                                !lead.followUpDate ? "text-luxury-dark/20" :
+                                lead.followUpDate < format(new Date(), 'yyyy-MM-dd') ? "text-red-500" :
+                                lead.followUpDate === format(new Date(), 'yyyy-MM-dd') ? "text-amber-500" :
+                                "text-indigo-500"
+                              } />
+                              <span className={`text-[11px] font-bold ${
+                                !lead.followUpDate ? "text-luxury-dark/30 italic" : 
+                                lead.followUpDate < format(new Date(), 'yyyy-MM-dd') ? "text-red-600" :
+                                lead.followUpDate === format(new Date(), 'yyyy-MM-dd') ? "text-amber-600" :
+                                "text-indigo-600"
+                              }`}>
+                                {lead.followUpDate ? format(new Date(lead.followUpDate), 'MMM dd, yyyy') : 'Set Follow-up'}
+                              </span>
+                            </div>
+                            {lead.followUpDate && (
+                              <span className={`text-[9px] font-black ml-5 uppercase tracking-widest ${
+                                ['Friday', 'Saturday'].includes(format(new Date(lead.followUpDate), 'EEEE')) 
+                                ? 'text-red-500 animate-pulse' 
+                                : 'text-luxury-dark/20'
+                              }`}>
+                                {format(new Date(lead.followUpDate), 'EEEE')}
+                                {lead.followUpDate < format(new Date(), 'yyyy-MM-dd') && " • OVERDUE"}
+                                {lead.followUpDate === format(new Date(), 'yyyy-MM-dd') && " • DUE TODAY"}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Quick Follow-up Note */}
+                        {editingDetail?.id === lead.id && editingDetail?.field === 'followUpRemarks' ? (
+                          <input 
+                            type="text"
+                            autoFocus
+                            placeholder="Next step..."
+                            value={editDetailValue}
+                            onChange={(e) => setEditDetailValue(e.target.value)}
+                            onBlur={() => handleUpdateDetail(lead.id, 'followUpRemarks', editDetailValue)}
+                            className="text-[10px] bg-white border border-indigo-100 rounded-lg px-2 py-1 outline-none w-full"
+                          />
+                        ) : (
+                          <div 
+                            onClick={() => {
+                              setEditingDetail({ id: lead.id, field: 'followUpRemarks' });
+                              setEditDetailValue(lead.followUpRemarks || '');
+                            }}
+                            className="flex items-center gap-2 group/re"
+                          >
+                            <ClipboardList size={10} className="text-luxury-dark/20" />
+                            <p className="text-[10px] text-luxury-dark/50 italic line-clamp-1 group-hover/re:text-indigo-500 transition-colors cursor-pointer">
+                              {lead.followUpRemarks || 'Add follow-up plan...'}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </td>
 
