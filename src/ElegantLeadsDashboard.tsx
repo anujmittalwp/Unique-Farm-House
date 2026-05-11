@@ -106,7 +106,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
   onReply
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'new' | 'contacted' | 'converted' | 'lost'>('new');
+  const [activeTab, setActiveTab] = useState<'all' | 'new' | 'contacted' | 'followup' | 'converted' | 'lost'>('new');
   const [editingRemarks, setEditingRemarks] = useState<string | null>(null);
   const [remarksValue, setRemarksValue] = useState('');
   const [editingDetail, setEditingDetail] = useState<{id: string, field: string} | null>(null);
@@ -121,7 +121,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     converted: leads.filter(l => l.status === 'converted').length,
     lost: leads.filter(l => l.status === 'lost').length,
     hot: leads.filter(l => l.score === 'HOT' || l.status === 'hot').length,
-    followUpsToday: leads.filter(l => l.followUpDate === format(new Date(), 'yyyy-MM-dd')).length
+    followUpsToday: leads.filter(l => l.followUpDate === format(new Date(), 'yyyy-MM-dd')).length,
+    followup: leads.filter(l => l.followUpDate && l.status !== 'converted' && l.status !== 'lost').length
   };
 
   const filteredLeads = leads.filter(lead => {
@@ -131,9 +132,23 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
       lead.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       lead.remarks?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesTab = activeTab === 'all' || lead.status === activeTab;
+    let matchesTab = activeTab === 'all' || lead.status === activeTab;
+    if (activeTab === 'followup') {
+      matchesTab = !!lead.followUpDate && lead.status !== 'converted' && lead.status !== 'lost';
+    }
     
     return matchesSearch && matchesTab;
+  }).sort((a, b) => {
+    if (activeTab === 'followup') {
+      // Sort by follow-up date (closest/overdue first)
+      const dateA = a.followUpDate || '9999-99-99';
+      const dateB = b.followUpDate || '9999-99-99';
+      return dateA.localeCompare(dateB);
+    }
+    // Default sort by created at
+    const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime();
+    const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime();
+    return timeB - timeA;
   });
 
   const handleUpdateStatus = async (leadId: string, status: string) => {
@@ -228,7 +243,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
               {[
                 { id: 'all', label: 'All' },
                 { id: 'new', label: 'New Leads' },
-                { id: 'contacted', label: 'Contacted' },
+                { id: 'contacted', label: 'Contacted Leads' },
+                { id: 'followup', label: 'Follow-ups' },
                 { id: 'converted', label: 'Converted' },
                 { id: 'lost', label: 'Lost' }
               ].map((tab) => (

@@ -179,6 +179,19 @@
           "enum": ["upi", "card", "netbanking"],
           "description": "The payment method selected for the booking."
         },
+        "payments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "amount": { "type": "number" },
+              "note": { "type": "string" },
+              "date": { "type": "string" }
+            },
+            "required": ["amount", "date"]
+          },
+          "description": "Payment history for this booking."
+        },
         "expenses": {
           "type": "array",
           "items": {
@@ -194,7 +207,7 @@
           "description": "Expenses associated with this booking."
         }
       },
-      "required": ["uid", "checkIn", "checkOut", "dayGuestAdults", "dayGuestChildren", "nightGuestAdults", "nightGuestChildren", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy", "paymentMethod"]
+      "required": ["uid", "checkIn", "checkOut", "dayGuestAdults", "dayGuestChildren", "nightGuestAdults", "nightGuestChildren", "status", "totalAmount", "paymentStatus", "createdAt", "bookingAmount", "bookedBy", "paymentMethod", "payments"]
     },
     "Review": {
       "title": "Review",

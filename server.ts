@@ -46,13 +46,17 @@ function getAdminDb() {
         adminApp = apps[0];
       }
       
-      const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
-      console.log(`[Firebase Admin] Connecting to database: ${databaseId}`);
-      
-      // Explicitly use getAdminFirestore with databaseId
-      adminDb = getAdminFirestore(adminApp, databaseId);
+      const databaseId = firebaseConfig.firestoreDatabaseId;
+      if (databaseId && databaseId !== '(default)' && databaseId !== '') {
+        console.log(`[Firebase Admin] Connecting to named database: ${databaseId}`);
+        adminDb = getAdminFirestore(adminApp, databaseId);
+      } else {
+        console.log(`[Firebase Admin] Connecting to default database`);
+        adminDb = getAdminFirestore(adminApp);
+      }
     } catch (err) {
-      console.warn("Firebase Admin failed to initialize. Background tasks like push notifications will be disabled.", err);
+      console.warn("Firebase Admin failed to initialize. Background tasks like push notifications will be disabled.");
+      console.error(err);
       return null;
     }
   }
@@ -157,8 +161,9 @@ async function startServer() {
         }
       });
       await Promise.all(promises);
-    } catch (error) {
-       console.error("Error retrieving subscriptions for push", error);
+    } catch (error: any) {
+       console.error("Critical error retrieving push subscriptions from Firestore:", error.message);
+       if (error.stack) console.error(error.stack);
     }
   }
 
@@ -838,29 +843,39 @@ async function startServer() {
           }
 
           if (response && (response.status === 400 || response.status === 403)) {
-            console.warn(`[Sync] ${item.name} status ${response.status}, retrying with Wget headers...`);
+            console.warn(`[Sync] ${item.name} status ${response.status}, retrying with specialized headers...`);
             const retryController = new AbortController();
-            const retryTimeout = setTimeout(() => retryController.abort(), 10000);
+            const retryTimeout = setTimeout(() => retryController.abort(), 12000);
             try {
               const isMMT = normalizedUrl.toLowerCase().includes('makemytrip') || 
                             normalizedUrl.toLowerCase().includes('goibibo') || 
                             item.name.toLowerCase().includes('mmt');
               
-              // For MMT/Goibibo, use very basic headers to avoid triggering bot detection that blocks "modern" synthetic browsers
+              const isGoibibo = normalizedUrl.toLowerCase().includes('goibibo');
+              
+              // For MMT/Goibibo, use headers that mimic a real browser or a standard iCal client more closely
               const retryUrl = normalizedUrl.split('#')[0];
               
               response = await fetch(retryUrl, {
                 headers: { 
-                  'User-Agent': 'Wget/1.21.1',
-                  'Accept': '*/*',
+                  'User-Agent': isMMT 
+                    ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' 
+                    : 'Wget/1.21.1',
+                  'Accept': 'text/calendar,text/plain,*/*',
+                  'Accept-Language': 'en-US,en;q=0.9',
+                  'Cache-Control': 'no-cache',
+                  'Pragma': 'no-cache',
                   'Connection': 'keep-alive',
-                  ...(isMMT ? { 'Referer': 'https://www.makemytrip.com/' } : {})
+                  ...(isMMT ? { 
+                    'Referer': isGoibibo ? 'https://www.goibibo.com/' : 'https://www.makemytrip.com/',
+                    'Origin': isGoibibo ? 'https://www.goibibo.com' : 'https://www.makemytrip.com'
+                  } : {})
                 },
                 redirect: 'follow',
                 signal: retryController.signal
               });
             } catch (e) {
-              console.error(`[Sync] ${item.name} retry failed:`, e);
+              console.error(`[Sync] ${item.name} specialized retry failed:`, e);
             } finally {
               clearTimeout(retryTimeout);
             }

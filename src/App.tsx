@@ -5938,7 +5938,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                     </div>
                     <div>
                       <p className="font-bold text-luxury-dark">{review.userName}</p>
-                      <p className="text-[10px] text-luxury-dark/40">{(review.createdAt || '').includes(',') ? review.createdAt.split(',')[0] : (review.createdAt || '').split('T')[0]}</p>
+                    <p className="text-[10px] text-luxury-dark/40">{(review.createdAt?.toDate ? review.createdAt.toDate().toISOString() : (review.createdAt || '')).includes(',') ? (review.createdAt?.toDate ? review.createdAt.toDate().toISOString().split('T')[0] : review.createdAt.split(',')[0]) : (review.createdAt?.toDate ? review.createdAt.toDate().toISOString().split('T')[0] : (review.createdAt || '').split('T')[0])}</p>
                     </div>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
@@ -6755,7 +6755,7 @@ export default {
                           </div>
                           <div className="space-y-1">
                             <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
-                            <p className="font-bold text-luxury-dark">{(booking.createdAt || '').includes(',') ? booking.createdAt.split(',')[0] : (booking.createdAt || '').split('T')[0]}</p>
+                            <p className="font-bold text-luxury-dark">{(booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString() : (booking.createdAt || '')).includes(',') ? (booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString().split('T')[0] : booking.createdAt.split(',')[0]) : (booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString().split('T')[0] : (booking.createdAt || '').split('T')[0])}</p>
                           </div>
                           {(userRole === 'admin' || userRole === 'agent') && (
                             <div className="space-y-1">
@@ -7064,7 +7064,7 @@ export default {
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
-                      <p className="font-bold text-luxury-dark">{(booking.createdAt || '').includes(',') ? booking.createdAt.split(',')[0] : (booking.createdAt || '').split('T')[0]}</p>
+                      <p className="font-bold text-luxury-dark">{(booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString() : (booking.createdAt || '')).includes(',') ? (booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString().split('T')[0] : booking.createdAt.split(',')[0]) : (booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString().split('T')[0] : (booking.createdAt || '').split('T')[0])}</p>
                     </div>
                     {userRole === 'admin' && (
                       <div className="space-y-1">
@@ -8390,7 +8390,7 @@ const BookingCalendar = ({
 }: any) => {
   const renderDayContents = (day: number, date: Date) => {
     const dayOfWeek = date.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6;
+    const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
     const price = isWeekend ? 25000 : 22000;
     
     const isSoldOut = allBookings.some((b: any) => {
@@ -8494,12 +8494,14 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   }, [userRole, editBooking, hasSetDefaultBookingMode]);
 
   const [amountPaid, setAmountPaid] = useState<number>(editBooking?.amountPaid || 0);
+  const [payments, setPayments] = useState<any[]>(editBooking?.payments || []);
   const [expenses, setExpenses] = useState<any[]>(editBooking?.expenses || []);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [clients, setClients] = useState<any[]>([]);
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
+  const isPowerUser = userRole === 'admin' || userRole === 'agent' || isAdminBooking;
 
   useEffect(() => {
     if ((userRole === 'admin' || userRole === 'agent') && isAdminBooking) {
@@ -8525,10 +8527,10 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       
       while (current < end) {
         const day = current.getDay(); 
-        if (day >= 1 && day <= 4) {
-          total += 22000;
-        } else {
+        if (day === 5 || day === 6) { // Friday & Saturday are weekend
           total += 25000;
+        } else { // Sunday to Thursday are weekdays
+          total += 22000;
         }
         current.setDate(current.getDate() + 1);
       }
@@ -8566,14 +8568,19 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   }, [checkIn, checkOut, allBookings, editBooking]);
 
   const getDayClassName = useCallback((date: Date) => {
+    const isWeekend = ['Friday', 'Saturday'].includes(format(date, 'EEEE'));
     const booking = allBookings.find(b => {
       if (b.status === 'cancelled') return false;
       const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
       const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
       return date >= start && date < end;
     });
-    if (!booking) return undefined;
-    return `sold-out booking-${booking.status}`;
+    
+    let classes = [];
+    if (isWeekend) classes.push('weekend');
+    if (booking) classes.push(`sold-out booking-${booking.status}`);
+    
+    return classes.length > 0 ? classes.join(' ') : undefined;
   }, [allBookings]);
 
   const { excludeCheckInDates, excludeCheckOutDates } = useMemo(() => {
@@ -8634,7 +8641,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       newErrors.checkIn = "Check-in date is required";
     } else {
       const checkInDate = new Date(checkIn);
-      if (checkInDate < today && !editBooking) {
+      
+      if (checkInDate < today && !editBooking && (userRole !== 'admin' && userRole !== 'agent')) {
         newErrors.checkIn = "Check-in date cannot be in the past";
       }
       
@@ -8655,7 +8663,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         return (reqStart < bEnd && reqEnd > bStart);
       });
       
-      if (hasConflict) {
+      if (hasConflict && (userRole !== 'admin' && userRole !== 'agent')) {
         newErrors.checkIn = "Selected dates are already booked";
       }
     }
@@ -8670,22 +8678,21 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       }
     }
     
-    if (dayGuestAdults + dayGuestChildren.length < 1) {
-      newErrors.dayGuests = "At least 1 day guest is required";
+    if (dayGuestAdults + dayGuestChildren.length + nightGuestAdults + nightGuestChildren.length < 1) {
+      newErrors.guests = "At least 1 guest (day or night) is required";
     } else if (dayGuestAdults + dayGuestChildren.length > 25) {
       newErrors.dayGuests = "Maximum 25 day guests allowed";
     }
     
-    if (nightGuestAdults + nightGuestChildren.length < 0) {
-      newErrors.nightGuests = "Guests cannot be negative";
-    } else if (nightGuestAdults + nightGuestChildren.length > 12) {
+    if (nightGuestAdults + nightGuestChildren.length > 12) {
       newErrors.nightGuests = "Maximum 12 night guests allowed";
     }
     
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       console.log('Validation errors:', newErrors);
-      showToast('Please fix the errors: ' + Object.values(newErrors).join(', '), 'error');
+      const errorMsg = Object.values(newErrors)[0];
+      showToast(`Validation: ${errorMsg}`, 'error');
       return;
     }
     
@@ -8695,6 +8702,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
   const handleFinalConfirm = async () => {
     setLoading(true);
+    showToast('Processing your booking...', 'info');
+    
     const totalAmount = bookingAmount + securityAmount;
     const securityDeposit = securityAmount;
 
@@ -8703,7 +8712,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       
       if (isAdminBooking && !editBooking && email) {
         try {
-          const userQuery = query(collection(db, 'users'), where('email', '==', email));
+          const userQuery = query(collection(db, 'users'), where('email', '==', email.toLowerCase()));
           const userSnapshot = await getDocs(userQuery);
           if (!userSnapshot.empty) {
             finalUid = userSnapshot.docs[0].id;
@@ -8713,60 +8722,63 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         }
       }
 
+      const totalPaidAmount = payments ? payments.reduce((sum, p) => sum + p.amount, 0) : 0;
+
       const bookingData = {
         uid: finalUid,
         checkIn: checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : '',
         checkOut: checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : '',
-        dayGuestAdults,
-        dayGuestChildren,
-        nightGuestAdults,
-        nightGuestChildren,
+        dayGuestAdults: Number(dayGuestAdults) || 0,
+        dayGuestChildren: dayGuestChildren || [],
+        nightGuestAdults: Number(nightGuestAdults) || 0,
+        nightGuestChildren: nightGuestChildren || [],
         status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
-        bookingAmount,
-        totalAmount,
-        amountPaid: amountPaid,
-        securityDeposit,
-        expenses,
-        paymentStatus: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'part-paid' : 'unpaid'),
-        createdAt: editBooking ? editBooking.createdAt : new Date().toISOString(),
-        name,
-        mobile,
-        email,
-        occasion,
-        payments: editBooking?.payments || [],
+        bookingAmount: Number(bookingAmount) || 0,
+        totalAmount: Number(bookingAmount + securityAmount) || 0,
+        amountPaid: Number(totalPaidAmount) || 0,
+        securityDeposit: Number(securityAmount) || 0,
+        expenses: expenses || [],
+        paymentStatus: totalPaidAmount >= (bookingAmount + securityAmount) ? 'paid' : (totalPaidAmount > 0 ? 'part-paid' : 'unpaid'),
+        createdAt: editBooking ? editBooking.createdAt : serverTimestamp(),
+        name: name || '',
+        mobile: mobile || '',
+        email: (email || '').toLowerCase(),
+        occasion: occasion || '',
+        payments: payments || [],
         bookedBy: (userRole === 'admin' || userRole === 'agent') ? (bookedBy || (isAdminBooking ? (userRole === 'admin' ? 'admin_for_client' : 'agent_for_client') : 'admin_personal')) : 'client',
-        paymentMethod: paymentMethod
+        paymentMethod: paymentMethod || 'upi'
       };
 
       console.log('Submitting booking data:', bookingData);
 
-      if (user || isAdminBooking || !user) { // Allow guest bookings
-        if (editBooking) {
-          await setDoc(doc(db, 'bookings', editBooking.id), bookingData);
-          await setDoc(doc(db, 'availability', editBooking.id), {
-            checkIn: bookingData.checkIn,
-            checkOut: bookingData.checkOut,
-            status: bookingData.status
-          });
-          if (userRole === 'admin') {
-            await logAdminAction('edit_booking', editBooking.id, `Updated booking for ${name}`);
-          }
-          if (onNotify) {
-            onNotify('Booking Updated', `Booking for ${name} has been updated.`, 'info');
-          }
-        } else {
-          const docRef = await addDoc(collection(db, 'bookings'), bookingData);
-          await setDoc(doc(db, 'availability', docRef.id), {
-            checkIn: bookingData.checkIn,
-            checkOut: bookingData.checkOut,
-            status: bookingData.status
-          });
-          if (userRole === 'admin') {
-            await logAdminAction('create_booking', docRef.id, `Created manual booking for ${name}`);
-          }
-          if (onNotify) {
-            onNotify('New Booking', `A new booking has been created for ${name}.`, 'success');
-          }
+      if (editBooking) {
+        await setDoc(doc(db, 'bookings', editBooking.id), bookingData);
+        await setDoc(doc(db, 'availability', editBooking.id), {
+          checkIn: bookingData.checkIn,
+          checkOut: bookingData.checkOut,
+          status: bookingData.status
+        });
+        if (userRole === 'admin') {
+          await logAdminAction('edit_booking', editBooking.id, `Updated booking for ${name}`);
+        }
+        if (onNotify) {
+          onNotify('Booking Updated', `Booking for ${name} has been updated.`, 'info');
+        }
+      } else {
+        const docRef = await addDoc(collection(db, 'bookings'), bookingData);
+        console.log('Booking created with ID:', docRef.id);
+        
+        await setDoc(doc(db, 'availability', docRef.id), {
+          checkIn: bookingData.checkIn,
+          checkOut: bookingData.checkOut,
+          status: bookingData.status
+        });
+        
+        if (userRole === 'admin') {
+          await logAdminAction('create_booking', docRef.id, `Created manual booking for ${name}`);
+        }
+        if (onNotify) {
+          onNotify('New Booking', `A new booking has been created for ${name}.`, 'success');
         }
       }
 
@@ -8793,13 +8805,13 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       } catch (popupErr) {
         console.warn('Popup blocked or failed to open WhatsApp:', popupErr);
       }
+      
+      showToast('Booking successful!', 'success');
     } catch (err) {
       console.error('Final confirm error:', err);
-      handleFirestoreError(err, editBooking ? OperationType.UPDATE : OperationType.CREATE, editBooking ? `bookings/${editBooking.id}` : 'bookings');
-      
       // Detailed error toast
       const errorMsg = err instanceof Error ? err.message : String(err);
-      showToast(`Failed to ${editBooking ? 'update' : 'save'} booking: ${errorMsg}`, 'error');
+      showToast(`Booking failed: ${errorMsg}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -9167,7 +9179,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="relative">
             <input 
               type="text" 
-              required
+              required={!isAdminBooking}
               placeholder="Your Name"
               value={name}
               onChange={(e) => {
@@ -9189,7 +9201,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="relative">
             <input 
               type="tel" 
-              required
+              required={!isAdminBooking}
               placeholder="Phone Number"
               value={mobile}
               onChange={(e) => {
@@ -9214,7 +9226,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="relative">
             <input 
               type="email" 
-              required
+              required={!isAdminBooking}
               placeholder="Email"
               value={email}
               onChange={(e) => {
@@ -9473,8 +9485,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   return next;
                 });
               }}
-              minDate={new Date()}
-              filterDate={(date: Date) => !excludeCheckInDates.some(d => d.toDateString() === date.toDateString())}
+              minDate={userRole === 'admin' ? undefined : new Date()}
+              filterDate={(date: Date) => userRole === 'admin' ? true : !excludeCheckInDates.some(d => d.toDateString() === date.toDateString())}
               dayClassName={getDayClassName}
               placeholderText="Select check-in date"
               startDate={checkIn}
@@ -9500,8 +9512,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   return next;
                 });
               }}
-              minDate={checkIn ? addDays(checkIn, 1) : new Date()}
-              filterDate={(date: Date) => !excludeCheckOutDates.some(d => d.toDateString() === date.toDateString())}
+              minDate={userRole === 'admin' ? undefined : (checkIn ? addDays(checkIn, 1) : new Date())}
+              filterDate={(date: Date) => userRole === 'admin' ? true : !excludeCheckOutDates.some(d => d.toDateString() === date.toDateString())}
               dayClassName={getDayClassName}
               placeholderText="Select check-out date"
               startDate={checkIn}
@@ -9522,7 +9534,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="relative">
             <input 
               type="number" 
-              required
+              required={!isPowerUser}
               value={bookingAmount}
               onChange={(e) => setBookingAmount(parseInt(e.target.value) || 0)}
               readOnly={userRole !== 'admin' && userRole !== 'agent'}
@@ -9546,7 +9558,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="relative">
             <input 
               type="number" 
-              required
+              required={!isPowerUser}
               value={securityAmount}
               onChange={(e) => setSecurityAmount(parseInt(e.target.value) || 0)}
               readOnly={userRole !== 'admin' && userRole !== 'agent'}
@@ -9558,21 +9570,89 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       </div>
 
       {userRole === 'admin' && (
-        <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Amount Paid (₹)</label>
-          <div className="relative">
-            <input 
-              type="number" 
-              required
-              value={amountPaid}
-              onChange={(e) => setAmountPaid(parseInt(e.target.value) || 0)}
-              className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm font-bold" 
-            />
-            <CreditCard className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+        <div className="space-y-4 pt-4 border-t border-luxury-dark/5">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Payment History</label>
+            <button 
+              type="button"
+              onClick={() => setPayments([...payments, { amount: 0, note: '', date: format(new Date(), 'yyyy-MM-dd') }])}
+              className="text-[9px] font-bold text-luxury-gold hover:text-luxury-dark uppercase tracking-widest flex items-center gap-1"
+            >
+              <Plus size={12} /> Add Payment
+            </button>
           </div>
-          <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest px-1">
-            Current Balance: ₹{(bookingAmount + securityAmount - amountPaid).toLocaleString()}
-          </p>
+          
+          <div className="space-y-3">
+            {payments.map((payment, index) => (
+              <div key={index} className="p-4 bg-luxury-cream rounded-2xl border border-black/5 space-y-3 relative group">
+                <button 
+                  type="button"
+                  onClick={() => setPayments(payments.filter((_, i) => i !== index))}
+                  className="absolute top-2 right-2 p-1 text-red-100 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X size={14} />
+                </button>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Amount (₹)</label>
+                    <input 
+                      type="number"
+                      required
+                      value={payment.amount}
+                      onChange={(e) => {
+                        const newPayments = [...payments];
+                        newPayments[index].amount = parseInt(e.target.value) || 0;
+                        setPayments(newPayments);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-bold focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Date</label>
+                    <input 
+                      type="date"
+                      required
+                      value={payment.date}
+                      onChange={(e) => {
+                        const newPayments = [...payments];
+                        newPayments[index].date = e.target.value;
+                        setPayments(newPayments);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-bold focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Note</label>
+                  <input 
+                    type="text"
+                    placeholder="Advance, Partial, Security..."
+                    value={payment.note}
+                    onChange={(e) => {
+                      const newPayments = [...payments];
+                      newPayments[index].note = e.target.value;
+                      setPayments(newPayments);
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-medium focus:outline-none"
+                  />
+                </div>
+              </div>
+            ))}
+            
+            {payments.length === 0 && (
+              <p className="text-[10px] text-center text-luxury-dark/20 italic py-2">No payments recorded yet.</p>
+            )}
+
+            <div className="flex justify-between items-center px-1 pt-2 border-t border-luxury-dark/5">
+              <span className="text-[9px] font-bold text-luxury-dark/40 uppercase tracking-widest">Total Paid</span>
+              <span className="text-sm font-bold text-green-600">₹{payments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center px-1">
+              <span className="text-[9px] font-bold text-luxury-dark/40 uppercase tracking-widest">Outstanding</span>
+              <span className="text-sm font-bold text-luxury-dark">₹{(bookingAmount + securityAmount - payments.reduce((sum, p) => sum + p.amount, 0)).toLocaleString()}</span>
+            </div>
+          </div>
         </div>
       )}
 

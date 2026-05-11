@@ -57,7 +57,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((('email' in request.auth.token) && (request.auth.token.email.toLower() == "anujkumarmittal@gmail.com")) ||
+        (('email' in request.auth.token && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com") && (request.auth.token.email_verified == true)) ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'client') == 'admin'));
     }
@@ -75,19 +75,20 @@ service cloud.firestore {
     function isOwnerEmail() {
       return isAuthenticated() && 
         ('email' in request.auth.token) && 
-        (request.auth.token.email.toLower() == "anujkumarmittal@gmail.com");
+        (request.auth.token.email.lower() == "anujkumarmittal@gmail.com") &&
+        (request.auth.token.email_verified == true);
     }
 
     function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+      return email is string && email.size() <= 256 && (email == "" || email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"));
     }
 
     function isValidDateString(dateStr) {
-      return dateStr is string && dateStr.matches("^\\d{2}/\\d{2}/\\d{4}$");
+      return dateStr is string && dateStr.size() >= 8 && dateStr.size() <= 10 && dateStr.matches("^\\d{1,2}/\\d{1,2}/\\d{4}$");
     }
 
     function isValidDateTimeString(dateTimeStr) {
-      return dateTimeStr is string && (
+      return dateTimeStr is string && dateTimeStr.size() <= 64 && (
         dateTimeStr.matches("^\\d{1,2}/\\d{1,2}/\\d{4}, \\d{1,2}:\\d{2}:\\d{2}( [ap]m)?$") || 
         dateTimeStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*$")
       );
@@ -105,19 +106,19 @@ service cloud.firestore {
              (!('isAnonymous' in data) || data.isAnonymous is bool) &&
              (!('createdAt' in data) || isValidDateTimeString(data.createdAt)) &&
              data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 128 &&
-             (!('permissions' in data) || data.permissions is map) &&
+             (!('permissions' in data) || data.permissions is map && data.permissions.size() <= 20) &&
              data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'isAnonymous', 'createdAt', 'permissions']);
     }
 
     function isValidBooking(data) {
-      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod']) &&
+      return data.keys().hasAll(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'payments']) &&
              data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
              isValidDateString(data.checkIn) &&
              isValidDateString(data.checkOut) &&
              data.dayGuestAdults is number && data.dayGuestAdults >= 0 &&
-             data.dayGuestChildren is list && (data.dayGuestAdults + data.dayGuestChildren.size()) <= 25 &&
+             data.dayGuestChildren is list && data.dayGuestChildren.size() <= 60 && 
              data.nightGuestAdults is number && data.nightGuestAdults >= 0 &&
-             data.nightGuestChildren is list && (data.nightGuestAdults + data.nightGuestChildren.size()) <= 12 &&
+             data.nightGuestChildren is list && data.nightGuestChildren.size() <= 30 &&
              data.status in ['pending', 'confirmed', 'cancelled'] &&
              data.totalAmount is number && data.totalAmount >= 0 &&
              data.amountPaid is number && data.amountPaid >= 0 &&
@@ -127,12 +128,13 @@ service cloud.firestore {
              data.paymentMethod in ['upi', 'card', 'netbanking'] &&
              data.paymentStatus in ['unpaid', 'part-paid', 'paid'] &&
              (data.createdAt is timestamp || isValidDateTimeString(data.createdAt)) &&
-             (!('name' in data) || (data.name is string && data.name.size() <= 128)) &&
-             (!('mobile' in data) || (data.mobile is string && data.mobile.size() <= 20)) &&
-             (!('email' in data) || (data.email is string && data.email.size() <= 256 && (data.email == "" || isValidEmail(data.email)))) &&
-             (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 256)) &&
-             (!('expenses' in data) || data.expenses is list) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses']);
+             data.payments is list && data.payments.size() <= 100 &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 200)) &&
+             (!('mobile' in data) || (data.mobile is string && data.mobile.size() <= 50)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
+             (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 500)) &&
+             (!('expenses' in data) || (data.expenses is list && data.expenses.size() <= 100)) &&
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments']);
     }
 
     function isValidReview(data) {
@@ -196,7 +198,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin() || isAgent();
-      allow list: if isAdmin() || isAgent() || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email == request.auth.token.email.toLower());
+      allow list: if isAdmin() || isAgent() || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email == request.auth.token.email.lower());
       allow create: if isAuthenticated() && (
         // Self-creation during login
         (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.uid == userId) ||
@@ -204,7 +206,7 @@ service cloud.firestore {
         (isAdmin() && isValidUser(request.resource.data))
       );
       allow update: if isAuthenticated() && (isAdmin() || (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role));
-      allow delete: if isAdmin() || isOwner(userId) || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email.toLower() == request.auth.token.email.toLower());
+      allow delete: if isAdmin() || isOwner(userId) || (isAuthenticated() && ('email' in request.auth.token) && resource.data.email.lower() == request.auth.token.email.lower());
     }
 
     match /bookings/{bookingId} {
@@ -212,7 +214,7 @@ service cloud.firestore {
         isAdmin() ||
         (isAgent() && getPermissions().get('viewBookings', false) == true) ||
         resource.data.uid == request.auth.uid || 
-        (('email' in request.auth.token) && resource.data.email == request.auth.token.email.toLower())
+        (('email' in request.auth.token) && resource.data.email == request.auth.token.email.lower())
       );
       allow create: if (
         // Client can create a pending booking for themselves
