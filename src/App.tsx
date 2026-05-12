@@ -5938,7 +5938,13 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                     </div>
                     <div>
                       <p className="font-bold text-luxury-dark">{review.userName}</p>
-                    <p className="text-[10px] text-luxury-dark/40">{(review.createdAt?.toDate ? review.createdAt.toDate().toISOString() : (review.createdAt || '')).includes(',') ? (review.createdAt?.toDate ? review.createdAt.toDate().toISOString().split('T')[0] : review.createdAt.split(',')[0]) : (review.createdAt?.toDate ? review.createdAt.toDate().toISOString().split('T')[0] : (review.createdAt || '').split('T')[0])}</p>
+                    <p className="text-[10px] text-luxury-dark/40">
+                        {(() => {
+                          if (!review.createdAt) return 'N/A';
+                          const dStr = typeof review.createdAt === 'string' ? review.createdAt : (review.createdAt.toDate ? review.createdAt.toDate().toISOString() : (review.createdAt.seconds ? new Date(review.createdAt.seconds * 1000).toISOString() : String(review.createdAt)));
+                          return dStr.includes(',') ? dStr.split(',')[0] : dStr.split('T')[0];
+                        })()}
+                      </p>
                     </div>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
@@ -6755,7 +6761,13 @@ export default {
                           </div>
                           <div className="space-y-1">
                             <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
-                            <p className="font-bold text-luxury-dark">{(booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString() : (booking.createdAt || '')).includes(',') ? (booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString().split('T')[0] : booking.createdAt.split(',')[0]) : (booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString().split('T')[0] : (booking.createdAt || '').split('T')[0])}</p>
+                            <p className="font-bold text-luxury-dark">
+                              {(() => {
+                                if (!booking.createdAt) return 'N/A';
+                                const dStr = typeof booking.createdAt === 'string' ? booking.createdAt : (booking.createdAt.toDate ? booking.createdAt.toDate().toISOString() : (booking.createdAt.seconds ? new Date(booking.createdAt.seconds * 1000).toISOString() : String(booking.createdAt)));
+                                return dStr.includes(',') ? dStr.split(',')[0] : dStr.split('T')[0];
+                              })()}
+                            </p>
                           </div>
                           {(userRole === 'admin' || userRole === 'agent') && (
                             <div className="space-y-1">
@@ -7064,7 +7076,13 @@ export default {
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Date</p>
-                      <p className="font-bold text-luxury-dark">{(booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString() : (booking.createdAt || '')).includes(',') ? (booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString().split('T')[0] : booking.createdAt.split(',')[0]) : (booking.createdAt?.toDate ? booking.createdAt.toDate().toISOString().split('T')[0] : (booking.createdAt || '').split('T')[0])}</p>
+                      <p className="font-bold text-luxury-dark">
+                        {(() => {
+                          if (!booking.createdAt) return 'N/A';
+                          const dStr = typeof booking.createdAt === 'string' ? booking.createdAt : (booking.createdAt.toDate ? booking.createdAt.toDate().toISOString() : (booking.createdAt.seconds ? new Date(booking.createdAt.seconds * 1000).toISOString() : String(booking.createdAt)));
+                          return dStr.includes(',') ? dStr.split(',')[0] : dStr.split('T')[0];
+                        })()}
+                      </p>
                     </div>
                     {userRole === 'admin' && (
                       <div className="space-y-1">

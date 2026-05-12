@@ -49,10 +49,11 @@ function getAdminDb() {
       const databaseId = firebaseConfig.firestoreDatabaseId;
       if (databaseId && databaseId !== '(default)' && databaseId !== '') {
         console.log(`[Firebase Admin] Connecting to named database: ${databaseId}`);
-        adminDb = getAdminFirestore(adminApp, databaseId);
+        // In firebase-admin v11+, getFirestore(databaseId) uses the default app's database
+        adminDb = getAdminFirestore(databaseId);
       } else {
         console.log(`[Firebase Admin] Connecting to default database`);
-        adminDb = getAdminFirestore(adminApp);
+        adminDb = getAdminFirestore();
       }
     } catch (err) {
       console.warn("Firebase Admin failed to initialize. Background tasks like push notifications will be disabled.");

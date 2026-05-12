@@ -27,7 +27,10 @@ import {
   Save,
   Loader2,
   FileSpreadsheet,
-  Facebook
+  Facebook,
+  UserPlus,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { 
   db 
@@ -42,7 +45,10 @@ import {
   getDoc, 
   setDoc,
   getDocs,
-  getDocFromServer
+  getDocFromServer,
+  writeBatch,
+  query,
+  where
 } from 'firebase/firestore';
 import { format, differenceInHours } from 'date-fns';
 import Papa from 'papaparse';
@@ -70,6 +76,14 @@ interface Lead {
   occasion?: string;
   followUpDate?: string;
   followUpRemarks?: string;
+  assignedAgent?: string;
+  assignedAgentName?: string;
+}
+
+interface Agent {
+  uid: string;
+  displayName: string;
+  role: string;
 }
 
 interface ElegantLeadsDashboardProps {
@@ -112,6 +126,106 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
   const [editingDetail, setEditingDetail] = useState<{id: string, field: string} | null>(null);
   const [editDetailValue, setEditDetailValue] = useState('');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const q = query(collection(db, 'users'), where('role', 'in', ['agent', 'admin']));
+        const querySnapshot = await getDocs(q);
+        const agentList: Agent[] = [];
+        querySnapshot.forEach((doc) => {
+          agentList.push({ uid: doc.id, ...doc.data() } as Agent);
+        });
+        setAgents(agentList);
+      } catch (err) {
+        console.error('Error fetching agents:', err);
+      }
+    };
+    fetchAgents();
+  }, []);
+
+  const toggleSelectAll = () => {
+    if (selectedLeadIds.length === filteredLeads.length) {
+      setSelectedLeadIds([]);
+    } else {
+      setSelectedLeadIds(filteredLeads.map(l => l.id));
+    }
+  };
+
+  const toggleLeadSelection = (id: string) => {
+    setSelectedLeadIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkStatusUpdate = async (status: string) => {
+    if (selectedLeadIds.length === 0) return;
+    setIsBulkProcessing(true);
+    try {
+      const batch = writeBatch(db);
+      selectedLeadIds.forEach(id => {
+        const ref = doc(db, 'leads', id);
+        batch.update(ref, { 
+          status,
+          statusUpdatedAt: serverTimestamp(),
+          updatedBy: userRole 
+        });
+      });
+      await batch.commit();
+      showToast(`Updated ${selectedLeadIds.length} leads to ${status}`, 'success');
+      setSelectedLeadIds([]);
+    } catch (err) {
+      showToast('Bulk update failed', 'error');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  const handleBulkAssign = async (agentId: string, agentName: string) => {
+    if (selectedLeadIds.length === 0) return;
+    setIsBulkProcessing(true);
+    try {
+      const batch = writeBatch(db);
+      selectedLeadIds.forEach(id => {
+        const ref = doc(db, 'leads', id);
+        batch.update(ref, { 
+          assignedAgent: agentId,
+          assignedAgentName: agentName,
+          assignedAt: serverTimestamp()
+        });
+      });
+      await batch.commit();
+      showToast(`Assigned ${selectedLeadIds.length} leads to ${agentName}`, 'success');
+      setSelectedLeadIds([]);
+    } catch (err) {
+      showToast('Bulk assignment failed', 'error');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedLeadIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedLeadIds.length} leads?`)) return;
+    
+    setIsBulkProcessing(true);
+    try {
+      const batch = writeBatch(db);
+      selectedLeadIds.forEach(id => {
+        batch.delete(doc(db, 'leads', id));
+      });
+      await batch.commit();
+      showToast(`Deleted ${selectedLeadIds.length} leads`, 'success');
+      setSelectedLeadIds([]);
+    } catch (err) {
+      showToast('Bulk delete failed', 'error');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
 
   // Stats
   const stats = {
@@ -123,6 +237,15 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     hot: leads.filter(l => l.score === 'HOT' || l.status === 'hot').length,
     followUpsToday: leads.filter(l => l.followUpDate === format(new Date(), 'yyyy-MM-dd')).length,
     followup: leads.filter(l => l.followUpDate && l.status !== 'converted' && l.status !== 'lost').length
+  };
+
+  // Robust date helper for Firestore Timestamps or String dates
+  const getSafeDate = (d: any) => {
+    if (!d) return new Date();
+    if (d.toDate) return d.toDate();
+    if (d.seconds) return new Date(d.seconds * 1000);
+    const date = new Date(d);
+    return isNaN(date.getTime()) ? new Date() : date;
   };
 
   const filteredLeads = leads.filter(lead => {
@@ -146,8 +269,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
       return dateA.localeCompare(dateB);
     }
     // Default sort by created at
-    const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime();
-    const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime();
+    const timeA = getSafeDate(a.createdAt).getTime();
+    const timeB = getSafeDate(b.createdAt).getTime();
     return timeB - timeA;
   });
 
@@ -331,10 +454,18 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50/50 border-b border-luxury-dark/5">
+                <th className="px-6 py-5 w-10">
+                  <button 
+                    onClick={toggleSelectAll}
+                    className={`p-1.5 rounded-lg transition-colors ${selectedLeadIds.length === paginatedLeads.length && paginatedLeads.length > 0 ? 'bg-luxury-dark text-white' : 'bg-gray-100 text-gray-400 hover:text-luxury-dark'}`}
+                  >
+                    {selectedLeadIds.length === paginatedLeads.length && paginatedLeads.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}
+                  </button>
+                </th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Lead Profile & Event Details</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Next Follow-up</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Remarks</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Live Status</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30">Live Status & Owner</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/30 text-right">Actions</th>
               </tr>
             </thead>
@@ -347,8 +478,16 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     key={lead.id} 
-                    className={`group hover:bg-luxury-dark/5 transition-colors ${lead.status === 'new' ? 'bg-blue-50/30' : ''}`}
+                    className={`group hover:bg-luxury-dark/5 transition-colors ${selectedLeadIds.includes(lead.id) ? 'bg-luxury-gold/5' : lead.status === 'new' ? 'bg-blue-50/30' : ''}`}
                   >
+                    <td className="px-6 py-6 transition-all">
+                      <button 
+                        onClick={() => toggleLeadSelection(lead.id)}
+                        className={`p-1.5 rounded-lg transition-all ${selectedLeadIds.includes(lead.id) ? 'bg-luxury-dark text-white scale-110' : 'bg-gray-50 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-luxury-dark'}`}
+                      >
+                        {selectedLeadIds.includes(lead.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                      </button>
+                    </td>
                     {/* Unified Lead Info (3 Rows) */}
                     <td className="px-6 py-6 min-w-[500px]">
                       <div className="grid grid-cols-3 gap-x-8 gap-y-4">
@@ -359,7 +498,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                           </div>
                           <div className="flex items-center gap-2">
                             <h4 className="text-sm font-serif font-black text-luxury-dark truncate max-w-[120px]">{lead.name}</h4>
-                            {differenceInHours(new Date(), lead.createdAt?.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt)) < 24 && lead.status === 'new' && (
+                            {differenceInHours(new Date(), getSafeDate(lead.createdAt)) < 24 && lead.status === 'new' && (
                               <span className="flex h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
                             )}
                           </div>
@@ -453,15 +592,15 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest leading-none">
                             <Calendar size={12} className="shrink-0 text-luxury-dark/20" />
-                            {lead.createdAt ? format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'MMM dd, yyyy') : 'N/A'}
+                            {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy') : 'N/A'}
                           </div>
                           {lead.createdAt && (
                             <span className={`text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none ${
-                              ['Friday', 'Saturday'].includes(format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'EEEE'))
+                              ['Friday', 'Saturday'].includes(format(getSafeDate(lead.createdAt), 'EEEE'))
                               ? 'text-red-500/60'
                               : 'text-luxury-dark/20'
                             }`}>
-                              {format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'EEEE')}
+                              {format(getSafeDate(lead.createdAt), 'EEEE')}
                             </span>
                           )}
                         </div>
@@ -511,7 +650,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
 
                         <div className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/50 uppercase tracking-widest whitespace-nowrap">
                           <Clock size={12} className="shrink-0 text-blue-500" />
-                          {lead.createdAt ? format(lead.createdAt.toDate ? lead.createdAt.toDate() : new Date(lead.createdAt), 'MMM dd, yyyy hh:mm a') : 'N/A'}
+                          {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy hh:mm a') : 'N/A'}
                         </div>
                       </div>
                     </td>
@@ -629,7 +768,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                     </td>
 
                     {/* Status Switcher */}
-                    <td className="px-6 py-6 min-w-[180px]">
+                    <td className="px-6 py-6 min-w-[200px]">
                       <div className="flex flex-col gap-2">
                         <label className="text-[9px] font-bold text-luxury-dark/30 uppercase tracking-widest ml-1">Update Status</label>
                         <div className="relative">
@@ -652,6 +791,16 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                           <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-60">
                             <ChevronRight size={14} className="rotate-90" />
                           </div>
+                        </div>
+                        
+                        {/* Assigned Agent Display */}
+                        <div className="flex items-center gap-2 mt-1 px-1">
+                          <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center">
+                            <UserPlus size={10} className="text-indigo-600" />
+                          </div>
+                          <span className="text-[9px] font-bold text-luxury-dark/40 uppercase tracking-widest truncate">
+                            {lead.assignedAgentName || 'Unassigned'}
+                          </span>
                         </div>
                       </div>
                     </td>
@@ -694,6 +843,101 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
           )}
         </div>
       </div>
+
+      {/* Floating Bulk Action Bar */}
+      <AnimatePresence>
+        {selectedLeadIds.length > 0 && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-full max-w-4xl px-4"
+          >
+            <div className="bg-luxury-dark text-white p-4 rounded-[2rem] shadow-2xl shadow-luxury-dark/40 border border-white/10 flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-xl">
+              <div className="flex items-center gap-4 px-4 border-r border-white/10 pr-6">
+                <div className="w-10 h-10 bg-luxury-gold text-luxury-dark rounded-full flex items-center justify-center font-black">
+                  {selectedLeadIds.length}
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs font-black uppercase tracking-widest text-white/90">Leads Selected</span>
+                  <button 
+                    onClick={() => setSelectedLeadIds([])}
+                    className="text-[10px] text-luxury-gold hover:underline font-bold text-left"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                {/* Status Bulk Update */}
+                <div className="flex items-center gap-2 bg-white/5 p-1 rounded-2xl">
+                  {['contacted', 'converted', 'lost'].map((s) => (
+                    <button
+                      key={s}
+                      disabled={isBulkProcessing}
+                      onClick={() => handleBulkStatusUpdate(s)}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 ${
+                        s === 'converted' ? 'hover:bg-emerald-500 hover:text-white' :
+                        s === 'contacted' ? 'hover:bg-blue-500 hover:text-white' :
+                        'hover:bg-red-500 hover:text-white'
+                      }`}
+                    >
+                      Set {s}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="w-px h-6 bg-white/10 mx-1" />
+
+                {/* Agent Assignment */}
+                <div className="relative group">
+                  <button 
+                    disabled={isBulkProcessing}
+                    className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all"
+                  >
+                    <UserPlus size={14} className="text-luxury-gold" />
+                    <span>Assign Agent</span>
+                  </button>
+                  <div className="absolute bottom-full left-0 mb-2 w-48 bg-white text-luxury-dark rounded-2xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all py-2 border border-luxury-dark/5 overflow-hidden">
+                    <div className="px-4 py-2 border-b border-gray-100 mb-2">
+                       <span className="text-[9px] font-black uppercase tracking-widest text-luxury-dark/30">Select Agent</span>
+                    </div>
+                    {agents.map((agent) => (
+                      <button
+                        key={agent.uid}
+                        onClick={() => handleBulkAssign(agent.uid, agent.displayName)}
+                        className="w-full text-left px-4 py-2 text-[11px] font-bold hover:bg-luxury-gold/10 hover:text-luxury-gold transition-colors flex items-center justify-between"
+                      >
+                        {agent.displayName}
+                        <ChevronRight size={12} />
+                      </button>
+                    ))}
+                    {agents.length === 0 && <p className="px-4 py-2 text-[10px] text-gray-400 italic">No agents found</p>}
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleBulkDelete}
+                  disabled={isBulkProcessing}
+                  className="p-2 bg-red-500/20 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all ml-2"
+                  title="Bulk Delete"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
+
+              <div className="px-4">
+                {isBulkProcessing ? (
+                  <Loader2 size={20} className="text-luxury-gold animate-spin" />
+                ) : (
+                  <div className="w-10" />
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
