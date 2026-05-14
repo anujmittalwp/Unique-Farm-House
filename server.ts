@@ -11,7 +11,10 @@ import nodemailer from "nodemailer";
 import * as dotenv from "dotenv";
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit, setLogLevel } from 'firebase/firestore';
-import { Firestore as GoogleFirestore, FieldValue as GoogleFieldValue } from '@google-cloud/firestore';
+import { initializeApp as initializeAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
+import { getFirestore as getAdminFirestore, FieldValue as AdminFieldValue } from 'firebase-admin/firestore';
+import type { App as AdminApp } from 'firebase-admin/app';
+import type { Firestore as AdminFirestore } from 'firebase-admin/firestore';
 
 dotenv.config();
 
@@ -25,23 +28,35 @@ const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'firebase
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || '(default)');
 
-// Initialize Firestore Admin directly using @google-cloud/firestore
-// This is more robust for named databases in Cloud Run environments
-let adminDb: any = null;
+// Initialize Firebase Admin lazily for background listeners (bypasses security rules)
+let adminApp: AdminApp | null = null;
+let adminDb: AdminFirestore | null = null;
 
 function getAdminDb() {
   if (!adminDb) {
     try {
-      const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
-      console.log(`[Firestore Admin] Initializing for database: ${databaseId} in project: ${firebaseConfig.projectId}`);
+      const apps = getAdminApps();
+      if (apps.length === 0) {
+        // AI Studio: Explicitly pass projectId to avoid using incorrect default project
+        adminApp = initializeAdminApp({
+          projectId: firebaseConfig.projectId,
+        });
+        console.log(`[Firebase Admin] Initialized with projectId: ${firebaseConfig.projectId}`);
+      } else {
+        adminApp = apps[0];
+      }
       
-      adminDb = new GoogleFirestore({
-        projectId: firebaseConfig.projectId,
-        databaseId: databaseId === '(default)' ? undefined : databaseId,
-        // In Cloud Run, it will automatically use Application Default Credentials
-      });
+      const databaseId = firebaseConfig.firestoreDatabaseId;
+      if (databaseId && databaseId !== '(default)' && databaseId !== '') {
+        console.log(`[Firebase Admin] Connecting to named database: ${databaseId}`);
+        // In firebase-admin v11+, getFirestore(databaseId) uses the default app's database
+        adminDb = getAdminFirestore(databaseId);
+      } else {
+        console.log(`[Firebase Admin] Connecting to default database`);
+        adminDb = getAdminFirestore();
+      }
     } catch (err) {
-      console.warn("Firestore Admin failed to initialize. Background tasks like push notifications will be disabled.");
+      console.warn("Firebase Admin failed to initialize. Background tasks like push notifications will be disabled.");
       console.error(err);
       return null;
     }
@@ -117,7 +132,7 @@ async function startServer() {
       if (aDb) {
         await aDb.collection('push_subscriptions').doc(subId).set({
           subscription,
-          createdAt: GoogleFieldValue.serverTimestamp()
+          createdAt: AdminFieldValue.serverTimestamp()
         }, { merge: true });
       }
       res.status(201).json({});
@@ -444,7 +459,7 @@ async function startServer() {
           title: `Follow-up Sent (Day ${day})`,
           message: `Scheduled message for ${leadData.name}: "${message}"`,
           leadId,
-          createdAt: GoogleFieldValue.serverTimestamp()
+          createdAt: AdminFieldValue.serverTimestamp()
         });
         
         broadcast({

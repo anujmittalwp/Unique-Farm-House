@@ -747,12 +747,21 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                                 setEditingDetail({ id: lead.id, field: 'bookingDate' });
                                 setEditDetailValue(lead.bookingDate || '');
                               }}
-                              className="flex flex-col gap-0 group/dbdate"
+                              className="flex flex-col gap-0.5 group/dbdate"
                             >
                               <div className="flex items-center gap-1.5 text-[10px] font-bold text-luxury-dark/70 group-hover/dbdate:text-luxury-gold cursor-pointer transition-colors leading-none">
                                 <Calendar size={12} className="text-luxury-gold shrink-0" />
                                 {lead.bookingDate ? format(new Date(lead.bookingDate), 'MMM dd') : <span className="text-luxury-gold/40 italic">Date</span>}
                               </div>
+                              {lead.bookingDate && (
+                                <span className={`text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none ${
+                                  ['Friday', 'Saturday'].includes(format(new Date(lead.bookingDate), 'EEEE'))
+                                  ? 'text-red-600 bg-red-50 px-1 rounded-sm'
+                                  : 'text-luxury-dark/30'
+                                }`}>
+                                  {format(new Date(lead.bookingDate), 'EEEE')}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -816,8 +825,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                           {lead.createdAt && (
                             <span className={`text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none ${
                               ['Friday', 'Saturday'].includes(format(getSafeDate(lead.createdAt), 'EEEE'))
-                              ? 'text-red-500/60'
-                              : 'text-luxury-dark/20'
+                              ? 'text-red-600 bg-red-50 px-1 rounded-sm'
+                              : 'text-luxury-dark/30'
                             }`}>
                               {format(getSafeDate(lead.createdAt), 'EEEE')}
                             </span>
@@ -867,9 +876,20 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/50 uppercase tracking-widest whitespace-nowrap">
-                          <Clock size={12} className="shrink-0 text-blue-500" />
-                          {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy hh:mm a') : 'N/A'}
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/50 uppercase tracking-widest whitespace-nowrap leading-none">
+                            <Clock size={12} className="shrink-0 text-blue-500" />
+                            {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy hh:mm a') : 'N/A'}
+                          </div>
+                          {lead.createdAt && (
+                            <span className={`text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none ${
+                              ['Friday', 'Saturday'].includes(format(getSafeDate(lead.createdAt), 'EEEE'))
+                              ? 'text-red-600 bg-red-50 px-1 rounded-sm'
+                              : 'text-luxury-dark/30'
+                            }`}>
+                              {format(getSafeDate(lead.createdAt), 'EEEE')}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
