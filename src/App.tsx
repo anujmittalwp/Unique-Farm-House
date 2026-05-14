@@ -85,7 +85,9 @@ import {
   Tag,
   ExternalLink,
   Maximize2,
-  Table
+  Table,
+  Ticket,
+  Gift
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 import { Blog, BlogPost } from './Blog';
@@ -4594,7 +4596,7 @@ const MyBookings = ({
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
   const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'migration' | 'chatbot_settings' | 'users'>('general');
 
@@ -4614,6 +4616,9 @@ const MyBookings = ({
   const [blogs, setBlogs] = useState<any[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
   const [appUsers, setAppUsers] = useState<any[]>([]);
+  const [coupons, setCoupons] = useState<any[]>([]);
+  const [referrals, setReferrals] = useState<any[]>([]);
+  const [userLoyalty, setUserLoyalty] = useState<{ points: number; tier: string; referralCode: string }>({ points: 0, tier: 'Silver', referralCode: '' });
 
   // Gallery Management State
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
@@ -6026,6 +6031,10 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             showToast={showToast}
             userRole={userRole}
           />
+        ) : activeFilter === 'coupons' && (userRole === 'admin' || userRole === 'agent') ? (
+          <CouponManagement coupons={coupons} showToast={showToast} />
+        ) : activeFilter === 'loyalty' ? (
+          <LoyaltyDashboard user={user} loyalty={userLoyalty} referrals={referrals} appUsers={userRole === 'admin' ? appUsers : []} isAdmin={userRole === 'admin'} showToast={showToast} />
         ) : (activeFilter === 'logs' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
@@ -8516,6 +8525,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [expenses, setExpenses] = useState<any[]>(editBooking?.expenses || []);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
+  const [couponCode, setCouponCode] = useState('');
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [clients, setClients] = useState<any[]>([]);
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
@@ -8634,6 +8646,37 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     };
   }, [allBookings, editBooking]);
 
+  const handleApplyCoupon = async () => {
+    if (!couponCode) return;
+    setIsApplyingCoupon(true);
+    try {
+      const q = query(collection(db, 'coupons'), where('code', '==', couponCode.toUpperCase()));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        showToast('Invalid coupon code', 'error');
+      } else {
+        const couponData = snap.docs[0].data();
+        setAppliedCoupon(couponData);
+        showToast('Coupon applied successfully!', 'success');
+      }
+    } catch (e) {
+      showToast('Error validating coupon', 'error');
+    } finally {
+      setIsApplyingCoupon(false);
+    }
+  };
+
+  const discountedBookingAmount = useMemo(() => {
+    if (!appliedCoupon) return bookingAmount;
+    if (appliedCoupon.type === 'percent') {
+      return bookingAmount - (bookingAmount * (appliedCoupon.discount / 100));
+    } else {
+      return Math.max(0, bookingAmount - appliedCoupon.discount);
+    }
+  }, [bookingAmount, appliedCoupon]);
+
+  const totalAmount = discountedBookingAmount + securityAmount;
+
   const handleBookNow = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -8722,7 +8765,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     setLoading(true);
     showToast('Processing your booking...', 'info');
     
-    const totalAmount = bookingAmount + securityAmount;
+    // totalAmount is already calculated by the useMemo/logic above
+    // const totalAmount = discountedBookingAmount + securityAmount;
     const securityDeposit = securityAmount;
 
     try {
@@ -8751,12 +8795,14 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         nightGuestAdults: Number(nightGuestAdults) || 0,
         nightGuestChildren: nightGuestChildren || [],
         status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
-        bookingAmount: Number(bookingAmount) || 0,
-        totalAmount: Number(bookingAmount + securityAmount) || 0,
+        originalBookingAmount: Number(bookingAmount) || 0,
+        bookingAmount: Number(discountedBookingAmount) || 0,
+        totalAmount: Number(discountedBookingAmount + securityAmount) || 0,
+        appliedCoupon: appliedCoupon ? { code: appliedCoupon.code, discount: appliedCoupon.discount, type: appliedCoupon.type } : null,
         amountPaid: Number(totalPaidAmount) || 0,
         securityDeposit: Number(securityAmount) || 0,
         expenses: expenses || [],
-        paymentStatus: totalPaidAmount >= (bookingAmount + securityAmount) ? 'paid' : (totalPaidAmount > 0 ? 'part-paid' : 'unpaid'),
+        paymentStatus: totalPaidAmount >= (discountedBookingAmount + securityAmount) ? 'paid' : (totalPaidAmount > 0 ? 'part-paid' : 'unpaid'),
         createdAt: editBooking ? editBooking.createdAt : serverTimestamp(),
         name: name || '',
         mobile: mobile || '',
@@ -8946,6 +8992,33 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest font-bold">Total Amount</p>
                   <p className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</p>
                 </div>
+                {!editBooking && (
+                  <div className="pt-4 mt-2 border-t border-luxury-dark/5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-luxury-dark/30 mb-2">Apply Coupon</p>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="ENTER CODE" 
+                        value={couponCode}
+                        onChange={e => setCouponCode(e.target.value.toUpperCase())}
+                        className="flex-grow px-3 py-2 bg-luxury-cream/50 border border-luxury-dark/5 rounded-xl text-[10px] font-bold focus:outline-none uppercase"
+                      />
+                      <button 
+                        type="button"
+                        disabled={isApplyingCoupon || appliedCoupon}
+                        onClick={handleApplyCoupon}
+                        className="px-4 py-2 bg-luxury-dark text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
+                      >
+                        {isApplyingCoupon ? '...' : appliedCoupon ? 'Applied' : 'Apply'}
+                      </button>
+                    </div>
+                    {appliedCoupon && (
+                      <p className="text-[9px] text-emerald-600 font-bold mt-1 uppercase tracking-widest animate-pulse">
+                        Discount Applied: -₹{(bookingAmount - discountedBookingAmount).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <p className="text-[10px] text-luxury-dark/40 italic mt-1">(Security deposit is refundable after checkout)</p>
               </div>
             </div>
@@ -8984,7 +9057,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
             </div>
             <div>
               <p className="font-bold text-luxury-dark">Complete Payment</p>
-              <p className="text-xs text-luxury-dark/40">Pay via UPI to secure your booking</p>
+              <p className="text-xs text-luxury-dark/40 font-black uppercase tracking-widest text-emerald-600">Pay via UPI (No processing fees)</p>
             </div>
           </div>
           
@@ -10425,6 +10498,239 @@ const InstallPrompt = ({ onInstall, onClose, isIOS }: { onInstall: () => void; o
 };
 
 // --- Main App ---
+
+const CouponManagement = ({ coupons, showToast }: { coupons: any[]; showToast: (m: string, t: any) => void }) => {
+  const [newCoupon, setNewCoupon] = useState({ code: '', discount: 0, type: 'percent' });
+  const [loading, setLoading] = useState(false);
+
+  const handleAdd = async () => {
+    if (!newCoupon.code || newCoupon.discount <= 0) return;
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'coupons'), {
+        ...newCoupon,
+        code: newCoupon.code.toUpperCase(),
+        createdAt: serverTimestamp()
+      });
+      showToast('Coupon added!', 'success');
+      setNewCoupon({ code: '', discount: 0, type: 'percent' });
+    } catch (e) {
+      showToast('Failed to add coupon', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Delete this coupon?')) return;
+    try {
+      await deleteDoc(doc(db, 'coupons', id));
+      showToast('Coupon deleted', 'info');
+    } catch (e) {
+      showToast('Failed to delete', 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="flex justify-between items-center">
+        <div>
+          <h3 className="text-xl font-serif font-bold text-luxury-dark">Discount Coupons</h3>
+          <p className="text-sm text-luxury-dark/60">Generate promotional codes for your guests</p>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
+        <h4 className="text-[10px] font-black uppercase tracking-widest text-luxury-dark/30 mb-6">Create New Coupon</h4>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <input 
+            type="text" 
+            placeholder="COUPON_CODE" 
+            value={newCoupon.code}
+            onChange={e => setNewCoupon({...newCoupon, code: e.target.value.toUpperCase()})}
+            className="px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold uppercase"
+          />
+          <input 
+            type="number" 
+            placeholder="Discount Value" 
+            value={newCoupon.discount || ''}
+            onChange={e => setNewCoupon({...newCoupon, discount: Number(e.target.value)})}
+            className="px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
+          />
+          <select 
+            value={newCoupon.type}
+            onChange={e => setNewCoupon({...newCoupon, type: e.target.value})}
+            className="px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
+          >
+            <option value="percent">Percentage (%)</option>
+            <option value="flat">Flat Amount (₹)</option>
+          </select>
+          <button 
+            disabled={loading}
+            onClick={handleAdd}
+            className="bg-luxury-dark text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
+          >
+            {loading ? 'Adding...' : 'Create Coupon'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {coupons.map(coupon => (
+          <div key={coupon.id} className="bg-white p-6 rounded-[2rem] border border-luxury-dark/5 shadow-sm relative group overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform">
+              <Ticket size={48} />
+            </div>
+            <div className="flex flex-col gap-2 relative z-10">
+              <span className="text-[10px] font-black uppercase tracking-widest text-luxury-gold">Active Promo</span>
+              <h5 className="text-xl font-black text-luxury-dark tracking-tighter">{coupon.code}</h5>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-2xl font-bold text-luxury-dark">{coupon.type === 'percent' ? `${coupon.discount}%` : `₹${coupon.discount}`}</span>
+                <span className="text-[10px] font-bold text-luxury-dark/30 uppercase">OFF</span>
+              </div>
+              <button 
+                onClick={() => handleDelete(coupon.id)}
+                className="mt-6 text-[10px] font-bold text-red-400 hover:text-red-600 transition-colors uppercase tracking-widest flex items-center gap-2"
+              >
+                <Trash2 size={12} /> Remove Coupon
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const LoyaltyDashboard = ({ user, loyalty, referrals, appUsers, isAdmin, showToast }: any) => {
+  const [isCopying, setIsCopying] = useState(false);
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(loyalty.referralCode);
+    setIsCopying(true);
+    setTimeout(() => setIsCopying(false), 2000);
+    showToast('Referral code copied!', 'success');
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-700">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-3xl font-serif font-black text-luxury-dark tracking-tight">Privilege Club</h2>
+          <p className="text-luxury-dark/55 font-medium">Your loyalty rewards and referral benefits.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* Points Card */}
+        <div className="bg-luxury-dark text-white rounded-[3rem] p-8 shadow-2xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-125 transition-transform">
+            <Trophy size={96} />
+          </div>
+          <div className="relative z-10 flex flex-col h-full">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-10 h-10 rounded-2xl bg-luxury-gold flex items-center justify-center text-luxury-dark">
+                <Crown size={20} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-luxury-gold">Current Tier</p>
+                <p className="text-xl font-black tracking-tight">{loyalty.tier}</p>
+              </div>
+            </div>
+            
+            <div className="mt-auto">
+              <h4 className="text-4xl font-black text-white tracking-tighter mb-2">{loyalty.points}</h4>
+              <p className="text-xs font-bold text-white/40 uppercase tracking-[0.2em]">Total Rewards Points</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Referral Card */}
+        <div className="bg-white rounded-[3rem] p-8 border border-luxury-dark/5 shadow-md flex flex-col justify-between">
+          <div>
+            <h4 className="text-[11px] font-black uppercase tracking-widest text-luxury-dark/30 mb-6">Invite Your Friends</h4>
+            <p className="text-sm font-medium text-luxury-dark/70 leading-relaxed mb-8">
+              Share your unique referral code. When a friend books their first stay, you both get <strong>500 Reward Points</strong>!
+            </p>
+          </div>
+          
+          <div className="flex gap-2">
+            <div className="flex-grow p-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl font-black text-luxury-dark text-center tracking-[0.3em] uppercase">
+              {loyalty.referralCode}
+            </div>
+            <button 
+              onClick={copyCode}
+              className="p-4 bg-luxury-dark text-white rounded-2xl hover:bg-luxury-gold hover:text-luxury-dark transition-all"
+            >
+              {isCopying ? <CheckCircle2 size={24} /> : <Copy size={24} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Benefits Card */}
+        <div className="bg-luxury-gold/10 border border-luxury-gold/20 rounded-[3rem] p-8">
+          <h4 className="text-[11px] font-black uppercase tracking-widest text-luxury-gold mb-6">Tier Benefits</h4>
+          <div className="space-y-4">
+            {[
+              { icon: Zap, text: 'Early Check-in Priority' },
+              { icon: Gift, text: 'Complimentary Welcome Drinks' },
+              { icon: Star, text: 'Exclusive 5% Member Discount' }
+            ].map((benefit, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-luxury-gold">
+                  <benefit.icon size={16} />
+                </div>
+                <span className="text-[11px] font-bold text-luxury-dark/70 uppercase tracking-wide">{benefit.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {isAdmin && (
+        <div className="bg-white rounded-[3.5rem] border border-luxury-dark/5 p-10 mt-12 shadow-sm">
+          <h3 className="text-xl font-serif font-black text-luxury-dark mb-8">Admin: Member Loyalty Tracking</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-luxury-dark/5">
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/30">Member Name</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/30 text-center">Referrals</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/30 text-center">Points</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/30 text-right">Tier</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-luxury-dark/5">
+                {appUsers.map((appUser: any) => (
+                  <tr key={appUser.id} className="hover:bg-luxury-dark/[0.02] transition-colors">
+                    <td className="py-6">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-luxury-dark text-white flex items-center justify-center font-black text-[10px]">
+                          {appUser.displayName?.[0] || appUser.email?.[0]}
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-black text-luxury-dark">{appUser.displayName || 'Unknown'}</p>
+                          <p className="text-[9px] font-medium text-luxury-dark/30">{appUser.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-6 text-center text-xs font-bold text-luxury-dark/60">{appUser.referralCount || 0}</td>
+                    <td className="py-6 text-center text-xs font-black text-luxury-dark">{appUser.loyaltyPoints || 0} PTS</td>
+                    <td className="py-6 text-right">
+                      <span className="px-3 py-1 bg-luxury-gold/20 text-luxury-gold text-[9px] font-black uppercase tracking-widest rounded-lg">
+                        {appUser.loyaltyTier || 'Silver'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function App() {
   const [showScrollTop, setShowScrollTop] = useState(false);

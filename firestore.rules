@@ -340,6 +340,11 @@ service cloud.firestore {
       allow write: if true; // Public can subscribe (device registration)
     }
 
+    match /notifications/{notificationId} {
+      allow read: if isAdmin() || isOwnerEmail() || (isAgent() && getPermissions().get('viewLeads', false) == true);
+      allow write: if true; // Public or backend can log notifications
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

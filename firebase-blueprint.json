@@ -438,6 +438,27 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["amount", "category", "date", "createdAt"]
+    },
+    "PushSubscription": {
+      "title": "PushSubscription",
+      "description": "Web push subscription data.",
+      "type": "object",
+      "properties": {
+        "subscription": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System and lead notifications.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "leadId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "firestore": {
@@ -484,6 +505,14 @@
     "global_expenses/{expenseId}": {
       "schema": "GlobalExpense",
       "description": "Global property expenses."
+    },
+    "push_subscriptions/{subId}": {
+      "schema": "PushSubscription",
+      "description": "Web push subscriptions."
+    },
+    "notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "System notification logs."
     }
   }
 }
