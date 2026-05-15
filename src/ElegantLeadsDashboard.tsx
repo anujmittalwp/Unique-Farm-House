@@ -461,6 +461,17 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     }
   };
 
+  const isWeekend = (dateStr?: string) => {
+    if (!dateStr) return false;
+    try {
+      const date = new Date(dateStr);
+      const day = format(date, 'EEEE');
+      return day === 'Friday' || day === 'Saturday';
+    } catch {
+      return false;
+    }
+  };
+
   const handleUpdateDetail = async (leadId: string, field: string, value: string) => {
     setIsUpdating(leadId);
     const oldLead = leads.find(l => l.id === leadId);
@@ -468,6 +479,23 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     try {
       await updateDoc(doc(db, 'leads', leadId), { [field]: value });
       await addHistoryEntry(leadId, field === 'followUpDate' ? 'followup' : 'automated', `Updated ${field}: ${oldValue} → ${value}`);
+      
+      // Request 1: Automated notification for follow-up
+      if (field === 'followUpDate' && value) {
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            type: 'followup_scheduled',
+            title: 'Follow-up Updated',
+            message: `Follow-up for ${oldLead?.name || 'Lead'} rescheduled to ${value}`,
+            leadId: leadId,
+            assignedAgent: oldLead?.assignedAgent || null,
+            createdAt: serverTimestamp()
+          });
+        } catch (notifErr) {
+          console.warn('Silent notification failure:', notifErr);
+        }
+      }
+
       showToast(`${field.charAt(0).toUpperCase() + field.slice(1)} updated`, 'success');
       setEditingDetail(null);
     } catch (err) {
@@ -749,17 +777,13 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                               }}
                               className="flex flex-col gap-0.5 group/dbdate"
                             >
-                              <div className="flex items-center gap-1.5 text-[10px] font-bold text-luxury-dark/70 group-hover/dbdate:text-luxury-gold cursor-pointer transition-colors leading-none">
-                                <Calendar size={12} className="text-luxury-gold shrink-0" />
-                                {lead.bookingDate ? format(new Date(lead.bookingDate), 'MMM dd') : <span className="text-luxury-gold/40 italic">Date</span>}
+                              <div className={`flex items-center gap-1.5 text-[10px] font-bold ${isWeekend(lead.bookingDate) ? 'text-red-600 bg-red-50 px-1 rounded' : 'text-luxury-dark/70'} group-hover/dbdate:text-luxury-gold cursor-pointer transition-colors leading-none font-sans`} title="Booking Date">
+                                <Calendar size={12} className={isWeekend(lead.bookingDate) ? 'text-red-500 shrink-0' : 'text-luxury-gold shrink-0'} />
+                                {lead.bookingDate ? format(new Date(lead.bookingDate), 'MMM dd, yyyy') : <span className="text-luxury-gold/40 italic text-[8px]">No Date</span>}
                               </div>
                               {lead.bookingDate && (
-                                <span className={`text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none ${
-                                  ['Friday', 'Saturday'].includes(format(new Date(lead.bookingDate), 'EEEE'))
-                                  ? 'text-red-600 bg-red-50 px-1 rounded-sm'
-                                  : 'text-luxury-dark/30'
-                                }`}>
-                                  {format(new Date(lead.bookingDate), 'EEEE')}
+                                <span className="text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none text-luxury-dark/30">
+                                  {lead.bookingTime || '10:00 AM'}
                                 </span>
                               )}
                             </div>
@@ -817,19 +841,28 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                           )}
                         </div>
 
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest leading-none">
-                            <Calendar size={12} className="shrink-0 text-luxury-dark/20" />
-                            {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy') : 'N/A'}
-                          </div>
-                          {lead.createdAt && (
-                            <span className={`text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none ${
-                              ['Friday', 'Saturday'].includes(format(getSafeDate(lead.createdAt), 'EEEE'))
-                              ? 'text-red-600 bg-red-50 px-1 rounded-sm'
-                              : 'text-luxury-dark/30'
-                            }`}>
-                              {format(getSafeDate(lead.createdAt), 'EEEE')}
-                            </span>
+                        <div className="flex items-center gap-2">
+                          {editingDetail?.id === lead.id && editingDetail?.field === 'city' ? (
+                            <input 
+                              type="text"
+                              autoFocus
+                              placeholder="City..."
+                              value={editDetailValue}
+                              onChange={(e) => setEditDetailValue(e.target.value)}
+                              onBlur={() => handleUpdateDetail(lead.id, 'city', editDetailValue)}
+                              className="text-[10px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
+                            />
+                          ) : (
+                            <div 
+                              onClick={() => {
+                                setEditingDetail({ id: lead.id, field: 'city' });
+                                setEditDetailValue(lead.city || '');
+                              }}
+                              className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/50 uppercase tracking-widest leading-none cursor-pointer hover:text-luxury-gold transition-colors"
+                            >
+                              <MapPin size={12} className="shrink-0 text-luxury-gold" /> 
+                              {lead.city || <span className="text-luxury-gold/30 italic">City</span>}
+                            </div>
                           )}
                         </div>
 
@@ -876,18 +909,14 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                           )}
                         </div>
 
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/50 uppercase tracking-widest whitespace-nowrap leading-none">
-                            <Clock size={12} className="shrink-0 text-blue-500" />
-                            {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy hh:mm a') : 'N/A'}
+                        <div className={`flex flex-col gap-0.5 ${isWeekend(lead.createdAt) ? 'bg-red-50/50 p-0.5 rounded' : ''}`}>
+                          <div className={`flex items-center gap-2 text-[10px] font-bold ${isWeekend(lead.createdAt) ? 'text-red-600' : 'text-luxury-dark/50'} uppercase tracking-widest whitespace-nowrap leading-none`}>
+                            <Clock size={12} className={`shrink-0 ${isWeekend(lead.createdAt) ? 'text-red-500' : 'text-blue-500'}`} />
+                            {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy') : 'N/A'}
                           </div>
                           {lead.createdAt && (
-                            <span className={`text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none ${
-                              ['Friday', 'Saturday'].includes(format(getSafeDate(lead.createdAt), 'EEEE'))
-                              ? 'text-red-600 bg-red-50 px-1 rounded-sm'
-                              : 'text-luxury-dark/30'
-                            }`}>
-                              {format(getSafeDate(lead.createdAt), 'EEEE')}
+                            <span className="text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none text-luxury-dark/30">
+                              {format(getSafeDate(lead.createdAt), 'hh:mm a')}
                             </span>
                           )}
                         </div>

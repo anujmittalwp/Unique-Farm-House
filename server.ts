@@ -11,8 +11,8 @@ import nodemailer from "nodemailer";
 import * as dotenv from "dotenv";
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit, setLogLevel } from 'firebase/firestore';
-import { initializeApp as initializeAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
-import { getFirestore as getAdminFirestore, FieldValue as AdminFieldValue } from 'firebase-admin/firestore';
+import { initializeApp as initializeAdminApp, getApps as getAdminApps, applicationDefault } from 'firebase-admin/app';
+import { getFirestore as getAdminFirestore, FieldValue as AdminFieldValue, Firestore as AdminFirestoreClass } from 'firebase-admin/firestore';
 import type { App as AdminApp } from 'firebase-admin/app';
 import type { Firestore as AdminFirestore } from 'firebase-admin/firestore';
 
@@ -37,26 +37,35 @@ function getAdminDb() {
     try {
       const apps = getAdminApps();
       if (apps.length === 0) {
-        // AI Studio: Explicitly pass projectId to avoid using incorrect default project
         adminApp = initializeAdminApp({
-          projectId: firebaseConfig.projectId,
+           projectId: firebaseConfig.projectId
         });
-        console.log(`[Firebase Admin] Initialized with projectId: ${firebaseConfig.projectId}`);
+        console.log(`[Firebase Admin] Initialized App with explicit projectId: ${firebaseConfig.projectId}`);
       } else {
         adminApp = apps[0];
+        console.log(`[Firebase Admin] Using existing App`);
       }
       
       const databaseId = firebaseConfig.firestoreDatabaseId;
-      if (databaseId && databaseId !== '(default)' && databaseId !== '') {
-        console.log(`[Firebase Admin] Connecting to named database: ${databaseId}`);
-        // In firebase-admin v11+, getFirestore(databaseId) uses the default app's database
-        adminDb = getAdminFirestore(databaseId);
-      } else {
-        console.log(`[Firebase Admin] Connecting to default database`);
-        adminDb = getAdminFirestore();
-      }
+      // Using explicit Firestore constructor to ensure credentials/project/database are correctly mapped
+      adminDb = new AdminFirestoreClass({
+        projectId: firebaseConfig.projectId,
+        databaseId: (databaseId && databaseId !== '(default)' && databaseId !== '') ? databaseId : undefined,
+      });
+
+      console.log(`[Firebase Admin] Firestore instance created for database: ${databaseId || '(default)'}`);
+      
+      // Verification probe
+      adminDb.collection('_permission_probe').limit(1).get()
+        .then(() => console.log('[Firebase Admin] PROBE SUCCESS: Read access verified.'))
+        .catch(err => {
+          console.error('[Firebase Admin] PROBE FAILED: Permission denied for Firestore.');
+          console.error(`- Error Code: ${err.code}`);
+          console.error(`- Details: ${err.message}`);
+        });
+
     } catch (err) {
-      console.warn("Firebase Admin failed to initialize. Background tasks like push notifications will be disabled.");
+      console.warn("Firebase Admin failed to initialize.");
       console.error(err);
       return null;
     }
