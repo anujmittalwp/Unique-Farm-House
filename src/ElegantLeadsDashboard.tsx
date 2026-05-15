@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   Users, 
   Search, 
@@ -127,6 +127,366 @@ const formatDate = (date: any) => {
   return format(d, 'MMM dd, yyyy HH:mm');
 };
 
+const isWeekend = (dateStr?: string) => {
+  if (!dateStr) return false;
+  try {
+    const date = new Date(dateStr);
+    const day = format(date, 'EEEE');
+    return day === 'Friday' || day === 'Saturday';
+  } catch {
+    return false;
+  }
+};
+
+const getSafeDate = (d: any) => {
+  if (!d) return new Date();
+  if (d.toDate) return d.toDate();
+  if (d.seconds) return new Date(d.seconds * 1000);
+  const date = new Date(d);
+  return isNaN(date.getTime()) ? new Date() : date;
+};
+
+const LeadRow = React.memo(({ 
+  lead, 
+  isSelected, 
+  isUpdating, 
+  editingDetail, 
+  editDetailValue, 
+  setEditDetailValue, 
+  setEditingDetail,
+  onToggleSelect, 
+  onUpdateStatus, 
+  onUpdateDetail, 
+  onAddFollowUp, 
+  onViewLog, 
+  onDeleteLead, 
+  onReply 
+}: { 
+  lead: Lead, 
+  isSelected: boolean, 
+  isUpdating: boolean,
+  editingDetail: {id: string, field: string} | null,
+  editDetailValue: string,
+  setEditDetailValue: (val: string) => void,
+  setEditingDetail: (val: {id: string, field: string} | null) => void,
+  onToggleSelect: (id: string) => void,
+  onUpdateStatus: (id: string, status: string) => void,
+  onUpdateDetail: (id: string, field: string, value: string) => void,
+  onAddFollowUp: (lead: Lead) => void,
+  onViewLog: (lead: Lead) => void,
+  onDeleteLead: (id: string) => void,
+  onReply: (type: 'email' | 'whatsapp', contact: string, name: string, leadId?: string) => void
+}) => {
+  const lastTwoInteractions = useMemo(() => (lead.history || [])
+    .filter(h => ['call', 'whatsapp', 'email', 'visit', 'remark', 'followup'].includes(h.type))
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 2), [lead.history]);
+
+  return (
+    <motion.tr 
+      layout
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className={`group hover:bg-luxury-dark/5 transition-colors ${isSelected ? 'bg-luxury-gold/5' : lead.status === 'new' ? 'bg-blue-50/30' : ''}`}
+    >
+      <td className="px-4 py-6 transition-all">
+        <button 
+          onClick={() => onToggleSelect(lead.id)}
+          className={`p-1.5 rounded-lg transition-all ${isSelected ? 'bg-luxury-dark text-white scale-110' : 'bg-gray-50 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-luxury-dark'}`}
+        >
+          {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+        </button>
+      </td>
+    {/* Unified Lead Info (3 Rows) */}
+    <td className="px-4 py-6 min-w-[320px] lg:min-w-[400px]">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-3 lg:gap-x-6 gap-y-3">
+        {/* Row 1 */}
+        <div className="flex items-center gap-2">
+          <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-serif text-[10px] font-black shrink-0 ${lead.status === 'new' ? 'bg-blue-600 text-white' : 'bg-luxury-dark/5 text-luxury-dark/20'}`}>
+            {lead.name?.charAt(0) || '?'}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <h4 className="text-xs font-serif font-black text-luxury-dark truncate max-w-[80px] lg:max-w-[100px]">{lead.name}</h4>
+            {lead.followUpDate && isPast(new Date(lead.followUpDate)) && !isToday(new Date(lead.followUpDate)) && lead.status !== 'converted' && lead.status !== 'lost' && (
+              <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" title="Follow-up Overdue!"></span>
+            )}
+            {differenceInHours(new Date(), getSafeDate(lead.createdAt)) < 24 && lead.status === 'new' && (
+              <span className="flex h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {editingDetail?.id === lead.id && editingDetail?.field === 'bookingDate' ? (
+            <input 
+              type="date"
+              autoFocus
+              value={editDetailValue}
+              onChange={(e) => setEditDetailValue(e.target.value)}
+              onBlur={() => onUpdateDetail(lead.id, 'bookingDate', editDetailValue)}
+              className="text-[9px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
+            />
+          ) : (
+            <div 
+              onClick={() => {
+                setEditingDetail({ id: lead.id, field: 'bookingDate' });
+                setEditDetailValue(lead.bookingDate || '');
+              }}
+              className="flex flex-col gap-0.5 group/dbdate"
+            >
+              <div className={`flex items-center gap-1.5 text-[10px] font-bold ${isWeekend(lead.bookingDate) ? 'text-red-600 bg-red-50 px-1 rounded' : 'text-luxury-dark/70'} group-hover/dbdate:text-luxury-gold cursor-pointer transition-colors leading-none font-sans`} title="Booking Date">
+                <Calendar size={12} className={isWeekend(lead.bookingDate) ? 'text-red-500 shrink-0' : 'text-luxury-gold shrink-0'} />
+                {lead.bookingDate ? format(new Date(lead.bookingDate), 'MMM dd, yyyy') : <span className="text-luxury-gold/40 italic text-[8px]">No Date</span>}
+              </div>
+              {lead.bookingDate && (
+                <span className="text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none text-luxury-dark/30">
+                  {lead.bookingTime || '10:00 AM'}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${
+            lead.source === 'meta' ? 'bg-blue-50 text-blue-600' :
+            lead.source === 'google_sheets' ? 'bg-emerald-50 text-emerald-600' :
+            'bg-luxury-dark/5 text-luxury-dark/40'
+          }`}>
+            {lead.source === 'meta' && <Facebook size={9} />}
+            {lead.source === 'google_sheets' && <FileSpreadsheet size={9} />}
+            {lead.source || 'Direct'}
+          </span>
+        </div>
+
+
+        {/* Row 2 */}
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => {
+              const cleanPhone = lead.phone.replace(/\D/g, '');
+              window.open(`https://wa.me/${cleanPhone}`, '_blank');
+            }}
+            className="flex items-center gap-2 text-[11px] text-luxury-dark/40 hover:text-green-600 transition-colors font-bold pl-1"
+          >
+            <Phone size={12} className="shrink-0" /> {lead.phone}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {editingDetail?.id === lead.id && editingDetail?.field === 'guests' ? (
+            <input 
+              type="text"
+              autoFocus
+              placeholder="Num..."
+              value={editDetailValue}
+              onChange={(e) => setEditDetailValue(e.target.value)}
+              onBlur={() => onUpdateDetail(lead.id, 'guests', editDetailValue)}
+              className="text-[10px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
+            />
+          ) : (
+            <div 
+              onClick={() => {
+                setEditingDetail({ id: lead.id, field: 'guests' });
+                setEditDetailValue(lead.guests || '');
+              }}
+              className="flex items-center gap-2 text-[11px] font-medium text-luxury-dark/50 hover:text-luxury-gold cursor-pointer transition-colors"
+            >
+              <Users size={14} className="shrink-0 text-luxury-gold" /> 
+              {lead.guests || <span className="text-luxury-gold/30 italic">Add Guests</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {editingDetail?.id === lead.id && editingDetail?.field === 'city' ? (
+            <input 
+              type="text"
+              autoFocus
+              placeholder="City..."
+              value={editDetailValue}
+              onChange={(e) => setEditDetailValue(e.target.value)}
+              onBlur={() => onUpdateDetail(lead.id, 'city', editDetailValue)}
+              className="text-[10px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
+            />
+          ) : (
+            <div 
+              onClick={() => {
+                setEditingDetail({ id: lead.id, field: 'city' });
+                setEditDetailValue(lead.city || '');
+              }}
+              className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/50 uppercase tracking-widest leading-none cursor-pointer hover:text-luxury-gold transition-colors"
+            >
+              <MapPin size={12} className="shrink-0 text-luxury-gold" /> 
+              {lead.city || <span className="text-luxury-gold/30 italic">City</span>}
+            </div>
+          )}
+        </div>
+
+        {/* Row 3 */}
+        <div className="flex items-center gap-3 max-w-[150px] overflow-hidden">
+          {lead.email ? (
+            <button 
+              onClick={() => {
+                onReply('email', lead.email, lead.name, lead.id);
+              }}
+              className="flex items-center gap-2 text-[11px] text-blue-600 hover:text-blue-700 transition-colors font-bold pl-1 truncate"
+            >
+              <Mail size={12} className="shrink-0 text-red-500" /> {lead.email}
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 text-[11px] text-luxury-dark/20 font-bold pl-1 italic">
+              <Mail size={12} className="shrink-0 text-red-500/30" /> No email
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {editingDetail?.id === lead.id && editingDetail?.field === 'budget' ? (
+            <input 
+              type="text"
+              autoFocus
+              placeholder="Amt..."
+              value={editDetailValue}
+              onChange={(e) => setEditDetailValue(e.target.value)}
+              onBlur={() => onUpdateDetail(lead.id, 'budget', editDetailValue)}
+              className="text-[10px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
+            />
+          ) : (
+            <div 
+              onClick={() => {
+                setEditingDetail({ id: lead.id, field: 'budget' });
+                setEditDetailValue(lead.budget || '');
+              }}
+              className="flex items-center gap-2 text-[11px] font-medium text-luxury-dark/50 hover:text-luxury-gold cursor-pointer transition-colors"
+            >
+              <IndianRupee size={14} className="shrink-0 text-luxury-gold" /> 
+              {lead.budget || <span className="text-luxury-gold/30 italic">Add Budget</span>}
+            </div>
+          )}
+        </div>
+
+        <div className={`flex flex-col gap-0.5 ${isWeekend(lead.createdAt) ? 'bg-red-50/50 p-0.5 rounded' : ''}`}>
+          <div className={`flex items-center gap-2 text-[10px] font-bold ${isWeekend(lead.createdAt) ? 'text-red-600' : 'text-luxury-dark/50'} uppercase tracking-widest whitespace-nowrap leading-none`}>
+            <Clock size={12} className={`shrink-0 ${isWeekend(lead.createdAt) ? 'text-red-500' : 'text-blue-500'}`} />
+            {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy') : 'N/A'}
+          </div>
+          {lead.createdAt && (
+            <span className="text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none text-luxury-dark/30">
+              {format(getSafeDate(lead.createdAt), 'hh:mm a')}
+            </span>
+          )}
+        </div>
+      </div>
+    </td>
+
+    {/* Interaction Summary (Latest Follow-up only) */}
+    <td className="px-4 py-6 min-w-[280px]">
+      <div className="flex flex-col gap-3">
+        <div className="space-y-2">
+          {lastTwoInteractions.slice(0, 1).map((log) => (
+            <div key={log.id} className="flex flex-col gap-1 border-l-2 border-luxury-gold pl-3 py-1 bg-luxury-dark/5 rounded-r-xl">
+              <div className="flex items-center justify-between mb-0.5">
+                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-luxury-dark/40">
+                  {log.type === 'followup' ? <Clock size={9} className="text-indigo-500" /> : <MessageSquare size={9} className="text-amber-500" />}
+                  <span>{format(new Date(log.timestamp), 'dd MMM, HH:mm')}</span>
+                </div>
+                <span className="text-[8px] font-black text-luxury-gold uppercase tracking-tighter">Latest Remark</span>
+              </div>
+              <p className="text-[10px] font-medium leading-relaxed text-luxury-dark line-clamp-2 italic">
+                {log.content.replace(/^Updated remarks:\s*/i, '')}
+              </p>
+            </div>
+          ))}
+          {lastTwoInteractions.length === 0 && (
+            <div className="flex flex-col gap-0.5 border-l-2 border-luxury-dark/5 pl-3 py-2 bg-gray-50 rounded-r-xl">
+              <p className="text-[10px] text-luxury-dark/30 italic font-medium">
+                {lead.remarks || 'No interaction history yet...'}
+              </p>
+            </div>
+          )}
+
+          {/* Next Follow-up Reminder */}
+          {lead.followUpDate && (
+            <div className="mt-2 flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg border border-orange-100/50">
+              <Calendar size={10} className="text-orange-500" />
+              <span className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Next: {format(new Date(lead.followUpDate), 'dd MMM')} at {lead.followUpTime || '10:00'}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </td>
+
+    {/* Status Switcher */}
+    <td className="px-4 py-6 min-w-[150px]">
+      <div className="flex flex-col gap-1.5">
+        <div className="relative">
+          <select 
+            value={lead.status || 'new'} 
+            onChange={(e) => onUpdateStatus(lead.id, e.target.value)}
+            disabled={isUpdating}
+            className={`w-full text-[9px] font-black uppercase tracking-[0.15em] border-none rounded-xl px-3 py-2 appearance-none outline-none transition-all shadow-md cursor-pointer ${
+              lead.status === 'converted' ? 'bg-[#10B981] text-white' :
+              lead.status === 'contacted' ? 'bg-[#3B82F6] text-white' :
+              lead.status === 'lost' ? 'bg-red-500 text-white' :
+               'bg-[#F59E0B] text-white'
+            }`}
+          >
+            <option value="new" className="bg-white text-luxury-dark">New</option>
+            <option value="contacted" className="bg-white text-luxury-dark">Contacted</option>
+            <option value="converted" className="bg-white text-luxury-dark">Converted</option>
+            <option value="lost" className="bg-white text-luxury-dark">Lost</option>
+          </select>
+        </div>
+        
+        <div className="flex items-center gap-1.5 mt-0.5 px-0.5">
+          <UserPlus size={9} className="text-indigo-600 shrink-0" />
+          <span className="text-[8px] font-bold text-luxury-dark/40 uppercase tracking-widest truncate">
+            {lead.assignedAgentName || 'Unassigned'}
+          </span>
+        </div>
+      </div>
+    </td>
+
+    {/* Action Column */}
+    <td className="px-6 py-6 text-right min-w-[200px]">
+      <div className="flex flex-col gap-2">
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddFollowUp(lead);
+          }}
+          className="flex items-center justify-center gap-2 px-3 py-2 bg-luxury-dark text-white rounded-xl text-[9px] font-black uppercase tracking-[0.1em] hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-md"
+        >
+          <Zap size={11} className="fill-current" />
+          <span>Add Follow-up</span>
+        </button>
+        
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            onViewLog(lead);
+          }}
+          className="flex items-center justify-center gap-2 px-3 py-2 bg-white text-luxury-dark/60 border border-luxury-dark/10 rounded-xl text-[9px] font-black uppercase tracking-[0.1em] hover:bg-luxury-dark hover:text-white transition-all shadow-sm"
+        >
+          <History size={11} />
+          <span>View Log</span>
+        </button>
+
+        <button 
+          onClick={() => onDeleteLead(lead.id)}
+          className="flex items-center justify-center gap-2 px-3 py-2 bg-red-50 text-red-500 rounded-xl text-[9px] font-black uppercase tracking-[0.1em] hover:bg-red-500 hover:text-white transition-all shadow-sm"
+        >
+          <Trash2 size={11} />
+          <span>Delete Lead</span>
+        </button>
+      </div>
+    </td>
+    </motion.tr>
+  );
+});
+
 export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({ 
   leads, 
   showToast, 
@@ -141,6 +501,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
   onReply
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'contacted' | 'followup' | 'converted' | 'lost'>('new');
   const [followUpFilter, setFollowUpFilter] = useState<'all' | 'overdue' | 'today' | 'upcoming'>('all');
   const [editingRemarks, setEditingRemarks] = useState<string | null>(null);
@@ -157,6 +518,14 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
   const [followUpOutcome, setFollowUpOutcome] = useState<ActivityLog['outcome']>('none');
   const [isFollowUpDrawerOpen, setIsFollowUpDrawerOpen] = useState(false);
   const [notifiedLeads, setNotifiedLeads] = useState<Set<string>>(new Set());
+
+  // Search Debouncing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 500); // 500ms debounce
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // Notification System: Check for follow-up reminders
   useEffect(() => {
@@ -183,12 +552,12 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
           } catch (e) {}
         }
       });
-    }, 30000); // Check every 30 seconds
+    }, 60000); // Check every 60 seconds is enough
 
     return () => clearInterval(interval);
-  }, [leads, notifiedLeads, showToast]);
+  }, [leads, notifiedLeads.size, showToast]); // Only depend on size to avoid frequent re-runs
 
-  const addHistoryEntry = async (leadId: string, type: ActivityLog['type'], content: string, outcome: ActivityLog['outcome'] = 'none') => {
+  const addHistoryEntry = useCallback(async (leadId: string, type: ActivityLog['type'], content: string, outcome: ActivityLog['outcome'] = 'none') => {
     const lead = leads.find(l => l.id === leadId);
     const entry: ActivityLog = {
       id: Math.random().toString(36).slice(2, 9),
@@ -207,9 +576,9 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     } catch (err) {
       console.warn('Failed to log history:', err);
     }
-  };
+  }, [leads]);
 
-  const createBookingFromLead = async (lead: Lead) => {
+  const createBookingFromLead = useCallback(async (lead: Lead) => {
     try {
       const checkInDate = lead.bookingDate ? new Date(lead.bookingDate) : new Date();
       const checkOutDate = addDays(checkInDate, 1);
@@ -256,7 +625,78 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
       showToast('Failed to create booking automation', 'error');
       throw err;
     }
-  };
+  }, [addHistoryEntry, showToast]);
+
+  const [visibleLeadsCount, setVisibleLeadsCount] = useState(50);
+
+  // Stats
+  const stats = useMemo(() => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    return {
+      total: leads.length,
+      new: leads.filter(l => l.status === 'new').length,
+      contacted: leads.filter(l => l.status === 'contacted').length,
+      converted: leads.filter(l => l.status === 'converted').length,
+      lost: leads.filter(l => l.status === 'lost').length,
+      hot: leads.filter(l => l.score === 'HOT' || l.status === 'hot').length,
+      followUpsToday: leads.filter(l => l.followUpDate === today).length,
+      followup: leads.filter(l => l.followUpDate && l.status !== 'converted' && l.status !== 'lost').length
+    };
+  }, [leads]);
+
+  const filteredLeads = useMemo(() => {
+    const searchVal = debouncedSearch.toLowerCase();
+    const now = new Date();
+    const today = format(now, 'yyyy-MM-dd');
+    const currentTime = format(now, 'HH:mm');
+    const currentDateTime = `${today} ${currentTime}`;
+
+    return leads.filter(lead => {
+      const matchesSearch = 
+        lead.name?.toLowerCase().includes(searchVal) ||
+        lead.phone?.toLowerCase().includes(searchVal) ||
+        lead.email?.toLowerCase().includes(searchVal) ||
+        lead.remarks?.toLowerCase().includes(searchVal);
+      
+      let matchesTab = activeTab === 'all' || lead.status === activeTab;
+      if (activeTab === 'followup') {
+        const isLeadActive = lead.status !== 'converted' && lead.status !== 'lost';
+        const hasDate = !!lead.followUpDate;
+        
+        if (!hasDate || !isLeadActive) return false;
+
+        const leadDateTime = `${lead.followUpDate} ${lead.followUpTime || '10:00'}`;
+
+        if (followUpFilter === 'overdue') {
+          matchesTab = leadDateTime < currentDateTime;
+        } else if (followUpFilter === 'today') {
+          matchesTab = lead.followUpDate === today;
+        } else if (followUpFilter === 'upcoming') {
+          matchesTab = leadDateTime > currentDateTime;
+        } else {
+          matchesTab = true;
+        }
+      }
+      
+      return matchesSearch && matchesTab;
+    }).sort((a, b) => {
+      if (activeTab === 'followup') {
+        // Sort by follow-up date and time (closest/overdue first)
+        const dateTimeA = `${a.followUpDate || '9999-99-99'} ${a.followUpTime || '23:59'}`;
+        const dateTimeB = `${b.followUpDate || '9999-99-99'} ${b.followUpTime || '23:59'}`;
+        return dateTimeA.localeCompare(dateTimeB);
+      }
+      // Default sort by created at
+      const timeA = getSafeDate(a.createdAt).getTime();
+      const timeB = getSafeDate(b.createdAt).getTime();
+      return timeB - timeA;
+    });
+  }, [leads, debouncedSearch, activeTab, followUpFilter]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setVisibleLeadsCount(50);
+  }, [activeTab, debouncedSearch, followUpFilter]);
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -275,19 +715,19 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     fetchAgents();
   }, []);
 
-  const toggleSelectAll = () => {
+  const toggleSelectAll = useCallback(() => {
     if (selectedLeadIds.length === filteredLeads.length) {
       setSelectedLeadIds([]);
     } else {
       setSelectedLeadIds(filteredLeads.map(l => l.id));
     }
-  };
+  }, [selectedLeadIds.length, filteredLeads]);
 
-  const toggleLeadSelection = (id: string) => {
+  const toggleLeadSelection = useCallback((id: string) => {
     setSelectedLeadIds(prev => 
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
-  };
+  }, []);
 
   const handleBulkStatusUpdate = async (status: string) => {
     if (selectedLeadIds.length === 0) return;
@@ -355,73 +795,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     }
   };
 
-  // Stats
-  const stats = {
-    total: leads.length,
-    new: leads.filter(l => l.status === 'new').length,
-    contacted: leads.filter(l => l.status === 'contacted').length,
-    converted: leads.filter(l => l.status === 'converted').length,
-    lost: leads.filter(l => l.status === 'lost').length,
-    hot: leads.filter(l => l.score === 'HOT' || l.status === 'hot').length,
-    followUpsToday: leads.filter(l => l.followUpDate === format(new Date(), 'yyyy-MM-dd')).length,
-    followup: leads.filter(l => l.followUpDate && l.status !== 'converted' && l.status !== 'lost').length
-  };
-
   // Robust date helper for Firestore Timestamps or String dates
-  const getSafeDate = (d: any) => {
-    if (!d) return new Date();
-    if (d.toDate) return d.toDate();
-    if (d.seconds) return new Date(d.seconds * 1000);
-    const date = new Date(d);
-    return isNaN(date.getTime()) ? new Date() : date;
-  };
-
-  const filteredLeads = leads.filter(lead => {
-    const matchesSearch = 
-      lead.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.remarks?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    let matchesTab = activeTab === 'all' || lead.status === activeTab;
-    if (activeTab === 'followup') {
-      const now = new Date();
-      const today = format(now, 'yyyy-MM-dd');
-      const currentTime = format(now, 'HH:mm');
-      const isLeadActive = lead.status !== 'converted' && lead.status !== 'lost';
-      const hasDate = !!lead.followUpDate;
-      
-      if (!hasDate || !isLeadActive) return false;
-
-      const leadDateTime = `${lead.followUpDate} ${lead.followUpTime || '10:00'}`;
-      const currentDateTime = `${today} ${currentTime}`;
-
-      if (followUpFilter === 'overdue') {
-        matchesTab = leadDateTime < currentDateTime;
-      } else if (followUpFilter === 'today') {
-        matchesTab = lead.followUpDate === today;
-      } else if (followUpFilter === 'upcoming') {
-        matchesTab = leadDateTime > currentDateTime;
-      } else {
-        matchesTab = true;
-      }
-    }
-    
-    return matchesSearch && matchesTab;
-  }).sort((a, b) => {
-    if (activeTab === 'followup') {
-      // Sort by follow-up date and time (closest/overdue first)
-      const dateTimeA = `${a.followUpDate || '9999-99-99'} ${a.followUpTime || '23:59'}`;
-      const dateTimeB = `${b.followUpDate || '9999-99-99'} ${b.followUpTime || '23:59'}`;
-      return dateTimeA.localeCompare(dateTimeB);
-    }
-    // Default sort by created at
-    const timeA = getSafeDate(a.createdAt).getTime();
-    const timeB = getSafeDate(b.createdAt).getTime();
-    return timeB - timeA;
-  });
-
-  const handleUpdateStatus = async (leadId: string, status: string) => {
+  const handleUpdateStatus = useCallback(async (leadId: string, status: string) => {
     setIsUpdating(leadId);
     const oldLead = leads.find(l => l.id === leadId);
     try {
@@ -445,9 +820,9 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     } finally {
       setIsUpdating(null);
     }
-  };
+  }, [leads, addHistoryEntry, createBookingFromLead, showToast]);
 
-  const handleSaveRemarks = async (leadId: string) => {
+  const handleSaveRemarks = useCallback(async (leadId: string) => {
     setIsUpdating(leadId);
     try {
       await updateDoc(doc(db, 'leads', leadId), { remarks: remarksValue });
@@ -459,20 +834,9 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     } finally {
       setIsUpdating(null);
     }
-  };
+  }, [remarksValue, addHistoryEntry, showToast]);
 
-  const isWeekend = (dateStr?: string) => {
-    if (!dateStr) return false;
-    try {
-      const date = new Date(dateStr);
-      const day = format(date, 'EEEE');
-      return day === 'Friday' || day === 'Saturday';
-    } catch {
-      return false;
-    }
-  };
-
-  const handleUpdateDetail = async (leadId: string, field: string, value: string) => {
+  const handleUpdateDetail = useCallback(async (leadId: string, field: string, value: string) => {
     setIsUpdating(leadId);
     const oldLead = leads.find(l => l.id === leadId);
     const oldValue = oldLead ? (oldLead as any)[field] : 'none';
@@ -503,7 +867,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     } finally {
       setIsUpdating(null);
     }
-  };
+  }, [leads, addHistoryEntry, showToast]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -717,323 +1081,46 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-luxury-dark/5">
-              <AnimatePresence mode="popLayout">
-                {filteredLeads.flatMap((lead) => {
-                  const lastTwoInteractions = (lead.history || [])
-                    .filter(h => ['call', 'whatsapp', 'email', 'visit', 'remark', 'followup'].includes(h.type))
-                    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                    .slice(0, 2);
-                  const items = [
-                    <motion.tr 
-                      layout
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      key={`lead-${lead.id}`} 
-                      className={`group hover:bg-luxury-dark/5 transition-colors ${selectedLeadIds.includes(lead.id) ? 'bg-luxury-gold/5' : lead.status === 'new' ? 'bg-blue-50/30' : ''}`}
-                    >
-                      <td className="px-4 py-6 transition-all">
-                        <button 
-                          onClick={() => toggleLeadSelection(lead.id)}
-                          className={`p-1.5 rounded-lg transition-all ${selectedLeadIds.includes(lead.id) ? 'bg-luxury-dark text-white scale-110' : 'bg-gray-50 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-luxury-dark'}`}
-                        >
-                          {selectedLeadIds.includes(lead.id) ? <CheckSquare size={16} /> : <Square size={16} />}
-                        </button>
-                      </td>
-                    {/* Unified Lead Info (3 Rows) */}
-                    <td className="px-4 py-6 min-w-[320px] lg:min-w-[400px]">
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-3 lg:gap-x-6 gap-y-3">
-                        {/* Row 1 */}
-                        <div className="flex items-center gap-2">
-                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-serif text-[10px] font-black shrink-0 ${lead.status === 'new' ? 'bg-blue-600 text-white' : 'bg-luxury-dark/5 text-luxury-dark/20'}`}>
-                            {lead.name?.charAt(0) || '?'}
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <h4 className="text-xs font-serif font-black text-luxury-dark truncate max-w-[80px] lg:max-w-[100px]">{lead.name}</h4>
-                            {isPast(new Date(lead.followUpDate || '')) && !isToday(new Date(lead.followUpDate || '')) && lead.status !== 'converted' && lead.status !== 'lost' && (
-                              <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" title="Follow-up Overdue!"></span>
-                            )}
-                            {differenceInHours(new Date(), getSafeDate(lead.createdAt)) < 24 && lead.status === 'new' && (
-                              <span className="flex h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          {editingDetail?.id === lead.id && editingDetail?.field === 'bookingDate' ? (
-                            <input 
-                              type="date"
-                              autoFocus
-                              value={editDetailValue}
-                              onChange={(e) => setEditDetailValue(e.target.value)}
-                              onBlur={() => handleUpdateDetail(lead.id, 'bookingDate', editDetailValue)}
-                              className="text-[9px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
-                            />
-                          ) : (
-                            <div 
-                              onClick={() => {
-                                setEditingDetail({ id: lead.id, field: 'bookingDate' });
-                                setEditDetailValue(lead.bookingDate || '');
-                              }}
-                              className="flex flex-col gap-0.5 group/dbdate"
-                            >
-                              <div className={`flex items-center gap-1.5 text-[10px] font-bold ${isWeekend(lead.bookingDate) ? 'text-red-600 bg-red-50 px-1 rounded' : 'text-luxury-dark/70'} group-hover/dbdate:text-luxury-gold cursor-pointer transition-colors leading-none font-sans`} title="Booking Date">
-                                <Calendar size={12} className={isWeekend(lead.bookingDate) ? 'text-red-500 shrink-0' : 'text-luxury-gold shrink-0'} />
-                                {lead.bookingDate ? format(new Date(lead.bookingDate), 'MMM dd, yyyy') : <span className="text-luxury-gold/40 italic text-[8px]">No Date</span>}
-                              </div>
-                              {lead.bookingDate && (
-                                <span className="text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none text-luxury-dark/30">
-                                  {lead.bookingTime || '10:00 AM'}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${
-                            lead.source === 'meta' ? 'bg-blue-50 text-blue-600' :
-                            lead.source === 'google_sheets' ? 'bg-emerald-50 text-emerald-600' :
-                            'bg-luxury-dark/5 text-luxury-dark/40'
-                          }`}>
-                            {lead.source === 'meta' && <Facebook size={9} />}
-                            {lead.source === 'google_sheets' && <FileSpreadsheet size={9} />}
-                            {lead.source || 'Direct'}
-                          </span>
-                        </div>
-
-
-                        {/* Row 2 */}
-                        <div className="flex items-center gap-3">
-                          <button 
-                            onClick={() => {
-                              const cleanPhone = lead.phone.replace(/\D/g, '');
-                              window.open(`https://wa.me/${cleanPhone}`, '_blank');
-                            }}
-                            className="flex items-center gap-2 text-[11px] text-luxury-dark/40 hover:text-green-600 transition-colors font-bold pl-1"
-                          >
-                            <Phone size={12} className="shrink-0" /> {lead.phone}
-                          </button>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {editingDetail?.id === lead.id && editingDetail?.field === 'guests' ? (
-                            <input 
-                              type="text"
-                              autoFocus
-                              placeholder="Num..."
-                              value={editDetailValue}
-                              onChange={(e) => setEditDetailValue(e.target.value)}
-                              onBlur={() => handleUpdateDetail(lead.id, 'guests', editDetailValue)}
-                              className="text-[10px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
-                            />
-                          ) : (
-                            <div 
-                              onClick={() => {
-                                setEditingDetail({ id: lead.id, field: 'guests' });
-                                setEditDetailValue(lead.guests || '');
-                              }}
-                              className="flex items-center gap-2 text-[11px] font-medium text-luxury-dark/50 hover:text-luxury-gold cursor-pointer transition-colors"
-                            >
-                              <Users size={14} className="shrink-0 text-luxury-gold" /> 
-                              {lead.guests || <span className="text-luxury-gold/30 italic">Add Guests</span>}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {editingDetail?.id === lead.id && editingDetail?.field === 'city' ? (
-                            <input 
-                              type="text"
-                              autoFocus
-                              placeholder="City..."
-                              value={editDetailValue}
-                              onChange={(e) => setEditDetailValue(e.target.value)}
-                              onBlur={() => handleUpdateDetail(lead.id, 'city', editDetailValue)}
-                              className="text-[10px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
-                            />
-                          ) : (
-                            <div 
-                              onClick={() => {
-                                setEditingDetail({ id: lead.id, field: 'city' });
-                                setEditDetailValue(lead.city || '');
-                              }}
-                              className="flex items-center gap-2 text-[10px] font-bold text-luxury-dark/50 uppercase tracking-widest leading-none cursor-pointer hover:text-luxury-gold transition-colors"
-                            >
-                              <MapPin size={12} className="shrink-0 text-luxury-gold" /> 
-                              {lead.city || <span className="text-luxury-gold/30 italic">City</span>}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Row 3 */}
-                        <div className="flex items-center gap-3 max-w-[150px] overflow-hidden">
-                          {lead.email ? (
-                            <button 
-                              onClick={() => {
-                                onReply('email', lead.email, lead.name, lead.id);
-                              }}
-                              className="flex items-center gap-2 text-[11px] text-blue-600 hover:text-blue-700 transition-colors font-bold pl-1 truncate"
-                            >
-                              <Mail size={12} className="shrink-0 text-red-500" /> {lead.email}
-                            </button>
-                          ) : (
-                            <div className="flex items-center gap-2 text-[11px] text-luxury-dark/20 font-bold pl-1 italic">
-                              <Mail size={12} className="shrink-0 text-red-500/30" /> No email
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {editingDetail?.id === lead.id && editingDetail?.field === 'budget' ? (
-                            <input 
-                              type="text"
-                              autoFocus
-                              placeholder="Amt..."
-                              value={editDetailValue}
-                              onChange={(e) => setEditDetailValue(e.target.value)}
-                              onBlur={() => handleUpdateDetail(lead.id, 'budget', editDetailValue)}
-                              className="text-[10px] bg-gray-50 border border-luxury-gold/30 rounded px-1.5 py-0.5 outline-none w-full"
-                            />
-                          ) : (
-                            <div 
-                              onClick={() => {
-                                setEditingDetail({ id: lead.id, field: 'budget' });
-                                setEditDetailValue(lead.budget || '');
-                              }}
-                              className="flex items-center gap-2 text-[11px] font-medium text-luxury-dark/50 hover:text-luxury-gold cursor-pointer transition-colors"
-                            >
-                              <IndianRupee size={14} className="shrink-0 text-luxury-gold" /> 
-                              {lead.budget || <span className="text-luxury-gold/30 italic">Add Budget</span>}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className={`flex flex-col gap-0.5 ${isWeekend(lead.createdAt) ? 'bg-red-50/50 p-0.5 rounded' : ''}`}>
-                          <div className={`flex items-center gap-2 text-[10px] font-bold ${isWeekend(lead.createdAt) ? 'text-red-600' : 'text-luxury-dark/50'} uppercase tracking-widest whitespace-nowrap leading-none`}>
-                            <Clock size={12} className={`shrink-0 ${isWeekend(lead.createdAt) ? 'text-red-500' : 'text-blue-500'}`} />
-                            {lead.createdAt ? format(getSafeDate(lead.createdAt), 'MMM dd, yyyy') : 'N/A'}
-                          </div>
-                          {lead.createdAt && (
-                            <span className="text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none text-luxury-dark/30">
-                              {format(getSafeDate(lead.createdAt), 'hh:mm a')}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Interaction Summary (Latest Follow-up only) */}
-                    <td className="px-4 py-6 min-w-[280px]">
-                      <div className="flex flex-col gap-3">
-                        <div className="space-y-2">
-                          {lastTwoInteractions.slice(0, 1).map((log) => (
-                            <div key={log.id} className="flex flex-col gap-1 border-l-2 border-luxury-gold pl-3 py-1 bg-luxury-dark/5 rounded-r-xl">
-                              <div className="flex items-center justify-between mb-0.5">
-                                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-luxury-dark/40">
-                                  {log.type === 'followup' ? <Clock size={9} className="text-indigo-500" /> : <MessageSquare size={9} className="text-amber-500" />}
-                                  <span>{format(new Date(log.timestamp), 'dd MMM, HH:mm')}</span>
-                                </div>
-                                <span className="text-[8px] font-black text-luxury-gold uppercase tracking-tighter">Latest Remark</span>
-                              </div>
-                              <p className="text-[10px] font-medium leading-relaxed text-luxury-dark line-clamp-2 italic">
-                                {log.content.replace(/^Updated remarks:\s*/i, '')}
-                              </p>
-                            </div>
-                          ))}
-                          {lastTwoInteractions.length === 0 && (
-                            <div className="flex flex-col gap-0.5 border-l-2 border-luxury-dark/5 pl-3 py-2 bg-gray-50 rounded-r-xl">
-                              <p className="text-[10px] text-luxury-dark/30 italic font-medium">
-                                {lead.remarks || 'No interaction history yet...'}
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Next Follow-up Reminder */}
-                          {lead.followUpDate && (
-                            <div className="mt-2 flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg border border-orange-100/50">
-                              <Calendar size={10} className="text-orange-500" />
-                              <span className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Next: {format(new Date(lead.followUpDate), 'dd MMM')} at {lead.followUpTime || '10:00'}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Status Switcher */}
-                    <td className="px-4 py-6 min-w-[150px]">
-                      <div className="flex flex-col gap-1.5">
-                        <div className="relative">
-                          <select 
-                            value={lead.status || 'new'} 
-                            onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                            disabled={isUpdating === lead.id}
-                            className={`w-full text-[9px] font-black uppercase tracking-[0.15em] border-none rounded-xl px-3 py-2 appearance-none outline-none transition-all shadow-md cursor-pointer ${
-                              lead.status === 'converted' ? 'bg-[#10B981] text-white' :
-                              lead.status === 'contacted' ? 'bg-[#3B82F6] text-white' :
-                              lead.status === 'lost' ? 'bg-red-500 text-white' :
-                               'bg-[#F59E0B] text-white'
-                            }`}
-                          >
-                            <option value="new" className="bg-white text-luxury-dark">New</option>
-                            <option value="contacted" className="bg-white text-luxury-dark">Contacted</option>
-                            <option value="converted" className="bg-white text-luxury-dark">Converted</option>
-                            <option value="lost" className="bg-white text-luxury-dark">Lost</option>
-                          </select>
-                        </div>
-                        
-                        <div className="flex items-center gap-1.5 mt-0.5 px-0.5">
-                          <UserPlus size={9} className="text-indigo-600 shrink-0" />
-                          <span className="text-[8px] font-bold text-luxury-dark/40 uppercase tracking-widest truncate">
-                            {lead.assignedAgentName || 'Unassigned'}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Action Column */}
-                    <td className="px-6 py-6 text-right min-w-[200px]">
-                      <div className="flex flex-col gap-2">
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedLeadForFollowUp(lead);
-                            setIsFollowUpDrawerOpen(true);
-                          }}
-                          className="flex items-center justify-center gap-2 px-3 py-2 bg-luxury-dark text-white rounded-xl text-[9px] font-black uppercase tracking-[0.1em] hover:bg-luxury-gold hover:text-luxury-dark transition-all shadow-md"
-                        >
-                          <Zap size={11} className="fill-current" />
-                          <span>Add Follow-up</span>
-                        </button>
-                        
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedLeadForLog(lead);
-                          }}
-                          className="flex items-center justify-center gap-2 px-3 py-2 bg-white text-luxury-dark/60 border border-luxury-dark/10 rounded-xl text-[9px] font-black uppercase tracking-[0.1em] hover:bg-luxury-dark hover:text-white transition-all shadow-sm"
-                        >
-                          <History size={11} />
-                          <span>View Log</span>
-                        </button>
-
-                        <button 
-                          onClick={() => onDeleteLead(lead.id)}
-                          className="flex items-center justify-center gap-2 px-3 py-2 bg-red-50 text-red-500 rounded-xl text-[9px] font-black uppercase tracking-[0.1em] hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                        >
-                          <Trash2 size={11} />
-                          <span>Delete Lead</span>
-                        </button>
-                      </div>
-                    </td>
-                  </motion.tr>
-                ];
-
-                return items;
-              })}
-            </AnimatePresence>
+              <AnimatePresence mode="popLayout" initial={false}>
+                {filteredLeads.slice(0, visibleLeadsCount).map((lead) => (
+                  <LeadRow 
+                    key={lead.id}
+                    lead={lead}
+                    isSelected={selectedLeadIds.includes(lead.id)}
+                    isUpdating={isUpdating === lead.id}
+                    editingDetail={editingDetail}
+                    editDetailValue={editDetailValue}
+                    setEditDetailValue={setEditDetailValue}
+                    setEditingDetail={setEditingDetail}
+                    onToggleSelect={toggleLeadSelection}
+                    onUpdateStatus={handleUpdateStatus}
+                    onUpdateDetail={handleUpdateDetail}
+                    onAddFollowUp={(l) => {
+                      setSelectedLeadForFollowUp(l);
+                      setIsFollowUpDrawerOpen(true);
+                      setEditDetailValue(l.followUpDate || '');
+                      setRemarksValue(l.followUpRemarks || '');
+                    }}
+                    onViewLog={setSelectedLeadForLog}
+                    onDeleteLead={onDeleteLead}
+                    onReply={onReply}
+                  />
+                ))}
+              </AnimatePresence>
             </tbody>
           </table>
+
+          {filteredLeads.length > visibleLeadsCount && (
+            <div className="p-8 flex justify-center border-t border-luxury-dark/5 bg-gray-50/30">
+              <button 
+                onClick={() => setVisibleLeadsCount(prev => prev + 50)}
+                className="flex items-center gap-2 px-8 py-3 bg-white border border-luxury-dark/10 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] text-luxury-dark hover:bg-luxury-dark hover:text-white transition-all shadow-sm group"
+              >
+                <RefreshCw size={14} className="group-hover:rotate-180 transition-transform duration-500" />
+                <span>Load More Records ({filteredLeads.length - visibleLeadsCount} remaining)</span>
+              </button>
+            </div>
+          )}
           
           {filteredLeads.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-luxury-dark/20">

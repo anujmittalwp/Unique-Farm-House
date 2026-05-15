@@ -8697,7 +8697,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     } else if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = "Please enter a valid email address";
     }
-    
+
     if (!checkIn) {
       newErrors.checkIn = "Check-in date is required";
     } else {
@@ -8758,10 +8758,97 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     }
     
     setErrors({});
-    await handleFinalConfirm();
+
+    // If client is booking, use Razorpay
+    if (!isAdminBooking && (userRole === 'client' || !userRole) && totalAmount > 0) {
+      try {
+        setLoading(true);
+        showToast('Initializing secure payment...', 'info');
+        
+        const response = await fetch('/api/payment/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: totalAmount,
+            receipt: `rcpt_${Date.now()}`
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || errorData.details || 'Failed to create payment order');
+        }
+
+        const order = await response.json();
+        
+        const options = {
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID || '',
+          amount: order.amount,
+          currency: order.currency,
+          name: "Unique Farmhouse",
+          description: `Stay from ${format(checkIn!, 'dd-MM-yyyy')} to ${format(checkOut!, 'dd-MM-yyyy')}`,
+          image: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif",
+          order_id: order.id,
+          handler: async function (response: any) {
+            console.log('Razorpay payment response:', response);
+            try {
+              setLoading(true);
+              showToast('Verifying payment...', 'info');
+              
+              const verifyRes = await fetch('/api/payment/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature
+                })
+              });
+
+              if (!verifyRes.ok) {
+                const errorData = await verifyRes.json().catch(() => ({}));
+                throw new Error(errorData.error || 'Payment verification failed');
+              }
+
+              await handleFinalConfirm(response.razorpay_payment_id);
+            } catch (err: any) {
+              console.error('Payment verification error:', err);
+              showToast(`Error: ${err.message}`, 'error');
+              setLoading(false);
+            }
+          },
+          prefill: {
+            name: name,
+            email: email,
+            contact: mobile
+          },
+          notes: {
+            address: "Noida Sector 135"
+          },
+          theme: {
+            color: "#D4AF37"
+          },
+          modal: {
+            ondismiss: function() {
+              setLoading(false);
+              showToast('Payment cancelled', 'info');
+            }
+          }
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      } catch (err) {
+        console.error('Payment initialization error:', err);
+        showToast('Could not initialize payment. Please try again.', 'error');
+        setLoading(false);
+      }
+    } else {
+      await handleFinalConfirm();
+    }
   };
 
-  const handleFinalConfirm = async () => {
+  const handleFinalConfirm = async (razorpayPaymentId?: string) => {
     setLoading(true);
     showToast('Processing your booking...', 'info');
     
@@ -8784,7 +8871,16 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         }
       }
 
-      const totalPaidAmount = payments ? payments.reduce((sum, p) => sum + p.amount, 0) : 0;
+      const totalPaidAmount = (payments ? payments.reduce((sum, p) => sum + p.amount, 0) : 0) + (razorpayPaymentId ? totalAmount : 0);
+      const updatedPayments = payments || [];
+      if (razorpayPaymentId) {
+        updatedPayments.push({
+          amount: totalAmount,
+          note: 'Razorpay Online Payment',
+          date: format(new Date(), 'yyyy-MM-dd'),
+          paymentId: razorpayPaymentId
+        });
+      }
 
       const bookingData = {
         uid: finalUid,
@@ -8808,9 +8904,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         mobile: mobile || '',
         email: (email || '').toLowerCase(),
         occasion: occasion || '',
-        payments: payments || [],
+        payments: updatedPayments,
         bookedBy: (userRole === 'admin' || userRole === 'agent') ? (bookedBy || (isAdminBooking ? (userRole === 'admin' ? 'admin_for_client' : 'agent_for_client') : 'admin_personal')) : 'client',
-        paymentMethod: paymentMethod || 'upi'
+        paymentMethod: razorpayPaymentId ? 'card' : (paymentMethod || 'upi')
       };
 
       console.log('Submitting booking data:', bookingData);

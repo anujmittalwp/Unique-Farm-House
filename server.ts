@@ -8,9 +8,11 @@ import { Resend } from "resend";
 import { v2 as cloudinary } from "cloudinary";
 import webpush from "web-push";
 import nodemailer from "nodemailer";
+import Razorpay from "razorpay";
+import crypto from "crypto";
 import * as dotenv from "dotenv";
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit, setLogLevel } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, orderBy, limit, setLogLevel, writeBatch } from 'firebase/firestore';
 import { initializeApp as initializeAdminApp, getApps as getAdminApps, applicationDefault } from 'firebase-admin/app';
 import { getFirestore as getAdminFirestore, FieldValue as AdminFieldValue, Firestore as AdminFirestoreClass } from 'firebase-admin/firestore';
 import type { App as AdminApp } from 'firebase-admin/app';
@@ -37,31 +39,38 @@ function getAdminDb() {
     try {
       const apps = getAdminApps();
       if (apps.length === 0) {
-        adminApp = initializeAdminApp({
-           projectId: firebaseConfig.projectId
-        });
-        console.log(`[Firebase Admin] Initialized App with explicit projectId: ${firebaseConfig.projectId}`);
+        // AI Studio: Try to use applicationDefault() which sometimes works better for IAM mapping
+        try {
+          adminApp = initializeAdminApp({
+            credential: applicationDefault(),
+            projectId: firebaseConfig.projectId
+          });
+          console.log(`[Firebase Admin] Initialized App with applicationDefault for: ${firebaseConfig.projectId}`);
+        } catch (e) {
+          console.warn("[Firebase Admin] applicationDefault failed, falling back to projectId only init.");
+          adminApp = initializeAdminApp({
+            projectId: firebaseConfig.projectId
+          });
+        }
       } else {
         adminApp = apps[0];
-        console.log(`[Firebase Admin] Using existing App`);
       }
       
       const databaseId = firebaseConfig.firestoreDatabaseId;
-      // Using explicit Firestore constructor to ensure credentials/project/database are correctly mapped
-      adminDb = new AdminFirestoreClass({
-        projectId: firebaseConfig.projectId,
-        databaseId: (databaseId && databaseId !== '(default)' && databaseId !== '') ? databaseId : undefined,
-      });
+      // In this environment, named databases often require explicit databaseId in getFirestore
+      if (databaseId && databaseId !== '(default)') {
+        adminDb = getAdminFirestore(adminApp, databaseId);
+      } else {
+        adminDb = getAdminFirestore(adminApp);
+      }
 
-      console.log(`[Firebase Admin] Firestore instance created for database: ${databaseId || '(default)'}`);
-      
-      // Verification probe
+      // Verification probe (non-blocking)
       adminDb.collection('_permission_probe').limit(1).get()
-        .then(() => console.log('[Firebase Admin] PROBE SUCCESS: Read access verified.'))
+        .then(() => console.log('[Firebase Admin] PROBE SUCCESS: Backend DB access verified.'))
         .catch(err => {
-          console.error('[Firebase Admin] PROBE FAILED: Permission denied for Firestore.');
-          console.error(`- Error Code: ${err.code}`);
-          console.error(`- Details: ${err.message}`);
+          console.warn('[Firebase Admin] PROBE FAILED: Permission denied.');
+          console.warn(`- Error ${err.code}: ${err.message}`);
+          console.warn('- Note: Server-side automation may be limited if IAM permissions are missing.');
         });
 
     } catch (err) {
@@ -98,23 +107,41 @@ async function startServer() {
   // === Push Notification Setup ===
   let vapidKeys = { publicKey: '', privateKey: '' };
   try {
-    const aDb = getAdminDb();
-    if (aDb) {
-      const vapidDocRef = aDb.collection('settings').doc('vapid_keys');
-      const vapidDoc = await vapidDocRef.get();
-      if (!vapidDoc.exists || !vapidDoc.data()?.publicKey || !vapidDoc.data()?.privateKey) {
-        vapidKeys = webpush.generateVAPIDKeys();
-        await vapidDocRef.set(vapidKeys);
-        console.log('Generated and saved new VAPID keys for push notifications.');
-      } else {
-        vapidKeys = vapidDoc.data() as any;
-      }
-    } else {
+    const vapidDocRef = doc(db, 'settings', 'vapid_keys');
+    const vapidDoc = await getDoc(vapidDocRef);
+    if (!vapidDoc.exists() || !vapidDoc.data()?.publicKey || !vapidDoc.data()?.privateKey) {
       vapidKeys = webpush.generateVAPIDKeys();
+      // Try Admin SDK first for write as it bypasses rules
+      const aDb = getAdminDb();
+      if (aDb) {
+        await aDb.collection('settings').doc('vapid_keys').set(vapidKeys)
+          .then(() => console.log('Successfully saved VAPID keys via Admin SDK'))
+          .catch(e => console.warn("Failed to save VAPID keys via Admin SDK:", e.message));
+      } else {
+        await setDoc(vapidDocRef, vapidKeys).catch(() => console.warn("Failed to persist VAPID keys to Firestore (Unauthenticated Client)"));
+      }
+      console.log('Generated new VAPID keys.');
+    } else {
+      vapidKeys = vapidDoc.data() as any;
     }
   } catch (err) {
-    console.warn("Failed to load/generate VAPID keys from firestore:", err);
-    vapidKeys = webpush.generateVAPIDKeys(); // fallback memory keys
+    // Fallback: try Admin SDK if Client SDK blocked by rules
+    try {
+      const aDb = getAdminDb();
+      if (aDb) {
+        const vapidDoc = await aDb.collection('settings').doc('vapid_keys').get();
+        if (vapidDoc.exists) {
+          vapidKeys = vapidDoc.data() as any;
+        } else {
+          vapidKeys = webpush.generateVAPIDKeys();
+        }
+      } else {
+        vapidKeys = webpush.generateVAPIDKeys();
+      }
+    } catch (adminErr) {
+      console.warn("Could not read VAPID keys from Firestore. Falling back to memory-only keys.");
+      vapidKeys = webpush.generateVAPIDKeys(); 
+    }
   }
 
   webpush.setVapidDetails(
@@ -136,12 +163,18 @@ async function startServer() {
          return res.status(400).json({ error: "Invalid subscription" });
       }
       // Attempt to save to firestore
-      const subId = Buffer.from(subscription.endpoint).toString('base64').replace(/[^a-zA-Z0-9]/g, '');
+      const subId = Buffer.from(subscription.endpoint).toString('base64').replace(/[^a-zA-Z0-9]/g, '').substring(0, 100);
       const aDb = getAdminDb();
       if (aDb) {
         await aDb.collection('push_subscriptions').doc(subId).set({
           subscription,
           createdAt: AdminFieldValue.serverTimestamp()
+        }, { merge: true });
+      } else {
+        // Fallback to client SDK if Admin fails (requires specific rules)
+        await setDoc(doc(db, 'push_subscriptions', subId), {
+          subscription,
+          createdAt: serverTimestamp()
         }, { merge: true });
       }
       res.status(201).json({});
@@ -164,7 +197,7 @@ async function startServer() {
         } catch (err: any) {
           if (err.statusCode === 404 || err.statusCode === 410) {
              console.log('Subscription expired. Deleting...');
-             await docSnap.ref.delete(); // Delete expired subscription
+             await docSnap.ref.delete().catch(() => {}); 
           } else {
              console.error('Error sending push notification:', err);
           }
@@ -172,8 +205,7 @@ async function startServer() {
       });
       await Promise.all(promises);
     } catch (error: any) {
-       console.error("Critical error retrieving push subscriptions from Firestore:", error.message);
-       if (error.stack) console.error(error.stack);
+       console.error("Error retrieving push subscriptions:", error.message);
     }
   }
 
@@ -207,20 +239,14 @@ async function startServer() {
 
   // Broadcast to SSE clients with role filtering
   const broadcast = async (payload: any, docData?: any) => {
-    // 1. Local Broadcast with Filtering
     for (const client of clients) {
       try {
         let shouldSend = true;
-
-        // Filtering logic:
-        // - Admins get everything
-        // - Agents only get what's assigned to them (if doc has assignedTo)
         if (client.role === 'agent' && docData && docData.assignedTo) {
           if (docData.assignedTo !== client.userId) {
             shouldSend = false;
           }
         }
-
         if (shouldSend) {
           client.controller.enqueue(`data: ${JSON.stringify(payload)}\n\n`);
         }
@@ -229,8 +255,7 @@ async function startServer() {
       }
     }
 
-    // 2. Forward to Cloudflare Worker if configured
-    const workerUrl = process.env.VITE_WORKER_URL; // Using VITE_ prefix for consistency or just WORKER_URL
+    const workerUrl = process.env.VITE_WORKER_URL;
     if (workerUrl) {
       try {
         await fetch(`${workerUrl}/api/notify`, {
@@ -244,27 +269,19 @@ async function startServer() {
     }
   };
 
-  // Listen for Firestore changes on server and push to SSE
+  // Listen for Firestore changes (Using Client SDK for better reliability with rules)
   const setupFirestoreListeners = () => {
-    // Clear any pending stop timeout
     if (stopListenersTimeout) {
       clearTimeout(stopListenersTimeout);
       stopListenersTimeout = null;
     }
 
-    if (leadsUnsubscribe || bookingsUnsubscribe) return; // Already listening
+    if (leadsUnsubscribe || bookingsUnsubscribe) return; 
 
-    console.log('[SSE] Starting Firestore listeners...');
-    const aDb = getAdminDb();
-    if (!aDb) {
-      console.warn('[SSE] Cannot start listeners: adminDb not available');
-      return;
-    }
-    const adminLeadsRef = aDb.collection('leads');
-    const adminBookingsRef = aDb.collection('bookings');
-
+    console.log('[SSE] Starting Firestore listeners (Client-based for reliability)...');
+    
     let initialLeads = true;
-    leadsUnsubscribe = adminLeadsRef.onSnapshot(async (snapshot) => {
+    leadsUnsubscribe = onSnapshot(collection(db, 'leads'), async (snapshot) => {
       if (initialLeads) { initialLeads = false; return; }
       
       for (const change of snapshot.docChanges()) {
@@ -274,37 +291,35 @@ async function startServer() {
           
           console.log(`[Automation] New lead detected: ${leadId}`);
           
-          // Trigger Push Notification
           sendPushToAllAdmins({
             title: `New Lead: ${data.name || 'Anonymous'}`,
             body: `Phone: ${data.phone || 'N/A'} | Guests: ${data.guests || '?'}`
           }).catch(e => console.error('[Automation] Push error for new lead:', e));
           
-          // 1. Calculate Score
           let score = 'WARM';
           const guests = parseInt(data.guests) || 0;
           if (guests > 10) score = 'HOT';
           
           if (data.bookingDate) {
             const leadDate = new Date(data.bookingDate);
-            const today = new Date();
-            const diffTime = Math.abs(leadDate.getTime() - today.getTime());
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            if (diffDays <= 3) score = 'HOT';
+            if (!isNaN(leadDate.getTime())) {
+              const today = new Date();
+              const diffTime = Math.abs(leadDate.getTime() - today.getTime());
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              if (diffDays <= 3) score = 'HOT';
+            }
           }
 
-          // 2. Update Lead with Score and Status
           try {
-            await adminLeadsRef.doc(leadId).update({ 
+            await setDoc(doc(db, 'leads', leadId), { 
               score, 
               status: data.status || 'new',
               automated: true 
-            });
+            }, { merge: true });
           } catch (e) {
             console.error(`[Automation] Update error for ${leadId}:`, e);
           }
 
-          // 3. Trigger Notifications (Real-time & WhatsApp Alert)
           broadcast({ 
             type: 'lead', 
             title: `New ${score} Lead! 🚨`, 
@@ -312,19 +327,15 @@ async function startServer() {
             data: { ...data, id: leadId, score } 
           }, { ...data, score });
 
-          // 4. Schedule Follow-ups (using the helper defined above)
           scheduleFollowUp(leadId, data, 1, "Hi, just checking if you're still interested 😊");
-          scheduleFollowUp(leadId, data, 2, "Last slots available, confirm soon ⚡");
         }
       }
     }, (err) => {
-      if (err.message?.indexOf('CANCELLED') === -1) {
-        console.error('[SSE] Leads listener error:', err);
-      }
+      console.error('[SSE] Leads listener error:', err);
     });
 
     let initialBookings = true;
-    bookingsUnsubscribe = adminBookingsRef.onSnapshot((snapshot) => {
+    bookingsUnsubscribe = onSnapshot(collection(db, 'bookings'), (snapshot) => {
       if (initialBookings) { initialBookings = false; return; }
       snapshot.docChanges().forEach(change => {
         if (change.type === 'added') {
@@ -332,7 +343,6 @@ async function startServer() {
           console.log(`[SSE] New booking detected: ${change.doc.id}`);
           broadcast({ type: 'booking', title: 'New Booking', message: `Booking by ${data.name || 'Guest'}`, data }, data);
           
-          // Trigger Push Notification automatically from server
           sendPushToAllAdmins({
             title: `New Booking: ${data.name || 'Guest'}`,
             body: `Check-In: ${data.checkIn || '?'} | Total: ₹${(data.totalAmount || 0).toLocaleString()}`
@@ -340,19 +350,16 @@ async function startServer() {
         }
       });
     }, (err) => {
-      if (err.message?.indexOf('CANCELLED') === -1) {
-        console.error('[SSE] Bookings listener error:', err);
-      }
+      console.error('[SSE] Bookings listener error:', err);
     });
   };
 
   const stopFirestoreListeners = () => {
-    // Only stop if no clients are connected
     if (clients.length === 0) {
       if (stopListenersTimeout) clearTimeout(stopListenersTimeout);
       stopListenersTimeout = setTimeout(() => {
         if (clients.length === 0) {
-          console.log('[SSE] Grace period over. Stopping Firestore listeners...');
+          console.log('[SSE] Stopping Firestore listeners...');
           if (leadsUnsubscribe) { leadsUnsubscribe(); leadsUnsubscribe = null; }
           if (bookingsUnsubscribe) { bookingsUnsubscribe(); bookingsUnsubscribe = null; }
         }
@@ -361,6 +368,86 @@ async function startServer() {
     }
   };
 
+  // Improved Razorpay initialization with verification
+  const getRazorpay = () => {
+    const keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || "").trim();
+    const keySecret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
+
+    if (!keyId || !keySecret) {
+      throw new Error("Razorpay credentials (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET) are missing. Please add them in Settings -> Secrets.");
+    }
+
+    const mask = (s: string) => s.length > 8 ? `${s.substring(0, 4)}...${s.substring(s.length - 4)}` : '****';
+    console.log(`[Razorpay] Initializing with KeyID: ${mask(keyId)} and Secret: ${mask(keySecret)}`);
+
+    if (keyId.startsWith('rzp_test_') === false && keyId.startsWith('rzp_live_') === false) {
+       console.warn("[Razorpay] INVALID KEY ID DETECTED: Ensure your Key ID starts with 'rzp_test_' or 'rzp_live_'. Current: ${keyId.substring(0, 8)}...");
+    }
+
+    return new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret,
+    });
+  };
+
+  app.post("/api/payment/create-order", async (req, res) => {
+    const { amount, currency = "INR", receipt } = req.body;
+    
+    if (!amount) {
+      return res.status(400).json({ error: "Amount is required", code: "MISSING_AMOUNT" });
+    }
+
+    try {
+      const razorpay = getRazorpay();
+      const options = {
+        amount: Math.round(amount * 100), // Razorpay expects amount in paise
+        currency,
+        receipt: receipt || `receipt_${Date.now()}`,
+      };
+      
+      console.log(`[Razorpay] Creating order for ${amount} ${currency}`);
+      const order = await razorpay.orders.create(options);
+      res.json(order);
+    } catch (error: any) {
+      console.error("Razorpay Error Details:", {
+        message: error.message,
+        error: error.error || error,
+        code: error.code,
+        description: error.description
+      });
+      
+      const errorData = error.error || error;
+      const isAuthError = errorData.code === 'BAD_REQUEST_ERROR' && errorData.description === 'Authentication failed';
+      
+      res.status(isAuthError ? 401 : 500).json({ 
+        error: isAuthError ? "Razorpay Authentication Failed" : (error.message || "Payment initialization failed"),
+        code: error.code || "PAYMENT_ERROR",
+        details: isAuthError 
+          ? "Your Razorpay Key ID or Secret is incorrect. Please update them in Settings -> Secrets." 
+          : (error.description || "Check your credentials and connection.")
+      });
+    }
+  });
+
+  app.post("/api/payment/verify", async (req, res) => {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keySecret) {
+      return res.status(500).json({ error: "Razorpay Key Secret is missing in environment" });
+    }
+
+    const hmac = crypto.createHmac("sha256", keySecret);
+    hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
+    const generatedSignature = hmac.digest("hex");
+
+    if (generatedSignature === razorpay_signature) {
+      res.json({ status: "ok", message: "Payment verified successfully" });
+    } else {
+      console.error("[Razorpay Verify] Signature mismatch!");
+      res.status(400).json({ error: "Invalid signature", status: "failed" });
+    }
+  });
 
   // SSE Endpoint with ReadableStream and Role Detection
   app.get("/api/notifications/stream", async (req, res) => {
@@ -455,21 +542,35 @@ async function startServer() {
     const delay = day * 24 * 60 * 60 * 1000;
     
     setTimeout(async () => {
-      const aDb = getAdminDb();
-      if (!aDb) return;
       try {
-        // Re-check status before sending
-        const leadDoc = await aDb.collection('leads').doc(leadId).get();
-        if (!leadDoc.exists || leadDoc.data()?.status !== 'new') return;
+        const aDb = getAdminDb();
+        let status = 'new';
+        
+        if (aDb) {
+          const leadDoc = await aDb.collection('leads').doc(leadId).get();
+          if (leadDoc.exists) status = leadDoc.data()?.status;
+        } else {
+          const leadSnap = await getDoc(doc(db, 'leads', leadId));
+          if (leadSnap.exists()) status = leadSnap.data()?.status;
+        }
+
+        if (status !== 'new') return;
 
         console.log(`[Automation] Sending ${day} day follow-up for lead ${leadId}`);
-        await aDb.collection('notifications').add({
+        
+        const notificationData = {
           type: 'followup',
           title: `Follow-up Sent (Day ${day})`,
           message: `Scheduled message for ${leadData.name}: "${message}"`,
           leadId,
-          createdAt: AdminFieldValue.serverTimestamp()
-        });
+          createdAt: aDb ? AdminFieldValue.serverTimestamp() : serverTimestamp()
+        };
+
+        if (aDb) {
+          await aDb.collection('notifications').add(notificationData);
+        } else {
+          await addDoc(collection(db, 'notifications'), notificationData);
+        }
         
         broadcast({
           type: 'info',
@@ -483,38 +584,68 @@ async function startServer() {
     }, delay);
   };
 
-  // Run lead maintenance every 1 hour
+  // Run lead maintenance every 1 hour (Admin SDK with Client SDK fallback)
   setInterval(async () => {
-    const aDb = getAdminDb();
-    if (!aDb) return;
-    
     console.log('[Automation] Running lead maintenance cycle...');
+    const aDb = getAdminDb();
+    
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const staleLeads = await aDb.collection('leads')
-        .where('status', 'in', ['new', 'contacted'])
-        .where('createdAt', '<', sevenDaysAgo)
-        .get();
+      let staleLeadsDocs: any[] = [];
+      let usingAdmin = false;
 
-      if (staleLeads.empty) return;
-
-      const batch = aDb.batch();
-      staleLeads.docs.forEach(doc => {
-        batch.update(doc.ref, { 
-          status: 'lost', 
-          remarks: (doc.data().remarks || '') + '\n[Auto] Marked as lost due to inactivity (7+ days)' 
-        });
-        console.log(`[Automation] Mark lead ${doc.id} as lost (stale)`);
-      });
-      await batch.commit();
-      
-      if (staleLeads.size > 0) {
-        broadcast({
-          type: 'info',
-          title: 'Leads Cleaned Up',
-          message: `${staleLeads.size} stale leads auto-marked as Lost.`,
-        });
+      if (aDb) {
+        try {
+          const snapshot = await aDb.collection('leads')
+            .where('status', 'in', ['new', 'contacted'])
+            .where('createdAt', '<', sevenDaysAgo)
+            .get();
+          staleLeadsDocs = snapshot.docs;
+          usingAdmin = true;
+        } catch (e) {
+          console.warn('[Automation] Admin DB query failed for maintenance, trying Client SDK:', (e as Error).message);
+        }
       }
+
+      if (!usingAdmin) {
+        const q = query(
+          collection(db, 'leads'),
+          where('status', 'in', ['new', 'contacted']),
+          where('createdAt', '<', sevenDaysAgo)
+        );
+        const snapshot = await getDocs(q);
+        staleLeadsDocs = snapshot.docs;
+      }
+
+      if (staleLeadsDocs.length === 0) return;
+
+      if (usingAdmin && aDb) {
+        const batch = aDb.batch();
+        staleLeadsDocs.forEach(docSnap => {
+          batch.update(docSnap.ref, { 
+            status: 'lost', 
+            remarks: (docSnap.data().remarks || '') + '\n[Auto] Marked as lost due to inactivity (7+ days)' 
+          });
+          console.log(`[Automation] Mark lead ${docSnap.id} as lost (stale via Admin)`);
+        });
+        await batch.commit();
+      } else {
+        const batch = writeBatch(db);
+        staleLeadsDocs.forEach(docSnap => {
+          batch.update(doc(db, 'leads', docSnap.id), { 
+            status: 'lost', 
+            remarks: (docSnap.data().remarks || '') + '\n[Auto] Marked as lost due to inactivity (7+ days)' 
+          });
+          console.log(`[Automation] Mark lead ${docSnap.id} as lost (stale via Client)`);
+        });
+        await batch.commit();
+      }
+      
+      broadcast({
+        type: 'info',
+        title: 'Leads Cleaned Up',
+        message: `${staleLeadsDocs.length} stale leads auto-marked as Lost.`,
+      });
     } catch (e) {
       console.error('[Automation] Lead maintenance error:', e);
     }
@@ -527,15 +658,23 @@ async function startServer() {
     
     if (leadData.date) {
       const leadDate = new Date(leadData.date);
-      const today = new Date();
-      const diffTime = Math.abs(leadDate.getTime() - today.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      if (diffDays <= 3) score = 'HOT';
+      if (!isNaN(leadDate.getTime())) {
+        const today = new Date();
+        const diffTime = Math.abs(leadDate.getTime() - today.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (diffDays <= 3) score = 'HOT';
+      }
     }
 
-    const aDb = getAdminDb();
-    if (aDb) {
-      await aDb.collection('leads').doc(leadId).update({ score });
+    try {
+      const aDb = getAdminDb();
+      if (aDb) {
+        await aDb.collection('leads').doc(leadId).update({ score });
+      } else {
+        await setDoc(doc(db, 'leads', leadId), { score }, { merge: true });
+      }
+    } catch (e) {
+      console.error(`[Automation] Score update error for ${leadId}:`, e);
     }
 
     scheduleFollowUp(leadId, leadData, 1, "Hi, just checking if you're still interested 😊");
