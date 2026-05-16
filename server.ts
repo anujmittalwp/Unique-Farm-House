@@ -370,8 +370,8 @@ async function startServer() {
 
   // Improved Razorpay initialization with verification
   const getRazorpay = () => {
-    const keyId = "rzp_live_Sq5OTMMqI1S8JV";
-    const keySecret = "I1RvsGUMUKBJSAKU2j7ZVWRf";
+    const keyId = process.env.RAZORPAY_KEY_ID?.trim() || "";
+    const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim() || "";
 
     const mask = (s: string) => {
       if (!s) return "EMPTY";
@@ -381,7 +381,11 @@ async function startServer() {
 
     console.log(`[Razorpay] Diagnostic - KeyID: ${mask(keyId)} (Len: ${keyId.length}), Secret: ${mask(keySecret)} (Len: ${keySecret.length})`);
 
-    if (keyId.startsWith('rzp_test_') === false && keyId.startsWith('rzp_live_') === false) {
+    if (!keyId || !keySecret) {
+      console.error("[Razorpay] Missing KeyID or Secret. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET environment variables.");
+    }
+
+    if (keyId && keyId.startsWith('rzp_test_') === false && keyId.startsWith('rzp_live_') === false) {
        console.warn(`[Razorpay] INVALID KEY ID FORMAT: ${keyId}`);
     }
 

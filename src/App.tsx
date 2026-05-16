@@ -8870,7 +8870,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         const order = await response.json();
         
         const options = {
-          key: 'rzp_live_Sq5OTMMqI1S8JV',
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID || '', // Make sure this is set in environment parameters
           amount: order.amount,
           currency: order.currency,
           name: "Unique Farmhouse",
