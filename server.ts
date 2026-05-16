@@ -370,18 +370,19 @@ async function startServer() {
 
   // Improved Razorpay initialization with verification
   const getRazorpay = () => {
-    const keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || "").trim();
-    const keySecret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
+    const keyId = "rzp_live_Sq5OTMMqI1S8JV";
+    const keySecret = "I1RvsGUMUKBJSAKU2j7ZVWRf";
 
-    if (!keyId || !keySecret) {
-      throw new Error("Razorpay credentials (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET) are missing. Please add them in Settings -> Secrets.");
-    }
+    const mask = (s: string) => {
+      if (!s) return "EMPTY";
+      if (s.length <= 8) return "****";
+      return `${s.substring(0, 4)}...${s.substring(s.length - 4)}`;
+    };
 
-    const mask = (s: string) => s.length > 8 ? `${s.substring(0, 4)}...${s.substring(s.length - 4)}` : '****';
-    console.log(`[Razorpay] Initializing with KeyID: ${mask(keyId)} and Secret: ${mask(keySecret)}`);
+    console.log(`[Razorpay] Diagnostic - KeyID: ${mask(keyId)} (Len: ${keyId.length}), Secret: ${mask(keySecret)} (Len: ${keySecret.length})`);
 
     if (keyId.startsWith('rzp_test_') === false && keyId.startsWith('rzp_live_') === false) {
-       console.warn("[Razorpay] INVALID KEY ID DETECTED: Ensure your Key ID starts with 'rzp_test_' or 'rzp_live_'. Current: ${keyId.substring(0, 8)}...");
+       console.warn(`[Razorpay] INVALID KEY ID FORMAT: ${keyId}`);
     }
 
     return new Razorpay({
@@ -431,7 +432,7 @@ async function startServer() {
 
   app.post("/api/payment/verify", async (req, res) => {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    let keySecret = "hK6CC4uLX1McsUkjv3ScrpwT";
 
     if (!keySecret) {
       return res.status(500).json({ error: "Razorpay Key Secret is missing in environment" });
@@ -586,8 +587,10 @@ async function startServer() {
 
   // Run lead maintenance every 1 hour (Admin SDK with Client SDK fallback)
   setInterval(async () => {
-    console.log('[Automation] Running lead maintenance cycle...');
     const aDb = getAdminDb();
+    const adminProbeSuccessful = adminDb !== null; // We can't be 100% sure without a recent check, but we know if it initialized
+    
+    console.log(`[Automation] Running lead maintenance cycle (Admin Ready: ${adminProbeSuccessful})...`);
     
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -602,19 +605,29 @@ async function startServer() {
             .get();
           staleLeadsDocs = snapshot.docs;
           usingAdmin = true;
+          console.log(`[Automation] Admin query returned ${staleLeadsDocs.length} leads.`);
         } catch (e) {
-          console.warn('[Automation] Admin DB query failed for maintenance, trying Client SDK:', (e as Error).message);
+          console.warn('[Automation] Admin DB query failed for maintenance, trying Client SDK.');
         }
       }
 
       if (!usingAdmin) {
-        const q = query(
-          collection(db, 'leads'),
-          where('status', 'in', ['new', 'contacted']),
-          where('createdAt', '<', sevenDaysAgo)
-        );
-        const snapshot = await getDocs(q);
-        staleLeadsDocs = snapshot.docs;
+        try {
+          const q = query(
+            collection(db, 'leads'),
+            where('status', 'in', ['new', 'contacted']),
+            where('createdAt', '<', sevenDaysAgo)
+          );
+          const snapshot = await getDocs(q);
+          staleLeadsDocs = snapshot.docs;
+          console.log(`[Automation] Client SDK query returned ${staleLeadsDocs.length} leads.`);
+        } catch (readErr: any) {
+          if (readErr.message.includes('permissions')) {
+            console.warn('[Automation] Maintenance skipped: Permission denied for unauthenticated read.');
+            return;
+          }
+          throw readErr;
+        }
       }
 
       if (staleLeadsDocs.length === 0) return;

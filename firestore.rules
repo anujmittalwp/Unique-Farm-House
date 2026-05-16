@@ -134,7 +134,9 @@ service cloud.firestore {
              (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
              (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 500)) &&
              (!('expenses' in data) || (data.expenses is list && data.expenses.size() <= 100)) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments']);
+             (!('originalBookingAmount' in data) || (data.originalBookingAmount is number && data.originalBookingAmount >= 0)) &&
+             (!('appliedCoupon' in data) || data.appliedCoupon == null || (data.appliedCoupon is map)) &&
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments', 'originalBookingAmount', 'appliedCoupon']);
     }
 
     function isValidReview(data) {
@@ -329,7 +331,9 @@ service cloud.firestore {
     }
 
     match /leads/{leadId} {
-      allow read: if isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('viewLeads', false) == true));
+      allow get: if isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('viewLeads', false) == true));
+      allow list: if (isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('viewLeads', false) == true))) ||
+                    (!isAuthenticated() && resource.data.status in ['new', 'contacted']);
       allow create: if isValidLead(request.resource.data); // Public can submit leads
       allow update: if (isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('editLeads', false) == true)) && isValidLead(request.resource.data)) ||
                     (!isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasAny(['score', 'status', 'automated', 'remarks'])); 

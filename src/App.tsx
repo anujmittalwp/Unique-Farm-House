@@ -4558,6 +4558,7 @@ const MyBookings = ({
   galleryImages, 
   heroSettings, 
   replyTemplates, 
+  pricingSettings,
   onClearCache,
   notifications,
   unreadCount,
@@ -4580,6 +4581,7 @@ const MyBookings = ({
   galleryImages: any[];
   heroSettings: any;
   replyTemplates: any;
+  pricingSettings: any;
   onClearCache?: () => void;
   notifications: any[];
   unreadCount: number;
@@ -4661,6 +4663,10 @@ const MyBookings = ({
   const [editingHero, setEditingHero] = useState<any>(null);
   const [isSavingHero, setIsSavingHero] = useState(false);
 
+  // Pricing Settings State
+  const [editingPricing, setEditingPricing] = useState<any>(null);
+  const [isSavingPricing, setIsSavingPricing] = useState(false);
+
   // Reply Templates State
   const [editingReplyTemplates, setEditingReplyTemplates] = useState<any>(null);
   const [isSavingReplyTemplates, setIsSavingReplyTemplates] = useState(false);
@@ -4675,6 +4681,18 @@ const MyBookings = ({
       });
     }
   }, [replyTemplates]);
+
+  useEffect(() => {
+    if (pricingSettings) {
+      setEditingPricing(pricingSettings);
+    } else {
+      setEditingPricing({
+        weekday: 22000,
+        weekend: 25000,
+        security: 5000
+      });
+    }
+  }, [pricingSettings]);
 
   useEffect(() => {
     if (heroSettings) {
@@ -5025,6 +5043,23 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       showToast('Failed to save settings', 'error');
     } finally {
       setIsSavingHero(false);
+    }
+  };
+
+  const handleSavePricingSettings = async () => {
+    setIsSavingPricing(true);
+    try {
+      await setDoc(doc(db, 'settings', 'pricing'), {
+        ...editingPricing,
+        updatedAt: serverTimestamp()
+      });
+      await logAdminAction('update_pricing_settings', 'settings', 'Updated pricing settings');
+      showToast('Pricing settings saved successfully', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/pricing');
+      showToast('Failed to save pricing settings', 'error');
+    } finally {
+      setIsSavingPricing(false);
     }
   };
 
@@ -5682,7 +5717,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} />
+              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} />
             </div>
           </div>
         ) : reviewingBooking ? (
@@ -5709,7 +5744,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{(userRole === 'admin' || userRole === 'agent') ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} />
+              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} />
             </div>
           </div>
         ) : (
@@ -6361,6 +6396,57 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         ) : (activeFilter === 'settings' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="max-w-4xl mx-auto space-y-12">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            
+            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <div className="flex justify-between items-center mb-8">
+                <h3 className="text-2xl font-serif font-bold text-luxury-dark">Pricing & Security Settings</h3>
+                {canEditSettingsAdmin && (
+                  <button 
+                    onClick={handleSavePricingSettings}
+                    disabled={isSavingPricing}
+                    className="px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20"
+                  >
+                    {isSavingPricing ? 'Saving...' : 'Save Pricing'}
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-6 opacity-100">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Weekday Charge (₹)</label>
+                    <input 
+                      type="number" 
+                      value={editingPricing?.weekday || ''}
+                      onChange={(e) => setEditingPricing({...editingPricing, weekday: Number(e.target.value)})}
+                      disabled={!canEditSettingsAdmin}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Weekend Charge (₹)</label>
+                    <input 
+                      type="number" 
+                      value={editingPricing?.weekend || ''}
+                      onChange={(e) => setEditingPricing({...editingPricing, weekend: Number(e.target.value)})}
+                      disabled={!canEditSettingsAdmin}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Security Deposit (₹)</label>
+                    <input 
+                      type="number" 
+                      value={editingPricing?.security || ''}
+                      onChange={(e) => setEditingPricing({...editingPricing, security: Number(e.target.value)})}
+                      disabled={!canEditSettingsAdmin}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-serif font-bold text-luxury-dark">Hero Section Settings</h3>
@@ -8413,12 +8499,13 @@ const BookingCalendar = ({
   selectsStart,
   selectsEnd,
   className,
-  allBookings = []
+  allBookings = [],
+  pricingSettings
 }: any) => {
   const renderDayContents = (day: number, date: Date) => {
     const dayOfWeek = date.getDay();
     const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
-    const price = isWeekend ? 25000 : 22000;
+    const price = isWeekend ? (pricingSettings?.weekend || 25000) : (pricingSettings?.weekday || 22000);
     
     const isSoldOut = allBookings.some((b: any) => {
       const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
@@ -8474,8 +8561,8 @@ const BookingCalendar = ({
             <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Sold Out</span>
           </div>
           <div className="flex items-center gap-2 ml-2 border-l border-white/10 pl-4">
-            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekday: ₹22k</span>
-            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekend: ₹25k</span>
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekday: ₹{(pricingSettings?.weekday || 22000) / 1000}k</span>
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekend: ₹{(pricingSettings?.weekend || 25000) / 1000}k</span>
           </div>
         </div>
       </DatePicker>
@@ -8483,7 +8570,7 @@ const BookingCalendar = ({
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
@@ -8493,7 +8580,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   allBookings?: any[],
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
   expenseCategories?: any[],
-  onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void
+  onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void,
+  pricingSettings?: any
 }) => {
   const [name, setName] = useState(editBooking?.name || ((userRole === 'admin' || userRole === 'agent') && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
@@ -8510,8 +8598,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [success, setSuccess] = useState(false);
   const [isAdminBooking, setIsAdminBooking] = useState((userRole === 'admin' || userRole === 'agent') && !editBooking);
   const [hasSetDefaultBookingMode, setHasSetDefaultBookingMode] = useState(false);
-  const [bookingAmount, setBookingAmount] = useState<number>(editBooking?.bookingAmount || (editBooking ? (editBooking.totalAmount - (editBooking.securityDeposit || 5000)) : 0));
-  const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || 5000);
+  const [bookingAmount, setBookingAmount] = useState<number>(editBooking?.bookingAmount || (editBooking ? (editBooking.totalAmount - (editBooking.securityDeposit || pricingSettings?.security || 5000)) : 0));
+  const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || pricingSettings?.security || 5000);
 
   useEffect(() => {
     if ((userRole === 'admin' || userRole === 'agent') && !editBooking && !hasSetDefaultBookingMode) {
@@ -8558,15 +8646,15 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       while (current < end) {
         const day = current.getDay(); 
         if (day === 5 || day === 6) { // Friday & Saturday are weekend
-          total += 25000;
+          total += (pricingSettings?.weekend || 25000);
         } else { // Sunday to Thursday are weekdays
-          total += 22000;
+          total += (pricingSettings?.weekday || 22000);
         }
         current.setDate(current.getDate() + 1);
       }
       setBookingAmount(total);
     }
-  }, [checkIn, checkOut, editBooking]);
+  }, [checkIn, checkOut, editBooking, pricingSettings]);
 
   useEffect(() => {
     if (checkIn && checkOut) {
@@ -8782,7 +8870,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         const order = await response.json();
         
         const options = {
-          key: import.meta.env.VITE_RAZORPAY_KEY_ID || '',
+          key: 'rzp_live_Sq5OTMMqI1S8JV',
           amount: order.amount,
           currency: order.currency,
           name: "Unique Farmhouse",
@@ -9660,6 +9748,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           </div>
           <div className="relative">
             <BookingCalendar
+              pricingSettings={pricingSettings}
               selected={checkIn}
               onChange={(date: Date) => {
                 setCheckIn(date);
@@ -9690,6 +9779,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out (At 11:00 AM)</label>
           <div className="relative">
             <BookingCalendar
+              pricingSettings={pricingSettings}
               selected={checkOut}
               onChange={(date: Date) => {
                 setCheckOut(date);
@@ -9732,11 +9822,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           <div className="flex gap-4 px-1">
             <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest flex items-center gap-1">
               <span className="w-1 h-1 rounded-full bg-luxury-gold" />
-              Weekday: ₹22,000
+              Weekday: ₹{(pricingSettings?.weekday || 22000).toLocaleString()}
             </p>
             <p className="text-[9px] text-luxury-dark/40 font-bold uppercase tracking-widest flex items-center gap-1">
               <span className="w-1 h-1 rounded-full bg-luxury-gold" />
-              Weekend: ₹25,000
+              Weekend: ₹{(pricingSettings?.weekend || 25000).toLocaleString()}
             </p>
           </div>
         </div>
@@ -9975,7 +10065,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify }: { 
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings }: { 
   isOpen: boolean, 
   onClose: () => void, 
   user: FirebaseUser | null, 
@@ -9984,7 +10074,8 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
   allBookings: any[], 
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
   expenseCategories?: any[],
-  onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void
+  onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void,
+  pricingSettings?: any
 }) => {
   useEscapeKey(onClose, isOpen);
   return (
@@ -10017,7 +10108,7 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} />
             </div>
           </motion.div>
         </div>
@@ -10983,6 +11074,7 @@ export default function App() {
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [galleryImages, setGalleryImages] = useState<any[]>([]);
   const [heroSettings, setHeroSettings] = useState<any>(null);
+  const [pricingSettings, setPricingSettings] = useState<any>(null);
   const [replyTemplates, setReplyTemplates] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -11190,6 +11282,12 @@ export default function App() {
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/hero'));
 
+    const unsubscribePricingSettings = onSnapshot(doc(db, 'settings', 'pricing'), (docSnap) => {
+      if (docSnap.exists()) {
+        setPricingSettings(docSnap.data());
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/pricing'));
+
     const unsubscribeReplyTemplates = onSnapshot(doc(db, 'settings', 'replyTemplates'), (docSnap) => {
       if (docSnap.exists()) {
         setReplyTemplates(docSnap.data());
@@ -11199,6 +11297,7 @@ export default function App() {
     return () => {
       unsubscribeGallery();
       unsubscribeSettings();
+      unsubscribePricingSettings();
       unsubscribeReplyTemplates();
     };
   }, []);
@@ -11488,6 +11587,7 @@ export default function App() {
         allBookings={allBookings}
         showToast={showToast}
         onNotify={triggerNotification}
+        pricingSettings={pricingSettings}
       />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <GalleryModal 
@@ -11519,6 +11619,7 @@ export default function App() {
             galleryImages={galleryImages}
             heroSettings={heroSettings}
             replyTemplates={replyTemplates}
+            pricingSettings={pricingSettings}
             onClearCache={handleClearCache}
             notifications={notifications}
             unreadCount={unreadCount}
