@@ -370,7 +370,7 @@ async function startServer() {
 
   // Improved Razorpay initialization with verification
   const getRazorpay = () => {
-    const keyId = process.env.RAZORPAY_KEY_ID?.trim() || "";
+    const keyId = process.env.VITE_RAZORPAY_KEY_ID?.trim() || process.env.RAZORPAY_KEY_ID?.trim() || "";
     const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim() || "";
 
     const mask = (s: string) => {
@@ -412,7 +412,8 @@ async function startServer() {
       
       console.log(`[Razorpay] Creating order for ${amount} ${currency}`);
       const order = await razorpay.orders.create(options);
-      res.json(order);
+      const keyId = process.env.VITE_RAZORPAY_KEY_ID?.trim() || process.env.RAZORPAY_KEY_ID?.trim() || "";
+      res.json({ ...order, key_id: keyId });
     } catch (error: any) {
       console.error("Razorpay Error Details:", {
         message: error.message,
@@ -436,7 +437,7 @@ async function startServer() {
 
   app.post("/api/payment/verify", async (req, res) => {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-    let keySecret = "hK6CC4uLX1McsUkjv3ScrpwT";
+    const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim() || "";
 
     if (!keySecret) {
       return res.status(500).json({ error: "Razorpay Key Secret is missing in environment" });
