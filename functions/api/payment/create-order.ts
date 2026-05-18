@@ -38,7 +38,10 @@ export async function onRequestPost({ request, env }: any) {
     const data = await response.json();
 
     if (!response.ok) {
-      return new Response(JSON.stringify(data), { 
+      return new Response(JSON.stringify({ 
+        error: data.error?.description || data.error?.message || data.error || "Failed to create Razorpay order",
+        details: data
+      }), { 
         status: response.status,
         headers: { "Content-Type": "application/json" }
       });

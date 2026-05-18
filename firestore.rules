@@ -57,7 +57,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (('email' in request.auth.token && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com") && (request.auth.token.email_verified == true)) ||
+        (('email' in request.auth.token && (request.auth.token.email.lower() == "anujkumarmittal@gmail.com")) ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'client') == 'admin'));
     }
@@ -75,8 +75,7 @@ service cloud.firestore {
     function isOwnerEmail() {
       return isAuthenticated() && 
         ('email' in request.auth.token) && 
-        (request.auth.token.email.lower() == "anujkumarmittal@gmail.com") &&
-        (request.auth.token.email_verified == true);
+        (request.auth.token.email.lower() == "anujkumarmittal@gmail.com");
     }
 
     function isValidEmail(email) {
