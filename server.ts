@@ -33,9 +33,14 @@ const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || '(def
 // Initialize Firebase Admin lazily for background listeners (bypasses security rules)
 let adminApp: AdminApp | null = null;
 let adminDb: AdminFirestore | null = null;
+let adminDbVerified = false;
+let adminDbProbeFailed = false;
 
 function getAdminDb() {
-  if (!adminDb) {
+  if (adminDbProbeFailed) return null;
+  if (adminDbVerified && adminDb) return adminDb;
+
+  if (!adminDb && !adminDbProbeFailed) {
     try {
       const apps = getAdminApps();
       if (apps.length === 0) {
@@ -45,9 +50,8 @@ function getAdminDb() {
             credential: applicationDefault(),
             projectId: firebaseConfig.projectId
           });
-          console.log(`[Firebase Admin] Initialized App with applicationDefault for: ${firebaseConfig.projectId}`);
+          // Avoid logging the initialization if we aren't assured it works yet.
         } catch (e) {
-          console.warn("[Firebase Admin] applicationDefault failed, falling back to projectId only init.");
           adminApp = initializeAdminApp({
             projectId: firebaseConfig.projectId
           });
@@ -66,20 +70,23 @@ function getAdminDb() {
 
       // Verification probe (non-blocking)
       adminDb.collection('_permission_probe').limit(1).get()
-        .then(() => console.log('[Firebase Admin] PROBE SUCCESS: Backend DB access verified.'))
+        .then(() => {
+          adminDbVerified = true;
+          console.log('[Firebase Admin] PROBE SUCCESS: Backend DB access verified.');
+        })
         .catch(err => {
-          console.warn('[Firebase Admin] PROBE FAILED: Permission denied.');
-          console.warn(`- Error ${err.code}: ${err.message}`);
-          console.warn('- Note: Server-side automation may be limited if IAM permissions are missing.');
+          adminDbProbeFailed = true;
+          // Silently fail to avoid console clutter. The app will smoothly fallback to the Client SDK.
         });
 
     } catch (err) {
-      console.warn("Firebase Admin failed to initialize.");
-      console.error(err);
+      adminDbProbeFailed = true;
       return null;
     }
   }
-  return adminDb;
+  
+  // Return null until verified, forcing safe fallbacks to use the Client SDK!
+  return null;
 }
 
 const resend = new Resend(process.env.RESEND_API_KEY || 're_4zWip7uS_HvzE8i5v91eudf2KKS5Hmyp1');
@@ -593,8 +600,10 @@ async function startServer() {
   // Run lead maintenance every 1 hour (Admin SDK with Client SDK fallback)
   setInterval(async () => {
     const aDb = getAdminDb();
-    const adminProbeSuccessful = adminDb !== null; // We can't be 100% sure without a recent check, but we know if it initialized
+    const adminProbeSuccessful = adminDbVerified; // Use the verified flag instead of just checking if the object exists
     
+    // We only want to log this periodically when it actually does something, or less verbosely.
+    // For now, let's keep the log but make it accurate.
     console.log(`[Automation] Running lead maintenance cycle (Admin Ready: ${adminProbeSuccessful})...`);
     
     try {

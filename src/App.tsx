@@ -8926,9 +8926,14 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
 
         const rzp = new (window as any).Razorpay(options);
         rzp.open();
-      } catch (err) {
+      } catch (err: any) {
         console.error('Payment initialization error:', err);
-        showToast('Could not initialize payment. Please try again.', 'error');
+        const errMsg = err.message || '';
+        if (errMsg.includes('Failed to fetch') || errMsg.includes('Unexpected token')) {
+          showToast('Backend connection failed. If you are on Cloudflare Pages, please switch to a full-stack host (like Cloud Run).', 'error');
+        } else {
+          showToast(`Error: ${errMsg || 'Could not initialize payment. Please try again.'}`, 'error');
+        }
         setLoading(false);
       }
     } else {
