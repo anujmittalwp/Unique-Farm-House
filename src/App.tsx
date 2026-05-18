@@ -8863,8 +8863,17 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || errorData.details || 'Failed to create payment order');
+          let errorMsg = 'Failed to create payment order';
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const errorData = await response.json().catch(() => ({}));
+            errorMsg = errorData.error || errorData.details || errorMsg;
+          } else {
+            const textContent = await response.text().catch(() => '');
+            console.error('Non-JSON response from create-order:', textContent.substring(0, 200));
+            errorMsg = `Server endpoint not found (returned HTML). Please ensure Cloudflare Functions are deployed. Status: ${response.status}`;
+          }
+          throw new Error(errorMsg);
         }
 
         const order = await response.json();
@@ -8894,8 +8903,15 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               });
 
               if (!verifyRes.ok) {
-                const errorData = await verifyRes.json().catch(() => ({}));
-                throw new Error(errorData.error || 'Payment verification failed');
+                let errorMsg = 'Payment verification failed';
+                const contentType = verifyRes.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                  const errorData = await verifyRes.json().catch(() => ({}));
+                  errorMsg = errorData.error || errorMsg;
+                } else {
+                  errorMsg = `Server endpoint not found. Ensure Cloudflare Functions deployed. Status: ${verifyRes.status}`;
+                }
+                throw new Error(errorMsg);
               }
 
               await handleFinalConfirm(response.razorpay_payment_id);
