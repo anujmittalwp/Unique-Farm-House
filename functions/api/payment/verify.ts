@@ -18,7 +18,27 @@ async function verifySignature(orderId: string, paymentId: string, signature: st
   return generatedSignature === signature;
 }
 
-export async function onRequestPost({ request, env }: any) {
+export async function onRequest({ request, env }: any) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      }
+    });
+  }
+
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ error: `Method ${request.method} not allowed` }), { 
+      status: 405,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      }
+    });
+  }
+
   try {
     const body = await request.json();
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
@@ -28,7 +48,10 @@ export async function onRequestPost({ request, env }: any) {
     if (!keySecret) {
       return new Response(JSON.stringify({ error: "Razorpay Key Secret is missing in Cloudflare Environment Variables" }), { 
         status: 500,
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     }
 
@@ -41,18 +64,27 @@ export async function onRequestPost({ request, env }: any) {
 
     if (isValid) {
       return new Response(JSON.stringify({ success: true, message: "Payment verified successfully" }), {
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     } else {
       return new Response(JSON.stringify({ error: "Invalid signature", success: false }), { 
         status: 400,
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     }
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message }), { 
       status: 500,
-      headers: { "Content-Type": "application/json" }
+      headers: { 
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      }
     });
   }
 }

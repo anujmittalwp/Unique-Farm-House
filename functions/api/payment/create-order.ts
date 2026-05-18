@@ -1,4 +1,24 @@
-export async function onRequestPost({ request, env }: any) {
+export async function onRequest({ request, env }: any) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      }
+    });
+  }
+
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ error: `Method ${request.method} not allowed` }), { 
+      status: 405,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      }
+    });
+  }
+
   try {
     const body = await request.json();
     const { amount, currency = "INR", receipt } = body;
@@ -6,7 +26,10 @@ export async function onRequestPost({ request, env }: any) {
     if (!amount) {
       return new Response(JSON.stringify({ error: "Amount is required" }), { 
         status: 400,
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     }
 
@@ -16,7 +39,10 @@ export async function onRequestPost({ request, env }: any) {
     if (!keyId || !keySecret) {
       return new Response(JSON.stringify({ error: "Razorpay credentials missing in Cloudflare Environment Variables" }), { 
         status: 500,
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     }
 
@@ -43,17 +69,26 @@ export async function onRequestPost({ request, env }: any) {
         details: data
       }), { 
         status: response.status,
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     }
 
     return new Response(JSON.stringify({ ...data, key_id: keyId }), {
-      headers: { "Content-Type": "application/json" }
+      headers: { 
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      }
     });
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message }), { 
       status: 500,
-      headers: { "Content-Type": "application/json" }
+      headers: { 
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      }
     });
   }
 }
