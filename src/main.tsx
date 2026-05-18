@@ -5,7 +5,13 @@ import App from './App.tsx';
 import { ErrorBoundary } from './ErrorBoundary.tsx';
 import './index.css';
 
+console.log(
+  '%c Build Date: ' + (typeof __APP_BUILD_DATE__ !== 'undefined' ? __APP_BUILD_DATE__ : 'Unknown') + ' ',
+  'background: #222; color: #bada55; font-size: 14px; font-weight: bold; padding: 4px; border-radius: 4px;'
+);
+
 // Automatically reload the page if Vite chunk fails to load (common after new deployments)
+
 window.addEventListener('vite:preloadError', () => {
   window.location.reload();
 });
