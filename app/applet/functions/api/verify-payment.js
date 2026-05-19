@@ -2,58 +2,38 @@ export async function onRequestPost({ request, env }) {
   try {
     const body = await request.json();
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
-    
-    const keySecret = env.RAZORPAY_KEY_SECRET;
+    const key_secret = env.RAZORPAY_KEY_SECRET;
 
-    if (!keySecret) {
-      return new Response(JSON.stringify({ error: "Razorpay Key Secret is missing in Cloudflare Environment Variables" }), { 
-        status: 500,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-      });
+    if (!key_secret) {
+      return new Response(JSON.stringify({ error: "Razorpay Key Secret is missing in environment" }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
-
-    // Web Crypto API HMAC Verification for Cloudflare Worker
+    
+    // Cloudflare Workers use Web Crypto API
     const encoder = new TextEncoder();
-    const keyData = encoder.encode(keySecret);
-    const messageData = encoder.encode(`${razorpay_order_id}|${razorpay_payment_id}`);
-
-    const cryptoKey = await crypto.subtle.importKey(
+    const key = await crypto.subtle.importKey(
       "raw",
-      keyData,
+      encoder.encode(key_secret),
       { name: "HMAC", hash: "SHA-256" },
       false,
-      ["sign"]
+      ["verify", "sign"]
     );
 
-    const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
-    const signatureHex = Array.from(new Uint8Array(signature))
-      .map(b => b.toString(16).padStart(2, "0"))
-      .join("");
+    const signatureBytes = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      encoder.encode(razorpay_order_id + "|" + razorpay_payment_id)
+    );
 
-    if (signatureHex === razorpay_signature) {
-      return new Response(JSON.stringify({ success: true, message: "Payment verified successfully" }), {
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-      });
+    const generatedSignature = Array.from(new Uint8Array(signatureBytes))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    if (generatedSignature === razorpay_signature) {
+      return new Response(JSON.stringify({ success: true, message: "Payment verified successfully" }), { status: 200, headers: { "Content-Type": "application/json" } });
     } else {
-      return new Response(JSON.stringify({ error: "Invalid signature", success: false }), { 
-        status: 400,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-      });
+      return new Response(JSON.stringify({ error: "Invalid signature", success: false }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message || "Failed to verify payment" }), { 
-      status: 500,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: "Payment verification failed", details: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
-}
-
-export async function onRequestOptions() {
-  return new Response(null, {
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    }
-  });
 }
