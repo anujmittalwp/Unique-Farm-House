@@ -1,4 +1,4 @@
-export async function onRequestPost({ request, env }: any) {
+export async function onRequestPost({ request, env }) {
   try {
     const body = await request.json();
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
@@ -40,8 +40,8 @@ export async function onRequestPost({ request, env }: any) {
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
       });
     }
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), { 
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message || "Failed to verify payment" }), { 
       status: 500,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
     });
@@ -53,7 +53,7 @@ export async function onRequestOptions() {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      "Access-Control-Allow-Headers": "Content-Type",
     }
   });
 }

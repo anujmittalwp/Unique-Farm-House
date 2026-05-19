@@ -1,6 +1,4 @@
-export async function onRequestPost(context: any) {
-  const { request, env } = context;
-
+export async function onRequestPost({ request, env }) {
   try {
     const body = await request.json();
     const { amount, currency = "INR", receipt } = body;
@@ -32,7 +30,7 @@ export async function onRequestPost(context: any) {
       body: JSON.stringify({
         amount: Math.round(amount * 100), // amount in paise
         currency,
-        receipt,
+        receipt: receipt || `rcpt_${Date.now()}`,
       }),
     });
 
@@ -52,8 +50,8 @@ export async function onRequestPost(context: any) {
       status: 200,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
     });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), { 
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message || "Failed to create order" }), { 
       status: 500,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
     });
@@ -65,7 +63,7 @@ export async function onRequestOptions() {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      "Access-Control-Allow-Headers": "Content-Type",
     }
   });
 }

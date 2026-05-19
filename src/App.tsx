@@ -8853,7 +8853,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         setLoading(true);
         showToast('Initializing secure payment...', 'info');
         
-        const response = await fetch('/api/payment/create-order', {
+        const response = await fetch('/api/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -8871,7 +8871,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           } else {
             const textContent = await response.text().catch(() => '');
             console.error('Non-JSON response from create-order:', textContent.substring(0, 200));
-            errorMsg = `Server endpoint not found (returned HTML). Please ensure Cloudflare Functions are deployed. Status: ${response.status}`;
+            errorMsg = `Server endpoint not found. The backend API is not running. If you deployed to a static host (like Cloudflare Pages), you must deploy this to a Node.js server to support backend APIs. Status: ${response.status}`;
           }
           throw new Error(errorMsg);
         }
@@ -8892,7 +8892,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               setLoading(true);
               showToast('Verifying payment...', 'info');
               
-              const verifyRes = await fetch('/api/payment/verify', {
+              const verifyRes = await fetch('/api/verify-payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -8909,7 +8909,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   const errorData = await verifyRes.json().catch(() => ({}));
                   errorMsg = errorData.error || errorMsg;
                 } else {
-                  errorMsg = `Server endpoint not found. Ensure Cloudflare Functions deployed. Status: ${verifyRes.status}`;
+                  errorMsg = `Server endpoint not found. The backend API is not running. Status: ${verifyRes.status}`;
                 }
                 throw new Error(errorMsg);
               }

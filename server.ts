@@ -402,7 +402,7 @@ async function startServer() {
     });
   };
 
-  app.post("/api/payment/create-order", async (req, res) => {
+  app.post("/api/create-order", async (req, res) => {
     const { amount, currency = "INR", receipt } = req.body;
     
     if (!amount) {
@@ -442,7 +442,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/payment/verify", async (req, res) => {
+  app.post("/api/verify-payment", async (req, res) => {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
     const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim() || "";
 
