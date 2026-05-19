@@ -147,6 +147,9 @@ import {
 import "react-datepicker/dist/react-datepicker.css";
 import { auth, db } from './firebase';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://ais-pre-ykn7bjgmz6crhpfzu6mjl4-44044545959.asia-southeast1.run.app';
+
+
 const playNotificationSound = () => {
   const isEnabled = localStorage.getItem('notif_sound_enabled') !== 'false';
   if (!isEnabled) return;
@@ -1390,7 +1393,7 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
-      const response = await fetch('/api/calendar/sync', {
+      const response = await fetch(BACKEND_URL + '/api/calendar/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls })
@@ -2096,7 +2099,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       } else {
         // Fallback to Express backend (fails on Cloudflare Pages)
         try {
-          response = await fetch('/api/communications/test-connection', {
+          response = await fetch(BACKEND_URL + '/api/communications/test-connection', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -2313,7 +2316,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
       setIsSendingReply(true);
       try {
-        const response = await fetch('/api/communications/reply', {
+        const response = await fetch(BACKEND_URL + '/api/communications/reply', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -2590,7 +2593,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       } catch (directErr) {
         console.warn("[Sync] Direct fetch failed (likely CORS), falling back to proxy:", directErr);
         // Fallback to proxy if direct fetch fails (e.g. due to CORS or network issues)
-        response = await fetch('/api/proxy/fetch', {
+        response = await fetch(BACKEND_URL + '/api/proxy/fetch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: fetchUrl })
@@ -4938,7 +4941,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
   const handleFetchCloudinaryImages = async () => {
     setIsFetchingCloudinary(true);
     try {
-      const response = await fetch('/api/cloudinary/images');
+      const response = await fetch(BACKEND_URL + '/api/cloudinary/images');
       if (!response.ok) throw new Error('Failed to fetch images');
       const images = await response.json();
       
@@ -5093,7 +5096,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
     }
 
     try {
-      const response = await fetch('/api/reviews/sync', {
+      const response = await fetch(BACKEND_URL + '/api/reviews/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -8853,7 +8856,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         setLoading(true);
         showToast('Initializing secure payment...', 'info');
         
-        const response = await fetch('/api/create-order', {
+        const response = await fetch(BACKEND_URL + '/api/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -8892,7 +8895,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               setLoading(true);
               showToast('Verifying payment...', 'info');
               
-              const verifyRes = await fetch('/api/verify-payment', {
+              const verifyRes = await fetch(BACKEND_URL + '/api/verify-payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -10982,7 +10985,7 @@ export default function App() {
         const registration = await navigator.serviceWorker.ready;
         
         // Fetch public key from server
-        const keyResponse = await fetch('/api/push/public-key');
+        const keyResponse = await fetch(BACKEND_URL + '/api/push/public-key');
         if (!keyResponse.ok) throw new Error('Failed to fetch public key');
         const vapidPublicKey = await keyResponse.text();
         
@@ -10992,7 +10995,7 @@ export default function App() {
             applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
           });
 
-          await fetch('/api/push/subscribe', {
+          await fetch(BACKEND_URL + '/api/push/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(subscription)
@@ -11140,7 +11143,7 @@ export default function App() {
     showToast(title + ": " + message, type);
 
     try {
-      await fetch('/api/notify', {
+      await fetch(BACKEND_URL + '/api/notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, message, type })
@@ -11385,7 +11388,7 @@ export default function App() {
         if (docSnap.exists() && docSnap.data().urls && docSnap.data().urls.length > 0) {
           const urls = docSnap.data().urls;
           
-          const response = await fetch('/api/calendar/sync', {
+          const response = await fetch(BACKEND_URL + '/api/calendar/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ urls })
