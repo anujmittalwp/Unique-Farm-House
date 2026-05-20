@@ -3,7 +3,7 @@ export default {
     const url = new URL(request.url);
 
     // =========================
-    // CORS HEADERS
+    // CORS HEADERS (Updated for GitHub Sync)
     // =========================
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
