@@ -1,11 +1,9 @@
-name = "unique-farms"
+name = "unique-farm-house"
 
 main = "src/index.js"
 
 compatibility_date = "2025-05-20"
 
-assets = { directory = "./dist" }
-
-# [vars]
-# VITE_RAZORPAY_KEY_ID = "your_key_id"
-# RAZORPAY_KEY_SECRET = "your_key_secret"
+[assets]
+directory = "./dist"
+binding = "ASSETS"
