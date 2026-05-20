@@ -22,21 +22,7 @@ export default {
       });
     }
 
-    // =========================
-    // ROOT TEST ROUTE
-    // =========================
-    if (url.pathname === "/") {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Cloudflare Worker Running Successfully",
-        }),
-        {
-          status: 200,
-          headers: corsHeaders,
-        }
-      );
-    }
+    // Removed ROOT TEST ROUTE to allow ASSETS binding to serve index.html
 
     // =========================
     // CREATE ORDER API
@@ -305,6 +291,28 @@ export default {
           }
         );
       }
+    }
+
+    // =========================
+    // FALLBACK TO ASSETS FOR SPA
+    // =========================
+    try {
+      if (env.ASSETS) {
+        // Try to fetch the requested asset
+        const response = await env.ASSETS.fetch(request);
+        
+        // If not found, and it's a GET request, fallback to index.html for React SPA routing
+        if (response.status === 404 && request.method === 'GET') {
+          const indexUrl = new URL(request.url);
+          indexUrl.pathname = '/index.html';
+          return await env.ASSETS.fetch(new Request(indexUrl, request));
+        }
+        
+        return response;
+      }
+    } catch (e) {
+      // Fall through to 404 below
+      console.error("Asset fetch error:", e);
     }
 
     // =========================
