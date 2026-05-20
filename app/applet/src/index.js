@@ -294,7 +294,7 @@ export default {
     }
 
     // =========================
-    // FALLBACK TO ASSETS FOR SPA
+    // FALLBACK TO ASSETS FOR SPA OR 404
     // =========================
     try {
       if (env.ASSETS) {
@@ -311,8 +311,23 @@ export default {
         return response;
       }
     } catch (e) {
-      // Fall through to 404 below
       console.error("Asset fetch error:", e);
+    }
+
+    // =========================
+    // ROOT TEST ROUTE (Fallback if no assets)
+    // =========================
+    if (url.pathname === "/") {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Cloudflare Worker Running Successfully. Note: Static assets were not found.",
+        }),
+        {
+          status: 200,
+          headers: corsHeaders,
+        }
+      );
     }
 
     // =========================
