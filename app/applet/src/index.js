@@ -125,6 +125,15 @@ export default {
     }
 
     // WEBSITE
-    return env.ASSETS.fetch(request);
+    let response = await env.ASSETS.fetch(request);
+    
+    // SPA Fallback for React Router
+    if (response.status === 404 && request.method === "GET") {
+      const url = new URL(request.url);
+      url.pathname = "/index.html";
+      response = await env.ASSETS.fetch(new Request(url, request));
+    }
+    
+    return response;
   },
 };
