@@ -3,3 +3,7 @@ name = "unique-farms"
 main = "src/index.js"
 
 compatibility_date = "2025-05-20"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
