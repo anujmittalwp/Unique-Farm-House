@@ -26,7 +26,7 @@ export default {
         const { amount, currency = 'INR', receipt } = body;
 
         if (!amount) {
-          return new Response(JSON.stringify(y error: 'Amount is required' }), { 
+          return new Response(JSON.stringify({ error: 'Amount is required' }), { 
             status: 400,
             headers: { 'Content-Type': 'application/json', ...corsHeaders }
           });
