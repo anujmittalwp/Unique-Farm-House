@@ -8856,7 +8856,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         setLoading(true);
         showToast('Initializing secure payment...', 'info');
         
-        const response = await fetch(BACKEND_URL + '/api/create-order', {
+        const response = await fetch('/api/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -8895,7 +8895,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               setLoading(true);
               showToast('Verifying payment...', 'info');
               
-              const verifyRes = await fetch(BACKEND_URL + '/api/verify-payment', {
+              const verifyRes = await fetch('/api/verify-payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
