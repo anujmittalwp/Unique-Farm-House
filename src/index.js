@@ -2,137 +2,323 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Handle CORS preflight
-    if (request.method === 'OPTIONS') {
+    // =========================
+    // CORS HEADERS
+    // =========================
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Content-Type": "application/json",
+    };
+
+    // =========================
+    // HANDLE OPTIONS REQUEST
+    // =========================
+    if (request.method === "OPTIONS") {
       return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
+        status: 204,
+        headers: corsHeaders,
       });
     }
 
-    // CORS headers for all responses
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    };
-
-    if (url.pathname === '/api/create-order' && request.method === 'POST') {
-      try {
-        const body = await request.json();
-        const { amount, currency = 'INR', receipt } = body;
-
-        if (!amount) {
-          return new Response(JSON.stringify({ error: 'Amount is required' }), { 
-            status: 400,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
-        }
-
-        const keyId = env.RAZORPAY_KEY_ID || env.VITE_RAZORPAY_KEY_ID;
-        const keySecret = env.RAZORPAY_KEY_SECRET;
-
-        if (!keyId || !keySecret) {
-          return new Response(JSON.stringify({ error: 'Razorpay credentials missing in Cloudflare Environment Variables' }), { 
-            status: 500,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
-        }
-
-        const auth = btoa(`${keyId}:${keySecret}`);
-        const response = await fetch('https://api.razorpay.com/v1/orders', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            amount: Math.round(amount * 100), // amount in paise
-            currency,
-            receipt: receipt || `rcpt_${Date.now()}`,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          return new Response(JSON.stringify({ 
-            error: 'Failed to create Razorpay order',
-            details: data
-          }), { 
-            status: response.status,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
-        }
-
-        return new Response(JSON.stringify(data), { 
+    // =========================
+    // ROOT TEST ROUTE
+    // =========================
+    if (url.pathname === "/") {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Cloudflare Worker Running Successfully",
+        }),
+        {
           status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      } catch (err) {
-        return new Response(JSON.stringify({ error: err.message || 'Failed to create order' }), { 
-          status: 500,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      }
+          headers: corsHeaders,
+        }
+      );
     }
 
-    if (url.pathname === '/api/verify-payment' && request.method === 'POST') {
+    // =========================
+    // CREATE ORDER API
+    // =========================
+    if (
+      url.pathname === "/api/create-order" &&
+      request.method === "POST"
+    ) {
       try {
         const body = await request.json();
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
 
-        const keySecret = env.RAZORPAY_KEY_SECRET;
+        const {
+          amount,
+          currency = "INR",
+          receipt,
+        } = body;
 
-        if (!keySecret) {
-          return new Response(JSON.stringify({ error: 'Razorpay Key Secret is missing in Cloudflare Environment Variables' }), { 
-            status: 500,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
+        // Validate amount
+        if (!amount || isNaN(amount)) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "Valid amount is required",
+            }),
+            {
+              status: 400,
+              headers: corsHeaders,
+            }
+          );
         }
 
-        // Web Crypto API HMAC Verification for Cloudflare Worker
-        const encoder = new TextEncoder();
-        const keyData = encoder.encode(keySecret);
-        const messageData = encoder.encode(`${razorpay_order_id}|${razorpay_payment_id}`);
+        // Environment variables
+        const keyId =
+          env.RAZORPAY_KEY_ID ||
+          env.VITE_RAZORPAY_KEY_ID;
 
-        const cryptoKey = await crypto.subtle.importKey(
-          "raw",
-          keyData,
-           { name: "HMAC", hash: "SHA-256" },
-          false,
-          ["sign"]
+        const keySecret =
+          env.RAZORPAY_KEY_SECRET;
+
+        // Check credentials
+        if (!keyId || !keySecret) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error:
+                "Razorpay credentials missing in Cloudflare Environment Variables",
+            }),
+            {
+              status: 500,
+              headers: corsHeaders,
+            }
+          );
+        }
+
+        // Basic Auth
+        const auth = btoa(
+          `${keyId.trim()}:${keySecret.trim()}`
         );
 
-        const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
-        const signatureHex = Array.from(new Uint8Array(signature))
-          .map(b => b.toString(16).padStart(2, "0"))
-          .join("");
+        // Create Razorpay Order
+        const razorpayResponse = await fetch(
+          "https://api.razorpay.com/v1/orders",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              amount: Number(amount) * 100,
+              currency,
+              receipt:
+                receipt ||
+                `receipt_${Date.now()}`,
+            }),
+          }
+        );
 
-        if (signatureHex === razorpay_signature) {
-          return new Response(JSON.stringify({ success: true, message: 'Payment verified successfully' }), {
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
-        } else {
-          return new Response(JSON.stringify({ error: 'Invalid signature', success: false }), { 
-            status: 400,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
+        // Safe response parsing
+        const responseText =
+          await razorpayResponse.text();
+
+        let data;
+
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = {
+            raw: responseText,
+          };
         }
+
+        // Razorpay API failed
+        if (!razorpayResponse.ok) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error:
+                "Failed to create Razorpay order",
+              details: data,
+            }),
+            {
+              status: razorpayResponse.status,
+              headers: corsHeaders,
+            }
+          );
+        }
+
+        // Success
+        return new Response(
+          JSON.stringify({
+            success: true,
+            order: data,
+          }),
+          {
+            status: 200,
+            headers: corsHeaders,
+          }
+        );
       } catch (err) {
-        return new Response(JSON.stringify({ error: err.message || 'Failed to verify payment' }), { 
-          status: 500,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error:
+              err.message ||
+              "Failed to create order",
+          }),
+          {
+            status: 500,
+            headers: corsHeaders,
+          }
+        );
       }
     }
 
-    return new Response(JSON.stringify({ error: 'Not Found' }), { 
-      status: 404,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
-  }
+    // =========================
+    // VERIFY PAYMENT API
+    // =========================
+    if (
+      url.pathname === "/api/verify-payment" &&
+      request.method === "POST"
+    ) {
+      try {
+        const body = await request.json();
+
+        const {
+          razorpay_order_id,
+          razorpay_payment_id,
+          razorpay_signature,
+        } = body;
+
+        const keySecret =
+          env.RAZORPAY_KEY_SECRET;
+
+        // Validate
+        if (
+          !razorpay_order_id ||
+          !razorpay_payment_id ||
+          !razorpay_signature
+        ) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error:
+                "Missing payment verification fields",
+            }),
+            {
+              status: 400,
+              headers: corsHeaders,
+            }
+          );
+        }
+
+        if (!keySecret) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error:
+                "RAZORPAY_KEY_SECRET missing",
+            }),
+            {
+              status: 500,
+              headers: corsHeaders,
+            }
+          );
+        }
+
+        // Create signature
+        const encoder = new TextEncoder();
+
+        const keyData = encoder.encode(
+          keySecret
+        );
+
+        const messageData = encoder.encode(
+          `${razorpay_order_id}|${razorpay_payment_id}`
+        );
+
+        const cryptoKey =
+          await crypto.subtle.importKey(
+            "raw",
+            keyData,
+            {
+              name: "HMAC",
+              hash: "SHA-256",
+            },
+            false,
+            ["sign"]
+          );
+
+        const signature =
+          await crypto.subtle.sign(
+            "HMAC",
+            cryptoKey,
+            messageData
+          );
+
+        const generatedSignature =
+          Array.from(
+            new Uint8Array(signature)
+          )
+            .map((b) =>
+              b.toString(16).padStart(2, "0")
+            )
+            .join("");
+
+        // Match signature
+        if (
+          generatedSignature ===
+          razorpay_signature
+        ) {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              message:
+                "Payment verified successfully",
+            }),
+            {
+              status: 200,
+              headers: corsHeaders,
+            }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Invalid signature",
+          }),
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error:
+              err.message ||
+              "Payment verification failed",
+          }),
+          {
+            status: 500,
+            headers: corsHeaders,
+          }
+        );
+      }
+    }
+
+    // =========================
+    // 404 ROUTE
+    // =========================
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "Route not found",
+      }),
+      {
+        status: 404,
+        headers: corsHeaders,
+      }
+    );
+  },
 };
