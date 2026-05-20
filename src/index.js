@@ -17,7 +17,10 @@ export default {
           keyId: env.RAZORPAY_KEY_ID || "MISSING",
           keySecret: env.RAZORPAY_KEY_SECRET ? "FOUND" : "MISSING",
         }),
-        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        },
       );
     }
 
@@ -28,9 +31,13 @@ export default {
         const keySecret = env.RAZORPAY_KEY_SECRET;
 
         if (!keyId || !keySecret) {
-          return new Response(JSON.stringify({ error: "Razorpay credentials missing" }), {
-            status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
-          });
+          return new Response(
+            JSON.stringify({ error: "Razorpay credentials missing" }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            },
+          );
         }
 
         const auth = btoa(keyId + ":" + keySecret);
@@ -49,11 +56,13 @@ export default {
 
         const data = await response.json();
         return new Response(JSON.stringify(data), {
-          status: 200, headers: { "Content-Type": "application/json", ...corsHeaders }
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
         });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }), {
-          status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
+          status: 500,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
         });
       }
     }
@@ -61,55 +70,85 @@ export default {
     if (url.pathname === "/api/verify-payment" && request.method === "POST") {
       try {
         const body = await request.json();
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+          body;
         const keySecret = env.RAZORPAY_KEY_SECRET;
 
         if (!keySecret) {
-          return new Response(JSON.stringify({ success: false, error: "Razorpay credentials missing" }), {
-            status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
-          });
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "Razorpay credentials missing",
+            }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            },
+          );
         }
 
         const encoder = new TextEncoder();
         const key = await crypto.subtle.importKey(
-          "raw", encoder.encode(keySecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+          "raw",
+          encoder.encode(keySecret),
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign"],
         );
 
         const signatureBuffer = await crypto.subtle.sign(
-          "HMAC", key, encoder.encode(razorpay_order_id + "|" + razorpay_payment_id)
+          "HMAC",
+          key,
+          encoder.encode(razorpay_order_id + "|" + razorpay_payment_id),
         );
 
         const generatedSignature = Array.from(new Uint8Array(signatureBuffer))
-          .map(b => b.toString(16).padStart(2, "0")).join("");
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
 
         if (generatedSignature === razorpay_signature) {
-          return new Response(JSON.stringify({ success: true, message: "Payment Verified Successfully" }), {
-            status: 200, headers: { "Content-Type": "application/json", ...corsHeaders }
-          });
+          return new Response(
+            JSON.stringify({
+              success: true,
+              message: "Payment Verified Successfully",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            },
+          );
         } else {
-          return new Response(JSON.stringify({ success: false, error: "Invalid Signature" }), {
-            status: 400, headers: { "Content-Type": "application/json", ...corsHeaders }
-          });
+          return new Response(
+            JSON.stringify({ success: false, error: "Invalid Signature" }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            },
+          );
         }
       } catch (err) {
-        return new Response(JSON.stringify({ success: false, error: err.message }), {
-          status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
+        return new Response(
+          JSON.stringify({ success: false, error: err.message }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          },
+        );
       }
     }
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Worker API Running"
+        message: "Worker API Running",
       }),
       {
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          ...corsHeaders
-        }
-      }
+          ...corsHeaders,
+        },
+      },
     );
   },
 };
