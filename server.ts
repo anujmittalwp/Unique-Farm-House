@@ -24,10 +24,15 @@ dotenv.config();
 // Silence noisy Firestore logs in Node.js
 setLogLevel('error');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let currentDir;
+if (typeof __dirname !== 'undefined') {
+  currentDir = __dirname.endsWith("dist") ? require("path").join(__dirname, "..") : __dirname;
+} else {
+  currentDir = path.dirname(fileURLToPath((typeof import.meta !== 'undefined' ? import.meta.url : '')));
+}
 
 // Initialize Firebase
-const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8'));
+const firebaseConfig = JSON.parse(fs.readFileSync(path.join(currentDir, 'firebase-applet-config.json'), 'utf8'));
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || '(default)');
 
