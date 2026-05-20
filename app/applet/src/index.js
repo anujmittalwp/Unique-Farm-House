@@ -129,23 +129,8 @@ export default {
           razorpay_signature
         } = body;
 
-        const keySecret = env.RAZORPAY_KEY_SECRET;
-
-        if (!keySecret) {
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: "Razorpay credentials missing",
-            }),
-            {
-              status: 500,
-              headers: {
-                "Content-Type": "application/json",
-                ...corsHeaders,
-              },
-            }
-          );
-        }
+        const keySecret =
+          env.RAZORPAY_KEY_SECRET;
 
         const encoder = new TextEncoder();
 
@@ -160,26 +145,34 @@ export default {
           ["sign"]
         );
 
-        const signatureBuffer = await crypto.subtle.sign(
-          "HMAC",
-          key,
-          encoder.encode(
-            `${razorpay_order_id}|${razorpay_payment_id}`
+        const signatureBuffer =
+          await crypto.subtle.sign(
+            "HMAC",
+            key,
+            encoder.encode(
+              `${razorpay_order_id}|${razorpay_payment_id}`
+            )
+          );
+
+        const generatedSignature =
+          Array.from(
+            new Uint8Array(signatureBuffer)
           )
-        );
+            .map(b =>
+              b.toString(16).padStart(2, "0")
+            )
+            .join("");
 
-        const generatedSignature = Array.from(
-          new Uint8Array(signatureBuffer)
-        )
-          .map(b => b.toString(16).padStart(2, "0"))
-          .join("");
-
-        if (generatedSignature === razorpay_signature) {
+        if (
+          generatedSignature ===
+          razorpay_signature
+        ) {
 
           return new Response(
             JSON.stringify({
               success: true,
-              message: "Payment Verified Successfully",
+              message:
+                "Payment Verified Successfully",
             }),
             {
               status: 200,
