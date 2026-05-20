@@ -1393,7 +1393,7 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
-      const response = await fetch('/api/calendar/sync', {
+      const response = await fetch(BACKEND_URL + '/api/calendar/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls })
@@ -2099,7 +2099,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       } else {
         // Fallback to Express backend (fails on Cloudflare Pages)
         try {
-          response = await fetch('/api/communications/test-connection', {
+          response = await fetch(BACKEND_URL + '/api/communications/test-connection', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -2316,7 +2316,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
       setIsSendingReply(true);
       try {
-        const response = await fetch('/api/communications/reply', {
+        const response = await fetch(BACKEND_URL + '/api/communications/reply', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -2593,7 +2593,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       } catch (directErr) {
         console.warn("[Sync] Direct fetch failed (likely CORS), falling back to proxy:", directErr);
         // Fallback to proxy if direct fetch fails (e.g. due to CORS or network issues)
-        response = await fetch('/api/proxy/fetch', {
+        response = await fetch(BACKEND_URL + '/api/proxy/fetch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: fetchUrl })
@@ -4941,7 +4941,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
   const handleFetchCloudinaryImages = async () => {
     setIsFetchingCloudinary(true);
     try {
-      const response = await fetch('/api/cloudinary/images');
+      const response = await fetch(BACKEND_URL + '/api/cloudinary/images');
       if (!response.ok) throw new Error('Failed to fetch images');
       const images = await response.json();
       
@@ -5096,7 +5096,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
     }
 
     try {
-      const response = await fetch('/api/reviews/sync', {
+      const response = await fetch(BACKEND_URL + '/api/reviews/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -8874,7 +8874,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           } else {
             const textContent = await response.text().catch(() => '');
             console.error('Non-JSON response from create-order:', textContent.substring(0, 200));
-            errorMsg = `Server endpoint not found (Status: ${response.status}). Check that your backend or Cloudflare Pages functions are deployed.`;
+            errorMsg = `Cloudflare Functions Missing (Status: {response.status}). To fix this, connect Cloudflare Pages to your GitHub repository instead of uploading the dist folder manually, so it deploys the functions directory.`;
           }
           throw new Error(errorMsg);
         }
@@ -8912,7 +8912,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   const errorData = await verifyRes.json().catch(() => ({}));
                   errorMsg = errorData.error || errorMsg;
                 } else {
-                  errorMsg = `Server endpoint not found. The backend API is not running. Status: ${verifyRes.status}`;
+                  errorMsg = `Backend Verification Failed (Status: ${verifyRes.status}). Ensure functions/ backend is running.`;
                 }
                 throw new Error(errorMsg);
               }
@@ -8949,7 +8949,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         console.error('Payment initialization error:', err);
         const errMsg = err.message || '';
         if (errMsg.includes('Failed to fetch') || errMsg.includes('Unexpected token')) {
-          showToast('Backend connection failed. Please check your network and API configuration.', 'error');
+          showToast('CORS Error: AI Studio URL cannot be used directly from your domain. Deploy the backend (functions folder) to Cloudflare or a real server.', 'error');
         } else {
           showToast(`Error: ${errMsg || 'Could not initialize payment. Please try again.'}`, 'error');
         }
@@ -10985,7 +10985,7 @@ export default function App() {
         const registration = await navigator.serviceWorker.ready;
         
         // Fetch public key from server
-        const keyResponse = await fetch('/api/push/public-key');
+        const keyResponse = await fetch(BACKEND_URL + '/api/push/public-key');
         if (!keyResponse.ok) throw new Error('Failed to fetch public key');
         const vapidPublicKey = await keyResponse.text();
         
@@ -10995,7 +10995,7 @@ export default function App() {
             applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
           });
 
-          await fetch('/api/push/subscribe', {
+          await fetch(BACKEND_URL + '/api/push/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(subscription)
@@ -11143,7 +11143,7 @@ export default function App() {
     showToast(title + ": " + message, type);
 
     try {
-      await fetch('/api/notify', {
+      await fetch(BACKEND_URL + '/api/notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, message, type })
@@ -11388,7 +11388,7 @@ export default function App() {
         if (docSnap.exists() && docSnap.data().urls && docSnap.data().urls.length > 0) {
           const urls = docSnap.data().urls;
           
-          const response = await fetch('/api/calendar/sync', {
+          const response = await fetch(BACKEND_URL + '/api/calendar/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ urls })

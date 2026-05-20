@@ -124,6 +124,7 @@ async function startServer() {
 
 
   // === Push Notification Setup ===
+  async function setupVapid() {
   let vapidKeys = { publicKey: '', privateKey: '' };
   try {
     const vapidDocRef = doc(db, 'settings', 'vapid_keys');
@@ -168,6 +169,9 @@ async function startServer() {
     vapidKeys.publicKey,
     vapidKeys.privateKey
   );
+
+  }
+  setupVapid().catch(console.error);
 
   // Push Auth Endpoints
   app.get('/api/push/public-key', (req, res) => {
