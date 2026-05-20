@@ -46,17 +46,13 @@ export default {
 
         const body = await request.json();
 
-        const keyId =
-          env.RAZORPAY_KEY_ID;
-
-        const keySecret =
-          env.RAZORPAY_KEY_SECRET;
+        const keyId = env.RAZORPAY_KEY_ID;
+        const keySecret = env.RAZORPAY_KEY_SECRET;
 
         if (!keyId || !keySecret) {
           return new Response(
             JSON.stringify({
-              error:
-                "Razorpay credentials missing",
+              error: "Razorpay credentials missing",
             }),
             {
               status: 500,
@@ -68,9 +64,7 @@ export default {
           );
         }
 
-        const auth = btoa(
-          `${keyId}:${keySecret}`
-        );
+        const auth = btoa(`${keyId}:${keySecret}`);
 
         const response = await fetch(
           "https://api.razorpay.com/v1/orders",
@@ -81,19 +75,14 @@ export default {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              amount:
-                Math.round(
-                  Number(body.amount) * 100
-                ),
+              amount: Math.round(Number(body.amount) * 100),
               currency: "INR",
-              receipt:
-                "receipt_" + Date.now(),
+              receipt: "receipt_" + Date.now(),
             }),
           }
         );
 
-        const data =
-          await response.json();
+        const data = await response.json();
 
         return new Response(
           JSON.stringify(data),
@@ -140,8 +129,23 @@ export default {
           razorpay_signature
         } = body;
 
-        const keySecret =
-          env.RAZORPAY_KEY_SECRET;
+        const keySecret = env.RAZORPAY_KEY_SECRET;
+
+        if (!keySecret) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "Razorpay credentials missing",
+            }),
+            {
+              status: 500,
+              headers: {
+                "Content-Type": "application/json",
+                ...corsHeaders,
+              },
+            }
+          );
+        }
 
         const encoder = new TextEncoder();
 
@@ -156,34 +160,26 @@ export default {
           ["sign"]
         );
 
-        const signatureBuffer =
-          await crypto.subtle.sign(
-            "HMAC",
-            key,
-            encoder.encode(
-              `${razorpay_order_id}|${razorpay_payment_id}`
-            )
-          );
-
-        const generatedSignature =
-          Array.from(
-            new Uint8Array(signatureBuffer)
+        const signatureBuffer = await crypto.subtle.sign(
+          "HMAC",
+          key,
+          encoder.encode(
+            `${razorpay_order_id}|${razorpay_payment_id}`
           )
-            .map(b =>
-              b.toString(16).padStart(2, "0")
-            )
-            .join("");
+        );
 
-        if (
-          generatedSignature ===
-          razorpay_signature
-        ) {
+        const generatedSignature = Array.from(
+          new Uint8Array(signatureBuffer)
+        )
+          .map(b => b.toString(16).padStart(2, "0"))
+          .join("");
+
+        if (generatedSignature === razorpay_signature) {
 
           return new Response(
             JSON.stringify({
               success: true,
-              message:
-                "Payment Verified Successfully",
+              message: "Payment Verified Successfully",
             }),
             {
               status: 200,
@@ -231,16 +227,17 @@ export default {
       }
     }
 
-    // WEBSITE
-    let response = await env.ASSETS.fetch(request);
+    // WEBSITE SPA FALLBACK
+    const assetResponse = await env.ASSETS.fetch(request);
     
-    // SPA Fallback for React Router
-    if (response.status === 404 && request.method === "GET") {
-      const url = new URL(request.url);
-      url.pathname = "/index.html";
-      response = await env.ASSETS.fetch(new Request(url, request));
+    // IF NOT FOUND AND GET REQUEST, SERVE INDEX.HTML (SPA Routing)
+    if (assetResponse.status === 404 && request.method === 'GET') {
+      const fallbackUrl = new URL(request.url);
+      fallbackUrl.pathname = '/index.html';
+      return env.ASSETS.fetch(new Request(fallbackUrl, request));
     }
     
-    return response;
+    return assetResponse;
+
   },
 };

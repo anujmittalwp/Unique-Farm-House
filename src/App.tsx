@@ -8854,6 +8854,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     if (!isAdminBooking && (userRole === 'client' || !userRole) && totalAmount > 0) {
       try {
         setLoading(true);
+        console.log("Creating order");
         showToast('Initializing secure payment...', 'info');
         
         const response = await fetch('/api/create-order', {
@@ -8893,6 +8894,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
             console.log('Razorpay payment response:', response);
             try {
               setLoading(true);
+              console.log("Verifying payment");
               showToast('Verifying payment...', 'info');
               
               const verifyRes = await fetch('/api/verify-payment', {
@@ -8917,6 +8919,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 throw new Error(errorMsg);
               }
 
+              console.log("Payment verified");
               await handleFinalConfirm(response.razorpay_payment_id);
             } catch (err: any) {
               console.error('Payment verification error:', err);
