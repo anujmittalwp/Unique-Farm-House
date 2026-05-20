@@ -1,4 +1,4 @@
-name = "unique-farm-house"
+name = "unique-farm"
 
 main = "src/index.js"
 
