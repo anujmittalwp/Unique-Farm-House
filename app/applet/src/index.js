@@ -1,32 +1,30 @@
 export default {
   async fetch(request, env, ctx) {
+
     const url = new URL(request.url);
 
     // =========================
-    // HANDLE CORS PREFLIGHT
+    // CORS
     // =========================
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        },
-      });
-    }
 
-    // =========================
-    // COMMON CORS HEADERS
-    // =========================
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
+    // OPTIONS REQUEST
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders,
+      });
+    }
+
     // =========================
-    // ENV TEST ROUTE
+    // ENV TEST
     // =========================
+
     if (url.pathname === "/env-test") {
       return new Response(
         JSON.stringify({
@@ -48,13 +46,16 @@ export default {
     }
 
     // =========================
-    // CREATE ORDER API
+    // CREATE ORDER
     // =========================
+
     if (
       url.pathname === "/api/create-order" &&
       request.method === "POST"
     ) {
+
       try {
+
         const body = await request.json();
 
         const {
@@ -63,7 +64,8 @@ export default {
           receipt,
         } = body;
 
-        // Validate amount
+        // VALIDATE AMOUNT
+
         if (!amount) {
           return new Response(
             JSON.stringify({
@@ -79,7 +81,8 @@ export default {
           );
         }
 
-        // Razorpay Keys
+        // ENV VARIABLES
+
         const keyId =
           env.RAZORPAY_KEY_ID ||
           env.VITE_RAZORPAY_KEY_ID;
@@ -87,14 +90,17 @@ export default {
         const keySecret =
           env.RAZORPAY_KEY_SECRET;
 
-        // Debug log
+        // DEBUG
+
         console.log("KEY ID:", keyId);
+
         console.log(
           "KEY SECRET:",
           keySecret ? "FOUND" : "MISSING"
         );
 
-        // Check missing credentials
+        // CHECK MISSING KEYS
+
         if (!keyId || !keySecret) {
           return new Response(
             JSON.stringify({
@@ -117,12 +123,14 @@ export default {
           );
         }
 
-        // Create Razorpay Auth
+        // CREATE AUTH
+
         const auth = btoa(
           `${keyId}:${keySecret}`
         );
 
-        // Create Razorpay Order
+        // CREATE ORDER
+
         const response = await fetch(
           "https://api.razorpay.com/v1/orders",
           {
@@ -132,9 +140,8 @@ export default {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              amount: Math.round(
-                Number(amount) * 100
-              ),
+              amount:
+                Math.round(Number(amount) * 100),
               currency,
               receipt:
                 receipt ||
@@ -146,7 +153,8 @@ export default {
         const data =
           await response.json();
 
-        // Razorpay API error
+        // RAZORPAY ERROR
+
         if (!response.ok) {
           return new Response(
             JSON.stringify({
@@ -164,7 +172,8 @@ export default {
           );
         }
 
-        // Success response
+        // SUCCESS
+
         return new Response(
           JSON.stringify(data),
           {
@@ -175,7 +184,9 @@ export default {
             },
           }
         );
+
       } catch (err) {
+
         return new Response(
           JSON.stringify({
             error:
@@ -190,17 +201,21 @@ export default {
             },
           }
         );
+
       }
     }
 
     // =========================
-    // VERIFY PAYMENT API
+    // VERIFY PAYMENT
     // =========================
+
     if (
       url.pathname === "/api/verify-payment" &&
       request.method === "POST"
     ) {
+
       try {
+
         const body = await request.json();
 
         const {
@@ -212,12 +227,11 @@ export default {
         const keySecret =
           env.RAZORPAY_KEY_SECRET;
 
-        // Check missing secret
         if (!keySecret) {
           return new Response(
             JSON.stringify({
               error:
-                "Razorpay Key Secret is missing in Cloudflare Environment Variables",
+                "Razorpay Key Secret missing",
             }),
             {
               status: 500,
@@ -229,7 +243,6 @@ export default {
           );
         }
 
-        // Verify Signature
         const encoder =
           new TextEncoder();
 
@@ -260,27 +273,23 @@ export default {
             messageData
           );
 
-        const signatureHex =
+        const generatedSignature =
           Array.from(
             new Uint8Array(signature)
           )
             .map((b) =>
-              b
-                .toString(16)
-                .padStart(2, "0")
+              b.toString(16).padStart(2, "0")
             )
             .join("");
 
-        // Match Signature
         if (
-          signatureHex ===
+          generatedSignature ===
           razorpay_signature
         ) {
+
           return new Response(
             JSON.stringify({
               success: true,
-              message:
-                "Payment verified successfully",
             }),
             {
               status: 200,
@@ -292,7 +301,6 @@ export default {
           );
         }
 
-        // Invalid Signature
         return new Response(
           JSON.stringify({
             success: false,
@@ -306,12 +314,14 @@ export default {
             },
           }
         );
+
       } catch (err) {
+
         return new Response(
           JSON.stringify({
             error:
               err.message ||
-              "Failed to verify payment",
+              "Verification failed",
           }),
           {
             status: 500,
@@ -321,12 +331,15 @@ export default {
             },
           }
         );
+
       }
     }
 
     // =========================
-    // SERVE FRONTEND WEBSITE
+    // SERVE FRONTEND
     // =========================
+
     return env.ASSETS.fetch(request);
+
   },
 };
