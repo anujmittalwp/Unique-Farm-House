@@ -1,20 +1,3 @@
-if (url.pathname === "/env-test") {
-  return new Response(
-    JSON.stringify({
-      keyId: env.RAZORPAY_KEY_ID || "MISSING",
-      keySecret: env.RAZORPAY_KEY_SECRET
-        ? "FOUND"
-        : "MISSING",
-      viteKey:
-        env.VITE_RAZORPAY_KEY_ID || "MISSING",
-    }),
-    {
-      headers: corsHeaders,
-    }
-  );
-}
-
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

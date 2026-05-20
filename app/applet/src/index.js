@@ -3,26 +3,49 @@ export default {
     const url = new URL(request.url);
 
     // =========================
-    // CORS HEADERS (Updated for GitHub Sync)
+    // HANDLE CORS PREFLIGHT
+    // =========================
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
+    }
+
+    // =========================
+    // COMMON CORS HEADERS
     // =========================
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
-      "Content-Type": "application/json",
     };
 
     // =========================
-    // HANDLE OPTIONS REQUEST
+    // ENV TEST ROUTE
     // =========================
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders,
-      });
+    if (url.pathname === "/env-test") {
+      return new Response(
+        JSON.stringify({
+          keyId: env.RAZORPAY_KEY_ID || "MISSING",
+          keySecret: env.RAZORPAY_KEY_SECRET
+            ? "FOUND"
+            : "MISSING",
+          viteKey:
+            env.VITE_RAZORPAY_KEY_ID || "MISSING",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            ...corsHeaders,
+          },
+        }
+      );
     }
-
-    // Removed ROOT TEST ROUTE to allow ASSETS binding to serve index.html
 
     // =========================
     // CREATE ORDER API
@@ -41,20 +64,22 @@ export default {
         } = body;
 
         // Validate amount
-        if (!amount || isNaN(amount)) {
+        if (!amount) {
           return new Response(
             JSON.stringify({
-              success: false,
-              error: "Valid amount is required",
+              error: "Amount is required",
             }),
             {
               status: 400,
-              headers: corsHeaders,
+              headers: {
+                "Content-Type": "application/json",
+                ...corsHeaders,
+              },
             }
           );
         }
 
-        // Environment variables
+        // Razorpay Keys
         const keyId =
           env.RAZORPAY_KEY_ID ||
           env.VITE_RAZORPAY_KEY_ID;
@@ -62,28 +87,43 @@ export default {
         const keySecret =
           env.RAZORPAY_KEY_SECRET;
 
-        // Check credentials
+        // Debug log
+        console.log("KEY ID:", keyId);
+        console.log(
+          "KEY SECRET:",
+          keySecret ? "FOUND" : "MISSING"
+        );
+
+        // Check missing credentials
         if (!keyId || !keySecret) {
           return new Response(
             JSON.stringify({
-              success: false,
               error:
                 "Razorpay credentials missing in Cloudflare Environment Variables",
+              debug: {
+                keyId: keyId || "MISSING",
+                keySecret: keySecret
+                  ? "FOUND"
+                  : "MISSING",
+              },
             }),
             {
               status: 500,
-              headers: corsHeaders,
+              headers: {
+                "Content-Type": "application/json",
+                ...corsHeaders,
+              },
             }
           );
         }
 
-        // Basic Auth
+        // Create Razorpay Auth
         const auth = btoa(
-          `${keyId.trim()}:${keySecret.trim()}`
+          `${keyId}:${keySecret}`
         );
 
         // Create Razorpay Order
-        const razorpayResponse = await fetch(
+        const response = await fetch(
           "https://api.razorpay.com/v1/orders",
           {
             method: "POST",
@@ -92,67 +132,62 @@ export default {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              amount: Number(amount) * 100,
+              amount: Math.round(
+                Number(amount) * 100
+              ),
               currency,
               receipt:
                 receipt ||
-                `receipt_${Date.now()}`,
+                `rcpt_${Date.now()}`,
             }),
           }
         );
 
-        // Safe response parsing
-        const responseText =
-          await razorpayResponse.text();
+        const data =
+          await response.json();
 
-        let data;
-
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          data = {
-            raw: responseText,
-          };
-        }
-
-        // Razorpay API failed
-        if (!razorpayResponse.ok) {
+        // Razorpay API error
+        if (!response.ok) {
           return new Response(
             JSON.stringify({
-              success: false,
               error:
                 "Failed to create Razorpay order",
               details: data,
             }),
             {
-              status: razorpayResponse.status,
-              headers: corsHeaders,
+              status: response.status,
+              headers: {
+                "Content-Type": "application/json",
+                ...corsHeaders,
+              },
             }
           );
         }
 
-        // Success
+        // Success response
         return new Response(
-          JSON.stringify({
-            success: true,
-            order: data,
-          }),
+          JSON.stringify(data),
           {
             status: 200,
-            headers: corsHeaders,
+            headers: {
+              "Content-Type": "application/json",
+              ...corsHeaders,
+            },
           }
         );
       } catch (err) {
         return new Response(
           JSON.stringify({
-            success: false,
             error:
               err.message ||
               "Failed to create order",
           }),
           {
             status: 500,
-            headers: corsHeaders,
+            headers: {
+              "Content-Type": "application/json",
+              ...corsHeaders,
+            },
           }
         );
       }
@@ -177,49 +212,34 @@ export default {
         const keySecret =
           env.RAZORPAY_KEY_SECRET;
 
-        // Validate
-        if (
-          !razorpay_order_id ||
-          !razorpay_payment_id ||
-          !razorpay_signature
-        ) {
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error:
-                "Missing payment verification fields",
-            }),
-            {
-              status: 400,
-              headers: corsHeaders,
-            }
-          );
-        }
-
+        // Check missing secret
         if (!keySecret) {
           return new Response(
             JSON.stringify({
-              success: false,
               error:
-                "RAZORPAY_KEY_SECRET missing",
+                "Razorpay Key Secret is missing in Cloudflare Environment Variables",
             }),
             {
               status: 500,
-              headers: corsHeaders,
+              headers: {
+                "Content-Type": "application/json",
+                ...corsHeaders,
+              },
             }
           );
         }
 
-        // Create signature
-        const encoder = new TextEncoder();
+        // Verify Signature
+        const encoder =
+          new TextEncoder();
 
-        const keyData = encoder.encode(
-          keySecret
-        );
+        const keyData =
+          encoder.encode(keySecret);
 
-        const messageData = encoder.encode(
-          `${razorpay_order_id}|${razorpay_payment_id}`
-        );
+        const messageData =
+          encoder.encode(
+            `${razorpay_order_id}|${razorpay_payment_id}`
+          );
 
         const cryptoKey =
           await crypto.subtle.importKey(
@@ -240,18 +260,20 @@ export default {
             messageData
           );
 
-        const generatedSignature =
+        const signatureHex =
           Array.from(
             new Uint8Array(signature)
           )
             .map((b) =>
-              b.toString(16).padStart(2, "0")
+              b
+                .toString(16)
+                .padStart(2, "0")
             )
             .join("");
 
-        // Match signature
+        // Match Signature
         if (
-          generatedSignature ===
+          signatureHex ===
           razorpay_signature
         ) {
           return new Response(
@@ -262,11 +284,15 @@ export default {
             }),
             {
               status: 200,
-              headers: corsHeaders,
+              headers: {
+                "Content-Type": "application/json",
+                ...corsHeaders,
+              },
             }
           );
         }
 
+        // Invalid Signature
         return new Response(
           JSON.stringify({
             success: false,
@@ -274,74 +300,33 @@ export default {
           }),
           {
             status: 400,
-            headers: corsHeaders,
+            headers: {
+              "Content-Type": "application/json",
+              ...corsHeaders,
+            },
           }
         );
       } catch (err) {
         return new Response(
           JSON.stringify({
-            success: false,
             error:
               err.message ||
-              "Payment verification failed",
+              "Failed to verify payment",
           }),
           {
             status: 500,
-            headers: corsHeaders,
+            headers: {
+              "Content-Type": "application/json",
+              ...corsHeaders,
+            },
           }
         );
       }
     }
 
     // =========================
-    // FALLBACK TO ASSETS FOR SPA OR 404
+    // SERVE FRONTEND WEBSITE
     // =========================
-    try {
-      if (env.ASSETS) {
-        // Try to fetch the requested asset
-        const response = await env.ASSETS.fetch(request);
-        
-        // If not found, and it's a GET request, fallback to index.html for React SPA routing
-        if (response.status === 404 && request.method === 'GET') {
-          const indexUrl = new URL(request.url);
-          indexUrl.pathname = '/index.html';
-          return await env.ASSETS.fetch(new Request(indexUrl, request));
-        }
-        
-        return response;
-      }
-    } catch (e) {
-      console.error("Asset fetch error:", e);
-    }
-
-    // =========================
-    // ROOT TEST ROUTE (Fallback if no assets)
-    // =========================
-    if (url.pathname === "/") {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Cloudflare Worker Running Successfully. Note: Static assets were not found.",
-        }),
-        {
-          status: 200,
-          headers: corsHeaders,
-        }
-      );
-    }
-
-    // =========================
-    // 404 ROUTE
-    // =========================
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: "Route not found",
-      }),
-      {
-        status: 404,
-        headers: corsHeaders,
-      }
-    );
+    return env.ASSETS.fetch(request);
   },
 };
