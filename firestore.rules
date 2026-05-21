@@ -135,7 +135,8 @@ service cloud.firestore {
              (!('expenses' in data) || (data.expenses is list && data.expenses.size() <= 100)) &&
              (!('originalBookingAmount' in data) || (data.originalBookingAmount is number && data.originalBookingAmount >= 0)) &&
              (!('appliedCoupon' in data) || data.appliedCoupon == null || (data.appliedCoupon is map)) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments', 'originalBookingAmount', 'appliedCoupon']);
+             (!('addons' in data) || (data.addons is list && data.addons.size() <= 100)) &&
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments', 'originalBookingAmount', 'appliedCoupon', 'addons']);
     }
 
     function isValidReview(data) {
