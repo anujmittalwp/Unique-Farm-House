@@ -124,8 +124,8 @@ async function startServer() {
 
 
   // === Push Notification Setup ===
-  async function setupVapid() {
   let vapidKeys = { publicKey: '', privateKey: '' };
+  async function setupVapid() {
   try {
     const vapidDocRef = doc(db, 'settings', 'vapid_keys');
     const vapidDoc = await getDoc(vapidDocRef);

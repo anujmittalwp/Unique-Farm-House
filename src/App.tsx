@@ -147,7 +147,7 @@ import {
 import "react-datepicker/dist/react-datepicker.css";
 import { auth, db } from './firebase';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://ais-pre-ykn7bjgmz6crhpfzu6mjl4-44044545959.asia-southeast1.run.app';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
 
 
 const playNotificationSound = () => {
@@ -3011,7 +3011,7 @@ export default {
     }
 
     // 2. Setup AI Studio Backend URL and Secret
-    const BACKEND_URL = "${window.location.origin.replace('ais-dev', 'ais-pre')}/api/send-email"; 
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
     
     // Ensure you add MY_SECRET_KEY to your Worker environment variables!
     const secretKey = env.MY_SECRET_KEY || "";
@@ -6447,6 +6447,72 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                     />
                   </div>
                 </div>
+                  <div className="space-y-4 col-span-1 md:col-span-3 mt-6">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Booking Add-ons</label>
+                    <div className="bg-luxury-dark/5 p-4 rounded-xl space-y-4">
+                      {editingPricing?.addons?.map((addon, idx) => (
+                        <div key={idx} className="flex gap-4 items-center bg-white p-3 rounded-xl shadow-sm flex-wrap sm:flex-nowrap">
+                          <input 
+                            type="text" 
+                            placeholder="Addon Name (e.g., DJ Setup, Bonfire)" 
+                            value={addon.name} 
+                            onChange={(e) => {
+                              const newAddons = [...(editingPricing.addons || [])];
+                              newAddons[idx].name = e.target.value;
+                              setEditingPricing({...editingPricing, addons: newAddons});
+                            }}
+                            className="flex-1 min-w-[150px] px-4 py-2 border-none bg-luxury-dark/5 rounded-lg text-sm outline-none"
+                          />
+                          <input 
+                            type="number" 
+                            placeholder="Price (₹)" 
+                            value={addon.price} 
+                            onChange={(e) => {
+                              const newAddons = [...(editingPricing.addons || [])];
+                              newAddons[idx].price = Number(e.target.value);
+                              setEditingPricing({...editingPricing, addons: newAddons});
+                            }}
+                            className="w-24 px-4 py-2 border-none bg-luxury-dark/5 rounded-lg text-sm outline-none"
+                          />
+                          <select
+                            value={addon.type || 'flat'}
+                            onChange={(e) => {
+                              const newAddons = [...(editingPricing.addons || [])];
+                              newAddons[idx].type = e.target.value;
+                              setEditingPricing({...editingPricing, addons: newAddons});
+                            }}
+                            className="px-3 py-2 border-none bg-luxury-dark/5 rounded-lg text-xs outline-none"
+                          >
+                            <option value="flat">Fixed / Flat</option>
+                            <option value="per_night">Per Night</option>
+                            <option value="per_unit">Per Unit</option>
+                            <option value="per_unit_per_night">Unit + Night</option>
+                          </select>
+                          <button 
+                            onClick={() => {
+                              const newAddons = [...(editingPricing.addons || [])];
+                              newAddons.splice(idx, 1);
+                              setEditingPricing({...editingPricing, addons: newAddons});
+                            }}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                            title="Remove Addon"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                          </button>
+                        </div>
+                      ))}
+                      <button 
+                        onClick={() => {
+                          const currentAddons = editingPricing?.addons || [];
+                          setEditingPricing({...editingPricing, addons: [...currentAddons, { name: '', price: 0 }]});
+                        }}
+                        className="px-4 py-2 bg-luxury-dark text-white rounded-lg text-xs font-bold uppercase tracking-widest"
+                      >
+                        + Add New Addon
+                      </button>
+                    </div>
+                  </div>
+
               </div>
             </div>
 
@@ -8603,6 +8669,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [hasSetDefaultBookingMode, setHasSetDefaultBookingMode] = useState(false);
   const [bookingAmount, setBookingAmount] = useState<number>(editBooking?.bookingAmount || (editBooking ? (editBooking.totalAmount - (editBooking.securityDeposit || pricingSettings?.security || 5000)) : 0));
   const [securityAmount, setSecurityAmount] = useState<number>(editBooking?.securityDeposit || pricingSettings?.security || 5000);
+  const [selectedAddons, setSelectedAddons] = useState<any[]>(editBooking?.addons || []);
 
   useEffect(() => {
     if ((userRole === 'admin' || userRole === 'agent') && !editBooking && !hasSetDefaultBookingMode) {
@@ -8646,18 +8713,34 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       let total = 0;
       let current = new Date(start);
       
+      let totalNights = 0;
       while (current < end) {
+        totalNights++;
         const day = current.getDay(); 
-        if (day === 5 || day === 6) { // Friday & Saturday are weekend
+        if (day === 5 || day === 6) { 
           total += (pricingSettings?.weekend || 25000);
-        } else { // Sunday to Thursday are weekdays
+        } else {
           total += (pricingSettings?.weekday || 22000);
         }
         current.setDate(current.getDate() + 1);
       }
-      setBookingAmount(total);
+      if (totalNights === 0) totalNights = 1;
+      
+      const addonsTotal = selectedAddons.reduce((sum, addon) => {
+        const price = Number(addon.price) || 0;
+        const qty = addon.quantity || 1;
+        const type = addon.type || 'flat';
+        
+        if (type === 'flat') return sum + price;
+        if (type === 'per_night') return sum + (price * totalNights);
+        if (type === 'per_unit') return sum + (price * qty);
+        if (type === 'per_unit_per_night') return sum + (price * qty * totalNights);
+        return sum + price;
+      }, 0);
+      
+      setBookingAmount(total + addonsTotal);
     }
-  }, [checkIn, checkOut, editBooking, pricingSettings]);
+  }, [checkIn, checkOut, editBooking, pricingSettings, selectedAddons]);
 
   useEffect(() => {
     if (checkIn && checkOut) {
@@ -9010,6 +9093,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         bookingAmount: Number(discountedBookingAmount) || 0,
         totalAmount: Number(discountedBookingAmount + securityAmount) || 0,
         appliedCoupon: appliedCoupon ? { code: appliedCoupon.code, discount: appliedCoupon.discount, type: appliedCoupon.type } : null,
+        addons: selectedAddons,
         amountPaid: Number(totalPaidAmount) || 0,
         securityDeposit: Number(securityAmount) || 0,
         expenses: expenses || [],
@@ -9190,6 +9274,21 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-1">Occasion</p>
                 <p className="font-bold text-luxury-dark">{occasion || 'General Stay'}</p>
               </div>
+              
+              {selectedAddons.length > 0 && (
+                <div className="pt-4 border-t border-luxury-dark/5">
+                  <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mb-2">Selected Add-ons</p>
+                  <div className="space-y-1.5">
+                    {selectedAddons.map((addon, idx) => (
+                      <div key={idx} className="flex justify-between items-center">
+                        <p className="text-sm text-luxury-dark/70">{addon.name}</p>
+                        <p className="font-bold text-luxury-dark text-sm">₹{Number(addon.price).toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="pt-4 border-t border-luxury-dark/5 space-y-2">
                 <div className="flex justify-between items-center">
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Amount</p>
@@ -9753,6 +9852,81 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       </div>
 
+
+<div className="space-y-2 pt-2">
+          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Available Add-ons</label>
+          {pricingSettings?.addons && pricingSettings.addons.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {pricingSettings.addons.map((addon, idx) => {
+              const selectedItem = selectedAddons.find(a => a.name === addon.name);
+              const isSelected = !!selectedItem;
+              return (
+                <div 
+                  key={idx}
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest && (e.target as HTMLElement).closest('.addon-qty-btn')) return;
+                    if (isSelected) {
+                      setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
+                    } else {
+                      setSelectedAddons([...selectedAddons, { ...addon, quantity: 1 }]);
+                    }
+                  }}
+                  className={`flex justify-between items-center p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                    isSelected ? 'border-luxury-gold bg-luxury-gold/5 shadow-sm' : 'border-black/5 bg-luxury-cream hover:border-luxury-gold/50'
+                  }`}
+                >
+                  <div className="flex flex-col gap-1 w-full overflow-hidden mr-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                        isSelected ? 'bg-luxury-gold border-luxury-gold' : 'border-luxury-dark/20'
+                      }`}>
+                        {isSelected && <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><polyline points="20 6 9 17 4 12"/></svg>}
+                      </div>
+                      <span className="text-sm font-medium text-luxury-dark truncate" style={{wordBreak: 'break-word', whiteSpace: 'normal', lineHeight: '1.2'}}>{addon.name}</span>
+                    </div>
+                    {isSelected && (addon.type === 'per_unit' || addon.type === 'per_unit_per_night') && (
+                      <div className="pl-7 flex items-center gap-2 mt-1">
+                        <button 
+                          type="button"
+                          className="addon-qty-btn w-5 h-5 rounded border border-luxury-dark/10 flex items-center justify-center text-luxury-dark hover:bg-luxury-gold hover:text-white hover:border-luxury-gold transition-colors text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (selectedItem && selectedItem.quantity > 1) {
+                              setSelectedAddons(selectedAddons.map(a => a.name === addon.name ? { ...a, quantity: a.quantity - 1 } : a));
+                            } else {
+                              setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
+                            }
+                          }}
+                        >-</button>
+                        <span className="text-[10px] font-bold w-4 text-center">{selectedItem?.quantity || 1}</span>
+                        <button 
+                          type="button"
+                          className="addon-qty-btn w-5 h-5 rounded border border-luxury-dark/10 flex items-center justify-center text-luxury-dark hover:bg-luxury-gold hover:text-white hover:border-luxury-gold transition-colors text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAddons(selectedAddons.map(a => a.name === addon.name ? { ...a, quantity: (a.quantity || 1) + 1 } : a));
+                          }}
+                        >+</button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end shrink-0 pl-2">
+                     <span className="text-[11px] font-bold text-luxury-gold">+₹{Number(addon.price).toLocaleString()}</span>
+                     {addon.type === 'per_night' && <span className="text-[8px] uppercase tracking-widest text-luxury-dark/40">/ night</span>}
+                     {addon.type === 'per_unit' && <span className="text-[8px] uppercase tracking-widest text-luxury-dark/40">/ unit</span>}
+                     {addon.type === 'per_unit_per_night' && <span className="text-[8px] uppercase tracking-widest text-luxury-dark/40">/ unit / nt</span>}
+                     {(!addon.type || addon.type === 'flat') && <span className="text-[8px] uppercase tracking-widest text-luxury-dark/40">flat</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          ) : (
+             <div className="text-xs text-luxury-dark/40 italic px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl">No add-ons available. (Admin hasn't configured any yet)</div>
+          )}
+        </div>
+
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="space-y-1.5">
           <div className="flex justify-between items-center">
@@ -10052,6 +10226,19 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      
+      {selectedAddons.length > 0 && (
+        <div className="space-y-1.5 px-1 pb-2 border-b border-black/5">
+          <span className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Add-ons Included</span>
+          {selectedAddons.map((addon, idx) => (
+            <div key={idx} className="flex justify-between items-center text-[10px] text-luxury-dark/60">
+              <span>{addon.name}</span>
+              <span>₹{Number(addon.price).toLocaleString()}</span>
+            </div>
+          ))}
         </div>
       )}
 
