@@ -228,14 +228,7 @@ service cloud.firestore {
       );
       allow update: if isAuthenticated() && (
         // Client can modify their own pending booking
-        (resource.data.uid == request.auth.uid && resource.data.status == 'pending' && 
-         isValidBooking(request.resource.data) && 
-         request.resource.data.uid == resource.data.uid &&
-         request.resource.data.status == 'pending' &&
-         request.resource.data.paymentStatus == resource.data.paymentStatus &&
-         request.resource.data.amountPaid == resource.data.amountPaid &&
-         request.resource.data.createdAt == resource.data.createdAt &&
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenses'])) ||
+        (resource.data.uid == request.auth.uid && isValidBooking(request.resource.data) && request.resource.data.uid == resource.data.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenses'])) ||
         // Client can cancel their own pending booking
         (resource.data.uid == request.auth.uid && 
          request.resource.data.status == 'cancelled' && resource.data.status == 'pending' &&
@@ -351,6 +344,11 @@ service cloud.firestore {
     }
 
     // Default deny
+    
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && (isAdmin() || isAgent());
+    }
     match /{path=**} {
       allow read, write: if false;
     }

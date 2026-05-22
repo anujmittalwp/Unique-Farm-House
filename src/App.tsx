@@ -1926,7 +1926,8 @@ const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, coun
     { id: 'sync', filter: 'sync', label: 'Calendar Sync', labelShort: 'iCal', permission: 'leadsSettings' },
     // Only show User Management for Admins
     ...(userRole === 'admin' ? [{ id: 'users', filter: 'users', label: 'User Management', labelShort: 'Users' }] : []),
-    { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool', permission: 'leadsSettings' }
+    { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool', permission: 'leadsSettings' },
+    { id: 'coupons', filter: 'coupons', label: 'Discount Coupons', labelShort: 'Coupons', permission: 'editSettings' }
   ];
 
   const filteredTabs = tabs.filter(tab => {
@@ -3810,7 +3811,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
   };
 
   const handleDeleteGlobalExpense = async (id: string) => {
-    if (!window.confirm('Delete this global expense?')) return;
+    // window.confirm removed
     try {
       await deleteDoc(doc(db, 'global_expenses', id));
       showToast('Global expense deleted', 'success');
@@ -3890,7 +3891,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this category?')) return;
+    // window.confirm removed
     try {
       await deleteDoc(doc(db, 'expense_categories', id));
       showToast('Category deleted', 'success');
@@ -5224,6 +5225,13 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
       return () => unsubscribe();
     }
+    if (activeFilter === 'coupons' && (userRole === 'admin' || userRole === 'agent')) {
+      const q = query(collection(db, 'coupons'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setCoupons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'coupons'));
+      return () => unsubscribe();
+    }
   }, [userRole, activeFilter, user?.uid]);
 
   const filteredReviews = useMemo(() => {
@@ -5867,7 +5875,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                   }
                   return false;
                 }).map((tab) => {
-               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'migration', 'notifications'].includes(activeFilter);
+               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'migration', 'notifications', 'coupons'].includes(activeFilter);
                const isActive = tab.id === 'settings' ? isSettingsTab : activeFilter === tab.id;
                
                return (
@@ -6070,7 +6078,10 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             userRole={userRole}
           />
         ) : activeFilter === 'coupons' && (userRole === 'admin' || userRole === 'agent') ? (
-          <CouponManagement coupons={coupons} showToast={showToast} />
+          <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            <CouponManagement coupons={coupons} showToast={showToast} />
+          </div>
         ) : activeFilter === 'loyalty' ? (
           <LoyaltyDashboard user={user} loyalty={userLoyalty} referrals={referrals} appUsers={userRole === 'admin' ? appUsers : []} isAdmin={userRole === 'admin'} showToast={showToast} />
         ) : (activeFilter === 'logs' && (userRole === 'admin' || userRole === 'agent')) ? (
@@ -8830,6 +8841,14 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         showToast('Invalid coupon code', 'error');
       } else {
         const couponData = snap.docs[0].data();
+        if (couponData.isActive === false) {
+           showToast('This coupon is currently inactive', 'error');
+           return;
+        }
+        if (couponData.expiryDate && new Date(couponData.expiryDate) < new Date()) {
+           showToast('This coupon has expired', 'error');
+           return;
+        }
         setAppliedCoupon(couponData);
         showToast('Coupon applied successfully!', 'success');
       }
@@ -8934,7 +8953,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     setErrors({});
 
     // If client is booking, use Razorpay
-    if (!isAdminBooking && (userRole === 'client' || !userRole) && totalAmount > 0) {
+    const pendingAmountDue = editBooking ? (totalAmount - (editBooking.amountPaid || 0)) : totalAmount;
+    if (!isAdminBooking && (userRole === 'client' || !userRole) && pendingAmountDue > 0) {
       try {
         setLoading(true);
         console.log("Creating order");
@@ -8944,7 +8964,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            amount: totalAmount,
+            amount: pendingAmountDue,
             receipt: `rcpt_${Date.now()}`
           })
         });
@@ -9050,8 +9070,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     setLoading(true);
     showToast('Processing your booking...', 'info');
     
-    // totalAmount is already calculated by the useMemo/logic above
-    // const totalAmount = discountedBookingAmount + securityAmount;
+    const pendingAmountDue = editBooking ? (totalAmount - (editBooking.amountPaid || 0)) : totalAmount;
     const securityDeposit = securityAmount;
 
     try {
@@ -9069,11 +9088,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         }
       }
 
-      const totalPaidAmount = (payments ? payments.reduce((sum, p) => sum + p.amount, 0) : 0) + (razorpayPaymentId ? totalAmount : 0);
+      const totalPaidAmount = (payments ? payments.reduce((sum, p) => sum + p.amount, 0) : 0) + (razorpayPaymentId ? pendingAmountDue : 0);
       const updatedPayments = payments || [];
       if (razorpayPaymentId) {
         updatedPayments.push({
-          amount: totalAmount,
+          amount: pendingAmountDue,
           note: 'Razorpay Online Payment',
           date: format(new Date(), 'yyyy-MM-dd'),
           paymentId: razorpayPaymentId
@@ -9302,33 +9321,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest font-bold">Total Amount</p>
                   <p className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</p>
                 </div>
-                {!editBooking && (
-                  <div className="pt-4 mt-2 border-t border-luxury-dark/5">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-luxury-dark/30 mb-2">Apply Coupon</p>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        placeholder="ENTER CODE" 
-                        value={couponCode}
-                        onChange={e => setCouponCode(e.target.value.toUpperCase())}
-                        className="flex-grow px-3 py-2 bg-luxury-cream/50 border border-luxury-dark/5 rounded-xl text-[10px] font-bold focus:outline-none uppercase"
-                      />
-                      <button 
-                        type="button"
-                        disabled={isApplyingCoupon || appliedCoupon}
-                        onClick={handleApplyCoupon}
-                        className="px-4 py-2 bg-luxury-dark text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
-                      >
-                        {isApplyingCoupon ? '...' : appliedCoupon ? 'Applied' : 'Apply'}
-                      </button>
-                    </div>
-                    {appliedCoupon && (
-                      <p className="text-[9px] text-emerald-600 font-bold mt-1 uppercase tracking-widest animate-pulse">
-                        Discount Applied: -₹{(bookingAmount - discountedBookingAmount).toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-                )}
                 <p className="text-[10px] text-luxury-dark/40 italic mt-1">(Security deposit is refundable after checkout)</p>
               </div>
             </div>
@@ -10242,18 +10234,63 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       )}
 
-      <div className="space-y-2 px-1">
-        <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">
-          <span>Booking Amount</span>
-          <span>₹{bookingAmount.toLocaleString()}</span>
+      <div className="space-y-4 px-1">
+        <div className="space-y-2">
+          <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">
+            <span>Booking Amount</span>
+            <span>₹{bookingAmount.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">
+            <span>Security Deposit</span>
+            <span>₹{securityAmount.toLocaleString()}</span>
+          </div>
         </div>
-        <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">
-          <span>Security Deposit</span>
-          <span>₹{securityAmount.toLocaleString()}</span>
-        </div>
+
+        {!editBooking && (
+          <div className="pt-4 border-t border-luxury-dark/5">
+            <div className="flex gap-2 mb-1">
+              <input 
+                type="text" 
+                placeholder="DISCOUNT CODE" 
+                value={couponCode}
+                onChange={e => setCouponCode(e.target.value.toUpperCase())}
+                disabled={!!appliedCoupon}
+                className="flex-grow px-3 py-2 bg-luxury-cream/50 border border-luxury-dark/5 rounded-xl text-[10px] font-bold focus:outline-none uppercase disabled:opacity-50"
+              />
+              {appliedCoupon ? (
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setAppliedCoupon(null);
+                    setCouponCode('');
+                    showToast('Coupon removed', 'info');
+                  }}
+                  className="px-4 py-2 bg-red-50 text-red-700 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-100 transition-all"
+                >
+                  Clear
+                </button>
+              ) : (
+                <button 
+                  type="button"
+                  disabled={isApplyingCoupon}
+                  onClick={handleApplyCoupon}
+                  className="px-4 py-2 bg-luxury-dark text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
+                >
+                  {isApplyingCoupon ? '...' : 'Apply'}
+                </button>
+              )}
+            </div>
+            {appliedCoupon && (
+              <p className="text-[9px] text-emerald-600 font-bold uppercase tracking-widest">
+                Discount Applied: -₹{(bookingAmount - discountedBookingAmount).toLocaleString()}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="p-4 bg-luxury-dark/5 rounded-xl flex items-center justify-between mt-2">
           <span className="text-xs font-bold text-luxury-dark/60 uppercase tracking-widest">Total Amount</span>
-          <span className="text-xl font-serif font-bold text-luxury-dark">₹{(bookingAmount + securityAmount).toLocaleString()}</span>
+          <span className="text-xl font-serif font-bold text-luxury-dark">₹{totalAmount.toLocaleString()}</span>
         </div>
       </div>
 
@@ -10901,29 +10938,76 @@ const InstallPrompt = ({ onInstall, onClose, isIOS }: { onInstall: () => void; o
 // --- Main App ---
 
 const CouponManagement = ({ coupons, showToast }: { coupons: any[]; showToast: (m: string, t: any) => void }) => {
-  const [newCoupon, setNewCoupon] = useState({ code: '', discount: 0, type: 'percent' });
+  const [newCoupon, setNewCoupon] = useState({ code: '', discount: 0, type: 'percent', expiryDate: '' });
   const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const handleAdd = async () => {
     if (!newCoupon.code || newCoupon.discount <= 0) return;
     setLoading(true);
     try {
-      await addDoc(collection(db, 'coupons'), {
-        ...newCoupon,
-        code: newCoupon.code.toUpperCase(),
-        createdAt: serverTimestamp()
-      });
-      showToast('Coupon added!', 'success');
-      setNewCoupon({ code: '', discount: 0, type: 'percent' });
+      if (editingId) {
+        await updateDoc(doc(db, 'coupons', editingId), {
+          ...newCoupon,
+          code: newCoupon.code.toUpperCase()
+        });
+        showToast('Coupon updated!', 'success');
+        setEditingId(null);
+      } else {
+        await addDoc(collection(db, 'coupons'), {
+          ...newCoupon,
+          code: newCoupon.code.toUpperCase(),
+          isActive: true,
+          createdAt: serverTimestamp()
+        });
+        showToast('Coupon added!', 'success');
+      }
+      setNewCoupon({ code: '', discount: 0, type: 'percent', expiryDate: '' });
     } catch (e) {
-      showToast('Failed to add coupon', 'error');
+      showToast(editingId ? 'Failed to update coupon' : 'Failed to add coupon', 'error');
     } finally {
       setLoading(false);
     }
   };
 
+  const toggleCouponStatus = async (id: string, currentStatus: boolean) => {
+    try {
+      await updateDoc(doc(db, 'coupons', id), { isActive: !currentStatus });
+      showToast('Coupon status updated', 'success');
+    } catch (e) {
+      showToast('Failed to update status', 'error');
+    }
+  };
+
+  const handleEditExpiry = async (id: string, currentExpiry: string) => {
+    const newExpiry = window.prompt('Set new expiry date (YYYY-MM-DD), leave blank to clear:', currentExpiry || '');
+    if (newExpiry !== null) {
+      if (newExpiry && isNaN(Date.parse(newExpiry))) {
+        showToast('Invalid date format', 'error');
+        return;
+      }
+      try {
+        await updateDoc(doc(db, 'coupons', id), { expiryDate: newExpiry });
+        showToast('Expiry updated', 'success');
+      } catch (e) {
+        showToast('Failed to update expiry', 'error');
+      }
+    }
+  };
+
+  const handleEdit = (coupon: any) => {
+    setNewCoupon({
+      code: coupon.code,
+      discount: coupon.discount,
+      type: coupon.type,
+      expiryDate: coupon.expiryDate || ''
+    });
+    setEditingId(coupon.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this coupon?')) return;
+    // window.confirm removed for iframe compatibility
     try {
       await deleteDoc(doc(db, 'coupons', id));
       showToast('Coupon deleted', 'info');
@@ -10943,61 +11027,153 @@ const CouponManagement = ({ coupons, showToast }: { coupons: any[]; showToast: (
 
       <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
         <h4 className="text-[10px] font-black uppercase tracking-widest text-luxury-dark/30 mb-6">Create New Coupon</h4>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <input 
-            type="text" 
-            placeholder="COUPON_CODE" 
-            value={newCoupon.code}
-            onChange={e => setNewCoupon({...newCoupon, code: e.target.value.toUpperCase()})}
-            className="px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold uppercase"
-          />
-          <input 
-            type="number" 
-            placeholder="Discount Value" 
-            value={newCoupon.discount || ''}
-            onChange={e => setNewCoupon({...newCoupon, discount: Number(e.target.value)})}
-            className="px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
-          />
-          <select 
-            value={newCoupon.type}
-            onChange={e => setNewCoupon({...newCoupon, type: e.target.value})}
-            className="px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
-          >
-            <option value="percent">Percentage (%)</option>
-            <option value="flat">Flat Amount (₹)</option>
-          </select>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+          <div>
+            <input 
+              type="text" 
+              placeholder="COUPON_CODE" 
+              value={newCoupon.code}
+              onChange={e => setNewCoupon({...newCoupon, code: e.target.value.toUpperCase()})}
+              className="w-full px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold uppercase"
+            />
+          </div>
+          <div>
+            <input 
+              type="number" 
+              placeholder="Discount Value" 
+              value={newCoupon.discount || ''}
+              onChange={e => setNewCoupon({...newCoupon, discount: Number(e.target.value)})}
+              className="w-full px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
+            />
+          </div>
+          <div>
+            <select 
+              value={newCoupon.type}
+              onChange={e => setNewCoupon({...newCoupon, type: e.target.value})}
+              className="w-full px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
+            >
+              <option value="percent">Percentage (%)</option>
+              <option value="flat">Flat Amount (₹)</option>
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <label className="text-[8px] font-bold uppercase tracking-widest text-luxury-dark/40 mb-1 ml-1">Expiry Date (Optional)</label>
+            <input 
+              type="date" 
+              value={(newCoupon as any).expiryDate || ''}
+              onChange={e => setNewCoupon({...newCoupon, expiryDate: e.target.value})}
+              className="w-full px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
+            />
+          </div>
           <button 
             disabled={loading}
             onClick={handleAdd}
-            className="bg-luxury-dark text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50"
+            className="w-full py-4 bg-luxury-dark text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {loading ? 'Adding...' : 'Create Coupon'}
+            {loading ? 'Saving...' : (editingId ? 'Update Coupon' : 'Create Coupon')}
           </button>
+          
+          {editingId && (
+            <button 
+              onClick={() => {
+                setEditingId(null);
+                setNewCoupon({ code: '', discount: 0, type: 'percent', expiryDate: '' });
+              }}
+              className="w-full py-4 bg-gray-100 text-luxury-dark rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-200 transition-all"
+            >
+              Cancel Edit
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {coupons.map(coupon => (
-          <div key={coupon.id} className="bg-white p-6 rounded-[2rem] border border-luxury-dark/5 shadow-sm relative group overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-125 transition-transform">
-              <Ticket size={48} />
-            </div>
-            <div className="flex flex-col gap-2 relative z-10">
-              <span className="text-[10px] font-black uppercase tracking-widest text-luxury-gold">Active Promo</span>
-              <h5 className="text-xl font-black text-luxury-dark tracking-tighter">{coupon.code}</h5>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-2xl font-bold text-luxury-dark">{coupon.type === 'percent' ? `${coupon.discount}%` : `₹${coupon.discount}`}</span>
-                <span className="text-[10px] font-bold text-luxury-dark/30 uppercase">OFF</span>
-              </div>
-              <button 
-                onClick={() => handleDelete(coupon.id)}
-                className="mt-6 text-[10px] font-bold text-red-400 hover:text-red-600 transition-colors uppercase tracking-widest flex items-center gap-2"
-              >
-                <Trash2 size={12} /> Remove Coupon
-              </button>
-            </div>
-          </div>
-        ))}
+      <div className="bg-white rounded-[2rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-luxury-dark/5 bg-gray-50/50">
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Code</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Discount</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Expiry</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Status</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40 min-w-[200px]">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coupons.map(coupon => (
+                <tr key={coupon.id} className={"border-b border-luxury-dark/5 last:border-b-0 hover:bg-gray-50/30 transition-colors " + (coupon.isActive !== false ? '' : 'bg-red-50/20')}>
+                  <td className="px-6 py-4">
+                    <span className="text-sm font-bold text-luxury-dark tracking-tight">{coupon.code}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-sm font-bold text-luxury-gold">
+                      {coupon.type === 'percent' ? coupon.discount + '%' : '₹' + coupon.discount} OFF
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      {coupon.expiryDate ? (
+                        <span className="text-xs font-medium text-luxury-dark/60">
+                          {new Date(coupon.expiryDate).toLocaleDateString()}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-luxury-dark/30 italic">No Expiry</span>
+                      )}
+                      <button
+                        onClick={() => handleEditExpiry(coupon.id, coupon.expiryDate)}
+                        className="text-[10px] text-blue-500 hover:text-blue-700 underline uppercase font-bold tracking-widest"
+                      >
+                        Set
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={"inline-flex px-2 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest " + (coupon.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>
+                      {coupon.isActive !== false ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center cursor-pointer group" title={coupon.isActive !== false ? 'Deactivate' : 'Activate'}>
+                        <div className="relative">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only" 
+                            checked={coupon.isActive !== false} 
+                            onChange={() => toggleCouponStatus(coupon.id, coupon.isActive !== false)} 
+                          />
+                          <div className={"block w-8 h-4 rounded-full transition-colors " + (coupon.isActive !== false ? 'bg-luxury-gold' : 'bg-gray-300')}></div>
+                          <div className={"absolute left-1 top-1 bg-white w-2 h-2 rounded-full transition-transform " + (coupon.isActive !== false ? 'translate-x-4' : '')}></div>
+                        </div>
+                      </label>
+                      <button 
+                        onClick={() => handleEdit(coupon)}
+                        className="text-blue-500 hover:text-blue-700 transition-colors p-2 rounded-xl hover:bg-blue-50"
+                        title="Edit Coupon"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(coupon.id)}
+                        className="text-red-400 hover:text-red-600 transition-colors p-2 rounded-xl hover:bg-red-50"
+                        title="Delete Coupon"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {coupons.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-luxury-dark/40 text-xs font-medium">
+                    No discount coupons generated yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
