@@ -90,9 +90,10 @@ import {
   Gift
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
-import { Blog, BlogPost } from './Blog';
-import { BlogAdmin } from './BlogAdmin';
-import PrivacyPolicy from './PrivacyPolicy';
+const Blog = React.lazy(() => import('./Blog').then(m => ({ default: m.Blog })));
+const BlogPost = React.lazy(() => import('./Blog').then(m => ({ default: m.BlogPost })));
+const BlogAdmin = React.lazy(() => import('./BlogAdmin').then(m => ({ default: m.BlogAdmin })));
+const PrivacyPolicy = React.lazy(() => import('./PrivacyPolicy'));
 import { getAI, safeAiCall } from './lib/ai';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
@@ -130,7 +131,7 @@ import {
 import { format, addDays, parse, isValid } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import Papa from 'papaparse';
-import { ElegantLeadsDashboard } from './ElegantLeadsDashboard';
+const ElegantLeadsDashboard = React.lazy(() => import('./ElegantLeadsDashboard').then(m => ({ default: m.ElegantLeadsDashboard })));
 import { 
   BarChart, 
   Bar, 
@@ -2897,19 +2898,26 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
   return (
     <div className="space-y-8 relative font-modern">
-      <ElegantLeadsDashboard 
-        leads={leads}
-        showToast={showToast}
-        userRole={userRole}
-        userPermissions={userPermissions}
-        onAddLead={() => setManualModalOpen(true)}
-        onExport={handleExportLeads}
-        onOpenSync={() => setSyncModalOpen(true)}
-        onOpenMetaSync={() => setMetaModalOpen(true)}
-        onOpenGmailSettings={() => setGmailModalOpen(true)}
-        onDeleteLead={(id) => setLeadToDelete(id)}
-        onReply={openReplyModal}
-      />
+      <React.Suspense fallback={
+        <div className="p-12 text-center text-luxury-gold flex flex-col items-center justify-center gap-3">
+          <div className="w-8 h-8 border-2 border-luxury-gold border-t-transparent rounded-full animate-spin" />
+          <span>Loading Leads Engine...</span>
+        </div>
+      }>
+        <ElegantLeadsDashboard 
+          leads={leads}
+          showToast={showToast}
+          userRole={userRole}
+          userPermissions={userPermissions}
+          onAddLead={() => setManualModalOpen(true)}
+          onExport={handleExportLeads}
+          onOpenSync={() => setSyncModalOpen(true)}
+          onOpenMetaSync={() => setMetaModalOpen(true)}
+          onOpenGmailSettings={() => setGmailModalOpen(true)}
+          onDeleteLead={(id) => setLeadToDelete(id)}
+          onReply={openReplyModal}
+        />
+      </React.Suspense>
 
       {leadToDelete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -6676,7 +6684,14 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             <CalendarSync showToast={showToast} canEditSettingsAdmin={canEditSettingsAdmin} />
           </div>
         ) : (activeFilter === 'blogs' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewBlogs))) ? (
-          <BlogAdmin showToast={showToast} galleryImages={galleryImages} userRole={userRole} userPermissions={userPermissions} />
+          <React.Suspense fallback={
+            <div className="p-12 text-center text-luxury-gold flex flex-col items-center justify-center gap-3">
+              <div className="w-8 h-8 border-2 border-luxury-gold border-t-transparent rounded-full animate-spin" />
+              <span>Loading Blog Administration...</span>
+            </div>
+          }>
+            <BlogAdmin showToast={showToast} galleryImages={galleryImages} userRole={userRole} userPermissions={userPermissions} />
+          </React.Suspense>
         ) : (activeFilter === 'migration' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
@@ -8973,6 +8988,29 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     if (!isAdminBooking && (userRole === 'client' || !userRole) && pendingAmountDue > 0) {
       try {
         setLoading(true);
+        console.log("Loading Razorpay SDK");
+        showToast('Initializing payment gateway...', 'info');
+
+        const loadRazorpay = () => {
+          return new Promise<boolean>((resolve) => {
+            if ((window as any).Razorpay) {
+              resolve(true);
+              return;
+            }
+            const script = document.createElement('script');
+            script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+            script.async = true;
+            script.onload = () => resolve(true);
+            script.onerror = () => resolve(false);
+            document.body.appendChild(script);
+          });
+        };
+
+        const isScriptLoaded = await loadRazorpay();
+        if (!isScriptLoaded) {
+          throw new Error("Unable to load the payment gateway. Please check your internet connection.");
+        }
+
         console.log("Creating order");
         showToast('Initializing secure payment...', 'info');
         
@@ -11964,23 +12002,29 @@ export default function App() {
         onToggleSound={() => setSoundEnabled(!soundEnabled)}
       />
       <main>
-        <Routes>
-          <Route path="/" element={
-            <>
-              <Hero onBookNow={openBookingModal} settings={heroSettings} />
-              <BookingSection onBookNow={openBookingModal} />
-              <SEOContent />
-            </>
-          } />
-          <Route path="/about" element={<div className="pt-24"><About /></div>} />
-          <Route path="/amenities" element={<div className="pt-24"><Amenities onAmenityClick={setGalleryCategory} /></div>} />
-          <Route path="/gallery" element={<div className="pt-24"><Gallery onImageClick={setSelectedImage} images={galleryImages} activeCategory={galleryCategory} onCategoryChange={setGalleryCategory} /></div>} />
-          <Route path="/reviews" element={<div className="pt-24"><Reviews /></div>} />
-          <Route path="/location" element={<div className="pt-24"><LocationSection /></div>} />
-          <Route path="/blog" element={<div className="pt-24"><Blog /></div>} />
-          <Route path="/blog/:id" element={<div className="pt-24"><BlogPost /></div>} />
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-        </Routes>
+        <React.Suspense fallback={
+          <div className="pt-32 pb-24 text-center min-h-[50vh] flex items-center justify-center">
+            <div className="w-10 h-10 border-4 border-luxury-gold border-t-transparent rounded-full animate-spin" />
+          </div>
+        }>
+          <Routes>
+            <Route path="/" element={
+              <>
+                <Hero onBookNow={openBookingModal} settings={heroSettings} />
+                <BookingSection onBookNow={openBookingModal} />
+                <SEOContent />
+              </>
+            } />
+            <Route path="/about" element={<div className="pt-24"><About /></div>} />
+            <Route path="/amenities" element={<div className="pt-24"><Amenities onAmenityClick={setGalleryCategory} /></div>} />
+            <Route path="/gallery" element={<div className="pt-24"><Gallery onImageClick={setSelectedImage} images={galleryImages} activeCategory={galleryCategory} onCategoryChange={setGalleryCategory} /></div>} />
+            <Route path="/reviews" element={<div className="pt-24"><Reviews /></div>} />
+            <Route path="/location" element={<div className="pt-24"><LocationSection /></div>} />
+            <Route path="/blog" element={<div className="pt-24"><Blog /></div>} />
+            <Route path="/blog/:id" element={<div className="pt-24"><BlogPost /></div>} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          </Routes>
+        </React.Suspense>
       </main>
       <Footer />
       
