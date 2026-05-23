@@ -149,6 +149,18 @@ import { auth, db } from './firebase';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
 
+const getOptimizedUrl = (url: string, width?: number) => {
+  if (!url || typeof url !== 'string' || !url.includes('cloudinary.com')) return url;
+  if (url.includes('q_auto') || url.includes('f_auto') || url.includes('.gif') || url.includes('.mp3')) return url;
+  
+  const uploadToken = "/image/upload";
+  if (url.includes(uploadToken)) {
+    const transform = width ? `/image/upload/f_auto,q_auto,w_${width},c_limit` : '/image/upload/f_auto,q_auto';
+    return url.replace(uploadToken, transform);
+  }
+  return url;
+};
+
 
 const playNotificationSound = () => {
   const isEnabled = localStorage.getItem('notif_sound_enabled') !== 'false';
@@ -7585,6 +7597,7 @@ const Navbar = ({
                     onClick={onToggleSound}
                     className={`p-2 rounded-xl transition-all ${isNavSolid ? 'hover:bg-luxury-dark/5 text-luxury-dark/60' : 'hover:bg-white/10 text-white/60'}`}
                     title={soundEnabled ? "Disable Notification Sound" : "Enable Notification Sound"}
+                    aria-label={soundEnabled ? "Disable Notification Sound" : "Enable Notification Sound"}
                   >
                     {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
                   </button>
@@ -7593,6 +7606,7 @@ const Navbar = ({
                     <button 
                       onClick={() => setShowNotifPanel(!showNotifPanel)}
                       className={`p-2 rounded-xl transition-all relative ${isNavSolid ? 'hover:bg-luxury-dark/5 text-luxury-dark/60' : 'hover:bg-white/10 text-white/60'}`}
+                      aria-label="Toggle notifications panel"
                     >
                       {unreadCount > 0 ? (
                         <BellRing size={18} className="text-luxury-gold animate-bounce" />
@@ -7695,6 +7709,7 @@ const Navbar = ({
               <button 
                 onClick={handleSignOut}
                 className={`flex items-center gap-2 text-sm font-medium hover:text-red-500 transition-colors ${isNavSolid ? 'text-luxury-dark' : 'text-white'}`}
+                aria-label="Sign Out"
               >
                 <LogOut size={18} />
               </button>
@@ -7722,6 +7737,7 @@ const Navbar = ({
         <button 
           className="md:hidden"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          aria-label="Toggle mobile menu"
         >
           {isMobileMenuOpen ? <X className={isNavSolid ? 'text-luxury-dark' : 'text-white'} /> : <Menu className={isNavSolid ? 'text-luxury-dark' : 'text-white'} />}
         </button>
@@ -7799,7 +7815,7 @@ const Navbar = ({
 };
 
 const Hero = ({ onBookNow, settings }: { onBookNow: () => void; settings?: any }) => {
-  const bgImage = settings?.backgroundImage || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg";
+  const bgImage = getOptimizedUrl(settings?.backgroundImage || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg", 1920);
   const title = settings?.title || "Experience Luxury & Serenity at";
   const subtitle = settings?.subtitle || "Welcome to Noida's Finest Retreat in Sector 135";
   const description = settings?.description || "Premium Private Villa / Farmhouse Stay in Noida Sector 135. Also known as Unique Farm House or Unique Farms, we offer a clean environment for celebrations, staycations, and unforgettable moments.";
@@ -7898,7 +7914,7 @@ const About = () => {
           >
             <div className="aspect-[4/5] overflow-hidden rounded-2xl shadow-2xl">
               <img 
-                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720358/1_w50zwj.jpg" 
+                src={getOptimizedUrl("https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720358/1_w50zwj.jpg", 800)} 
                 alt="Luxury Interior" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -7906,7 +7922,7 @@ const About = () => {
             </div>
             <div className="absolute -bottom-10 -right-10 w-2/3 aspect-square overflow-hidden rounded-2xl shadow-2xl border-8 border-white hidden lg:block">
               <img 
-                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg" 
+                src={getOptimizedUrl("https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg", 600)} 
                 alt="Private Pool" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -10693,14 +10709,14 @@ const Footer = () => {
                 <span className="text-[10px] sm:text-xs tracking-[0.4em] uppercase -mt-1 text-luxury-gold">Farmhouse</span>
               </div>
             </Link>
-            <p className="text-white/50 text-sm leading-relaxed">
+            <p className="text-white/70 text-sm leading-relaxed">
               Experience the pinnacle of luxury and privacy in Noida. Our farmhouse is the ideal destination for celebrations and serene retreats.
             </p>
             <div className="flex gap-4">
-              <a href="#" className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-luxury-gold transition-colors">
+              <a href="#" aria-label="Add to Favorites" className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-luxury-gold transition-colors">
                 <Heart size={18} />
               </a>
-              <a href="#" className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-luxury-gold transition-colors">
+              <a href="#" aria-label="Rate Us" className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-luxury-gold transition-colors">
                 <Star size={18} />
               </a>
             </div>
@@ -10709,8 +10725,8 @@ const Footer = () => {
           </div>
 
           <div>
-            <h4 className="text-lg font-serif mb-6">Quick Links</h4>
-            <ul className="space-y-4 text-white/50 text-sm">
+            <h4 className="text-lg font-serif mb-6 text-white/90">Quick Links</h4>
+            <ul className="space-y-4 text-white/70 text-sm">
               <li><Link to="/about" className="hover:text-luxury-gold transition-colors">About Us</Link></li>
               <li><Link to="/amenities" className="hover:text-luxury-gold transition-colors">Amenities</Link></li>
               <li><Link to="/gallery" className="hover:text-luxury-gold transition-colors">Gallery</Link></li>
@@ -10721,8 +10737,8 @@ const Footer = () => {
           </div>
 
           <div>
-            <h4 className="text-lg font-serif mb-6">Contact Info</h4>
-            <ul className="space-y-4 text-white/50 text-sm">
+            <h4 className="text-lg font-serif mb-6 text-white/90">Contact Info</h4>
+            <ul className="space-y-4 text-white/70 text-sm">
               <li className="flex items-center gap-3">
                 <Phone size={16} className="text-luxury-gold" />
                 <a href="tel:+919313501001" className="hover:text-luxury-gold transition-colors">+91 9313501001</a>
@@ -10739,15 +10755,15 @@ const Footer = () => {
           </div>
 
           <div>
-            <h4 className="text-lg font-serif mb-6">Newsletter</h4>
-            <p className="text-white/50 text-sm mb-4">Subscribe for exclusive offers and updates.</p>
+            <h4 className="text-lg font-serif mb-6 text-white/90">Newsletter</h4>
+            <p className="text-white/70 text-sm mb-4">Subscribe for exclusive offers and updates.</p>
             <div className="flex gap-2 mb-8">
-              <input type="email" placeholder="Email Address" className="bg-white/5 border border-white/10 px-4 py-2 rounded-lg text-sm focus:outline-none focus:border-luxury-gold w-full" />
-              <button className="bg-luxury-gold text-luxury-dark px-4 py-2 rounded-lg text-sm font-bold hover:bg-white transition-colors">Join</button>
+              <input type="email" id="newsletter-email" aria-label="Newsletter Email Address" placeholder="Email Address" className="bg-white/5 border border-white/10 px-4 py-2 rounded-lg text-sm focus:outline-none focus:border-luxury-gold w-full text-white" />
+              <button className="bg-luxury-gold text-luxury-dark px-4 py-2 rounded-lg text-sm font-bold hover:bg-white transition-colors" aria-label="Join newsletter">Join</button>
             </div>
             
             <div className="pt-6 border-t border-white/5">
-              <h5 className="text-[10px] uppercase tracking-[0.2em] text-white/30 mb-4">Secure Payments</h5>
+              <h5 className="text-[10px] uppercase tracking-[0.2em] text-white/50 mb-4 font-bold">Secure Payments</h5>
               <div className="flex flex-wrap gap-3 opacity-50 grayscale hover:grayscale-0 transition-all duration-500">
                 <div className="bg-white/10 p-2 rounded flex items-center justify-center" title="Visa">
                   <CreditCard size={16} />
@@ -10765,35 +10781,35 @@ const Footer = () => {
 
         <div className="mt-16 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex flex-wrap justify-center md:justify-start gap-8">
-            <div className="flex items-center gap-3 text-white/40">
+            <div className="flex items-center gap-3 text-white/55">
               <ShieldCheck size={24} className="text-luxury-gold/50" />
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold uppercase tracking-widest leading-none">SSL Secured</span>
-                <span className="text-[9px] opacity-60">256-bit Encryption</span>
+                <span className="text-[9px] opacity-65">256-bit Encryption</span>
               </div>
             </div>
-            <div className="flex items-center gap-3 text-white/40">
+            <div className="flex items-center gap-3 text-white/55">
               <Lock size={24} className="text-luxury-gold/50" />
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold uppercase tracking-widest leading-none">Safe Booking</span>
-                <span className="text-[9px] opacity-60">Privacy Protected</span>
+                <span className="text-[9px] opacity-65">Privacy Protected</span>
               </div>
             </div>
-            <div className="flex items-center gap-3 text-white/40">
+            <div className="flex items-center gap-3 text-white/55">
               <Star size={24} className="text-luxury-gold/50" />
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold uppercase tracking-widest leading-none">Top Rated</span>
-                <span className="text-[9px] opacity-60">Verified Property</span>
+                <span className="text-[9px] opacity-65">Verified Property</span>
               </div>
             </div>
           </div>
 
           <div className="flex flex-col items-center md:items-end gap-4">
-            <div className="flex gap-6 text-white/30 text-xs uppercase tracking-widest">
+            <div className="flex gap-6 text-white/55 text-xs uppercase tracking-widest font-semibold">
               <Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
               <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
             </div>
-            <p className="text-white/20 text-[10px] uppercase tracking-[0.3em]">© 2024 Unique Farmhouse (Unique Farm House). All Rights Reserved.</p>
+            <p className="text-white/45 text-[10px] uppercase tracking-[0.3em]">© 2024 Unique Farmhouse (Unique Farm House). All Rights Reserved.</p>
           </div>
         </div>
       </div>
@@ -10831,7 +10847,7 @@ const WelcomeModal = ({ isOpen, onClose, onBookNow }: { isOpen: boolean; onClose
             {/* Header Image */}
             <div className="relative h-64">
               <img 
-                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg" 
+                src={getOptimizedUrl("https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720563/15_gtwa17.jpg", 500)} 
                 alt="Welcome to Unique Farmhouse" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
