@@ -136,7 +136,12 @@ service cloud.firestore {
              (!('originalBookingAmount' in data) || (data.originalBookingAmount is number && data.originalBookingAmount >= 0)) &&
              (!('appliedCoupon' in data) || data.appliedCoupon == null || (data.appliedCoupon is map)) &&
              (!('addons' in data) || (data.addons is list && data.addons.size() <= 100)) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments', 'originalBookingAmount', 'appliedCoupon', 'addons']);
+             (!('bookingSource' in data) || (data.bookingSource is string && data.bookingSource in ['direct', 'partner'])) &&
+             (!('partnerName' in data) || data.partnerName is string) &&
+             (!('partnerCommission' in data) || data.partnerCommission is number) &&
+             (!('partnerCommissionType' in data) || data.partnerCommissionType is string) &&
+             (!('advanceByPartner' in data) || data.advanceByPartner is number) &&
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments', 'originalBookingAmount', 'appliedCoupon', 'addons', 'bookingSource', 'partnerName', 'partnerCommission', 'partnerCommissionType', 'advanceByPartner']);
     }
 
     function isValidReview(data) {
@@ -349,6 +354,12 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAuthenticated() && (isAdmin() || isAgent());
     }
+    
+    match /partners/{partnerId} {
+      allow read: if isAuthenticated() && (isAdmin() || isAgent());
+      allow write: if isAuthenticated() && (isAdmin() || isAgent());
+    }
+
     match /{path=**} {
       allow read, write: if false;
     }

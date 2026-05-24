@@ -87,7 +87,8 @@ import {
   Maximize2,
   Table,
   Ticket,
-  Gift
+  Gift,
+  Globe
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 const Blog = React.lazy(() => import('./Blog').then(m => ({ default: m.Blog })));
@@ -373,12 +374,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  if (errInfo.error.includes('Missing or insufficient permissions')) {
-    throw JSON.stringify(errInfo);
-  } else {
-    throw new Error(JSON.stringify(errInfo));
-  }
+  console.error('Firestore Error:', JSON.stringify(errInfo));
 }
 
 async function logAdminAction(action: string, targetId: string, details?: string) {
@@ -1940,7 +1936,8 @@ const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, coun
     // Only show User Management for Admins
     ...(userRole === 'admin' ? [{ id: 'users', filter: 'users', label: 'User Management', labelShort: 'Users' }] : []),
     { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool', permission: 'leadsSettings' },
-    { id: 'coupons', filter: 'coupons', label: 'Discount Coupons', labelShort: 'Coupons', permission: 'editSettings' }
+    { id: 'coupons', filter: 'coupons', label: 'Discount Coupons', labelShort: 'Coupons', permission: 'editSettings' },
+    { id: 'partners', filter: 'partners', label: 'Partners', labelShort: 'Partners', permission: 'editSettings' }
   ];
 
   const filteredTabs = tabs.filter(tab => {
@@ -3944,7 +3941,14 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
       
       const monthKey = format(checkInDate, 'MMM yyyy');
       if (monthsData[monthKey]) {
-        monthsData[monthKey].income += (booking.bookingAmount || 0);
+        let income = booking.bookingAmount || 0;
+        if (booking.bookingSource === 'partner') {
+          const comm = booking.partnerCommissionType === 'percent'
+            ? ((income * (booking.partnerCommission || 0)) / 100)
+            : (booking.partnerCommission || 0);
+          income -= comm;
+        }
+        monthsData[monthKey].income += income;
         monthsData[monthKey].bookings += 1;
         
         if (booking.expenses && Array.isArray(booking.expenses)) {
@@ -3970,7 +3974,16 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
   }, [bookings, selectedYear]);
 
   const stats = useMemo(() => {
-    const totalIncome = filteredBookings.reduce((sum, b) => sum + (b.bookingAmount || 0), 0);
+    const totalIncome = filteredBookings.reduce((sum, b) => {
+      let income = b.bookingAmount || 0;
+      if (b.bookingSource === 'partner') {
+        const commissionAmt = b.partnerCommissionType === 'percent'
+          ? ((income * (b.partnerCommission || 0)) / 100)
+          : (b.partnerCommission || 0);
+        income -= commissionAmt;
+      }
+      return sum + income;
+    }, 0);
     
     // Booking-specific expenses
     const bookingExpenses = filteredBookings.reduce((sum, b) => {
@@ -4217,19 +4230,53 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
                 <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date</th>
                 <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Guest</th>
                 <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Amount (No Security)</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Coupon</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Commission</th>
                 <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Expenses</th>
+                <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Net Amount</th>
                 <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-luxury-dark/5">
               {filteredBookings.map(booking => {
                 const totalExp = (booking.expenses || []).reduce((sum: number, e: any) => sum + e.amount, 0);
+                
+                // For newer bookings, originalBookingAmount is available. For old ones, fallback to bookingAmount.
+                // However, for old ones, bookingAmount might already be post-coupon. 
+                const originalAmount = booking.originalBookingAmount || booking.bookingAmount || 0;
+                
+                let couponAmount = 0;
+                if (booking.appliedCoupon) {
+                  if (booking.appliedCoupon.type === 'percent') {
+                     couponAmount = (originalAmount * (booking.appliedCoupon.discount || 0)) / 100;
+                  } else {
+                     couponAmount = booking.appliedCoupon.discount || 0;
+                  }
+                }
+                
+                const postCouponAmount = Math.max(0, originalAmount - couponAmount);
+                
+                let commissionAmount = 0;
+                if (booking.bookingSource === 'partner') {
+                  if (booking.partnerCommissionType === 'percent') {
+                     commissionAmount = (postCouponAmount * (booking.partnerCommission || 0)) / 100;
+                  } else {
+                     commissionAmount = booking.partnerCommission || 0;
+                  }
+                }
+
+                const netIncome = Math.max(0, postCouponAmount - commissionAmount);
+                const netAmount = netIncome - totalExp;
+
                 return (
                   <tr key={booking.id} className="hover:bg-luxury-cream/30 transition-colors group">
                     <td className="px-4 py-4 text-xs font-medium text-luxury-dark/60">{booking.checkIn}</td>
                     <td className="px-4 py-4 text-xs font-bold text-luxury-dark">{booking.name}</td>
-                    <td className="px-4 py-4 text-xs font-bold text-emerald-600">₹{(booking.bookingAmount || 0).toLocaleString()}</td>
-                    <td className="px-4 py-4 text-xs font-bold text-red-500">₹{totalExp.toLocaleString()}</td>
+                    <td className="px-4 py-4 text-xs font-bold text-luxury-dark">₹{originalAmount.toLocaleString()}</td>
+                    <td className="px-4 py-4 text-xs font-bold text-rose-500">{couponAmount > 0 ? `-₹${couponAmount.toLocaleString()}` : '-'}</td>
+                    <td className="px-4 py-4 text-xs font-bold text-orange-500">{commissionAmount > 0 ? `-₹${commissionAmount.toLocaleString()}` : '-'}</td>
+                    <td className="px-4 py-4 text-xs font-bold text-red-500">{totalExp > 0 ? `-₹${totalExp.toLocaleString()}` : '-'}</td>
+                    <td className="px-4 py-4 text-xs font-bold text-emerald-600">₹{netAmount.toLocaleString()}</td>
                     <td className="px-4 py-4 text-right">
                       <button 
                         onClick={() => onAssignExpense(booking)}
@@ -4243,7 +4290,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
               })}
               {filteredBookings.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-luxury-dark/30 italic">No confirmed bookings found for the selected period.</td>
+                  <td colSpan={8} className="px-4 py-12 text-center text-luxury-dark/30 italic">No confirmed bookings found for the selected period.</td>
                 </tr>
               )}
             </tbody>
@@ -4622,7 +4669,7 @@ const MyBookings = ({
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
   const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'migration' | 'chatbot_settings' | 'users'>('general');
 
@@ -4643,8 +4690,11 @@ const MyBookings = ({
   const [leads, setLeads] = useState<any[]>([]);
   const [appUsers, setAppUsers] = useState<any[]>([]);
   const [coupons, setCoupons] = useState<any[]>([]);
+  const [partners, setPartners] = useState<any[]>([]);
   const [referrals, setReferrals] = useState<any[]>([]);
   const [userLoyalty, setUserLoyalty] = useState<{ points: number; tier: string; referralCode: string }>({ points: 0, tier: 'Silver', referralCode: '' });
+
+  const [whatsappPopup, setWhatsappPopup] = useState<{ isOpen: boolean; mobile: string; name: string; id: string, message: string } | null>(null);
 
   // Gallery Management State
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
@@ -5177,6 +5227,15 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
     }
   }, [userRole]);
 
+  useEffect(() => {
+    if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
+    const q = query(collection(db, 'partners'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setPartners(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'partners'));
+    return () => unsubscribe();
+  }, [userRole, user?.uid]);
+
   const [hasSetDefaultFilter, setHasSetDefaultFilter] = useState(false);
 
   useEffect(() => {
@@ -5666,10 +5725,12 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
     const updatedPayments = [...(booking.payments || []), newPayment];
     const totalPaid = updatedPayments.reduce((sum, p) => sum + p.amount, 0);
     const totalAmount = booking.totalAmount || 0;
+    const partnerAdvance = booking.bookingSource === 'partner' ? (booking.advanceByPartner || 0) : 0;
+    const recognizedPaid = totalPaid + partnerAdvance;
 
     let status: 'unpaid' | 'part-paid' | 'paid' = 'unpaid';
-    if (totalPaid >= totalAmount) status = 'paid';
-    else if (totalPaid > 0) status = 'part-paid';
+    if (recognizedPaid >= totalAmount) status = 'paid';
+    else if (recognizedPaid > 0) status = 'part-paid';
 
     try {
       await setDoc(doc(db, 'bookings', bookingId), { 
@@ -5708,10 +5769,14 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       'Check-Out': b.checkOut,
       'Total Amount': b.totalAmount || 0,
       'Amount Paid': b.amountPaid || 0,
-      'Balance': (b.totalAmount || 0) - (b.amountPaid || 0),
+      'Balance': (b.totalAmount || 0) - (b.amountPaid || 0) - (b.bookingSource === 'partner' ? (b.advanceByPartner || 0) : 0),
       'Booking Amount': b.bookingAmount || 0,
       'Security Deposit': b.securityDeposit || 0,
       'Payment Status': b.paymentStatus || 'unpaid',
+      'Booking Source': b.bookingSource === 'partner' ? 'Partner' : 'Direct',
+      'Partner Name': b.partnerName || 'N/A',
+      'Partner Commission': b.partnerCommissionType === 'flat' ? ('₹' + (b.partnerCommission || 0)) : ((b.partnerCommission || 0) + '%'),
+      'Advance by Partner': b.advanceByPartner || 0,
       'Day Guests': `${b.dayGuestAdults || 0} Adults, ${b.dayGuestChildren?.length || 0} Children`,
       'Night Guests': `${b.nightGuestAdults || 0} Adults, ${b.nightGuestChildren?.length || 0} Children`,
       'Special Requests': b.specialRequests || 'None',
@@ -5748,7 +5813,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} />
+              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} />
             </div>
           </div>
         ) : reviewingBooking ? (
@@ -5775,7 +5840,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{(userRole === 'admin' || userRole === 'agent') ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
             <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} />
+              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} />
             </div>
           </div>
         ) : (
@@ -6101,6 +6166,11 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             <CouponManagement coupons={coupons} showToast={showToast} />
+          </div>
+        ) : activeFilter === 'partners' && (userRole === 'admin' || userRole === 'agent') ? (
+          <div className="space-y-8">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            <PartnerManagement partners={partners} allBookings={bookings} showToast={showToast} />
           </div>
         ) : activeFilter === 'loyalty' ? (
           <LoyaltyDashboard user={user} loyalty={userLoyalty} referrals={referrals} appUsers={userRole === 'admin' ? appUsers : []} isAdmin={userRole === 'admin'} showToast={showToast} />
@@ -6908,7 +6978,25 @@ export default {
                                 </p>
                                 <p className="text-xs text-luxury-dark/60 flex items-center gap-2">
                                   <Phone size={12} />
-                                  {booking.mobile}
+                                  {(userRole === 'admin' || userRole === 'agent') ? (
+                                    <span 
+                                      className="hover:text-green-600 cursor-pointer transition-colors hover:underline"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setWhatsappPopup({
+                                          isOpen: true,
+                                          mobile: booking.mobile,
+                                          name: booking.name,
+                                          id: booking.id,
+                                          message: `Hi ${booking.name},\nThis is regarding your booking at Staycation (ID: ${booking.id.slice(0, 8)}).`
+                                        });
+                                      }}
+                                    >
+                                      {booking.mobile}
+                                    </span>
+                                  ) : (
+                                    <span>{booking.mobile}</span>
+                                  )}
                                 </p>
                               </div>
                             </div>
@@ -6933,8 +7021,25 @@ export default {
                               <div className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold space-y-0.5">
                                 <p>Booking: ₹{(booking.bookingAmount || ((booking.totalAmount || 0) - (booking.securityDeposit || 5000))).toLocaleString()}</p>
                                 <p>Security: ₹{(booking.securityDeposit || 5000).toLocaleString()}</p>
-                                <p className="pt-1 border-t border-luxury-dark/5">Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
-                                <p className="text-luxury-gold">Balance: ₹{((booking.totalAmount || 0) - (booking.amountPaid || 0)).toLocaleString()}</p>
+                                {booking.bookingSource === 'partner' && (
+                                  <div className="my-1 p-1 bg-luxury-cream border border-luxury-dark/10 rounded">
+                                    <p className="text-emerald-700">Partner: {booking.partnerName}</p>
+                                    <p className="text-emerald-700">Commission ({booking.partnerCommissionType === 'flat' ? 'Flat' : `${booking.partnerCommission}%`}): -₹{(booking.partnerCommissionType === 'flat' ? (booking.partnerCommission || 0) : (((booking.bookingAmount || 0) * (booking.partnerCommission || 0)) / 100)).toLocaleString()}</p>
+                                    <p className="text-emerald-700">Advance Collected: ₹{(booking.advanceByPartner || 0).toLocaleString()}</p>
+                                    <p className="text-emerald-900 border-t border-emerald-900/10 mt-1 pt-1">
+                                      Partner Settlement: {
+                                        (() => {
+                                          const comm = booking.partnerCommissionType === 'flat' ? (booking.partnerCommission || 0) : (((booking.bookingAmount || 0) * (booking.partnerCommission || 0)) / 100);
+                                          const advance = booking.advanceByPartner || 0;
+                                          const bal = advance - comm;
+                                          return bal > 0 ? `Receivable ₹${bal.toLocaleString()}` : (bal < 0 ? `Payable ₹${Math.abs(bal).toLocaleString()}` : 'Settled');
+                                        })()
+                                      }
+                                    </p>
+                                  </div>
+                                )}
+                                <p className={`pt-1 border-t ${booking.bookingSource === 'partner' ? 'border-luxury-dark/10' : 'border-luxury-dark/5'}`}>Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
+                                <p className="text-luxury-gold">Client Balance: ₹{((booking.totalAmount || 0) - (booking.amountPaid || 0) - (booking.bookingSource === 'partner' ? (booking.advanceByPartner || 0) : 0)).toLocaleString()}</p>
                               </div>
                             </div>
                           </div>
@@ -7124,7 +7229,26 @@ export default {
                               <div className="flex items-center gap-2 text-[10px] text-luxury-dark/40">
                                 <span className="font-mono">ID: {booking.id.slice(0, 8)}</span>
                                 <span>•</span>
-                                <span className="truncate">{booking.mobile}</span>
+                                {(userRole === 'admin' || userRole === 'agent') ? (
+                                  <span 
+                                    className="truncate hover:text-green-600 cursor-pointer transition-colors hover:underline flex items-center gap-1"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setWhatsappPopup({
+                                        isOpen: true,
+                                        mobile: booking.mobile,
+                                        name: booking.name,
+                                        id: booking.id,
+                                        message: `Hi ${booking.name},\nThis is regarding your booking at Staycation (ID: ${booking.id.slice(0, 8)}).`
+                                      });
+                                    }}
+                                  >
+                                    <MessageSquare size={10} className="inline" />
+                                    {booking.mobile}
+                                  </span>
+                                ) : (
+                                  <span className="truncate">{booking.mobile}</span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -7223,7 +7347,25 @@ export default {
                           </p>
                           <p className="text-xs text-luxury-dark/60 flex items-center gap-2">
                             <Phone size={12} />
-                            {booking.mobile}
+                            {(userRole === 'admin' || userRole === 'agent') ? (
+                              <span 
+                                className="hover:text-green-600 cursor-pointer transition-colors hover:underline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setWhatsappPopup({
+                                    isOpen: true,
+                                    mobile: booking.mobile,
+                                    name: booking.name,
+                                    id: booking.id,
+                                    message: `Hi ${booking.name},\nThis is regarding your booking at Staycation (ID: ${booking.id.slice(0, 8)}).`
+                                  });
+                                }}
+                              >
+                                {booking.mobile}
+                              </span>
+                            ) : (
+                              <span>{booking.mobile}</span>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -7248,8 +7390,25 @@ export default {
                         <div className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold space-y-0.5">
                           <p>Booking: ₹{(booking.bookingAmount || ((booking.totalAmount || 0) - (booking.securityDeposit || 5000))).toLocaleString()}</p>
                           <p>Security: ₹{(booking.securityDeposit || 5000).toLocaleString()}</p>
-                          <p className="pt-1 border-t border-luxury-dark/5">Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
-                          <p className="text-luxury-gold">Balance: ₹{((booking.totalAmount || 0) - (booking.amountPaid || 0)).toLocaleString()}</p>
+                          {booking.bookingSource === 'partner' && (
+                            <div className="my-1 p-1 bg-luxury-cream border border-luxury-dark/10 rounded text-right">
+                              <p className="text-emerald-700">Partner: {booking.partnerName}</p>
+                              <p className="text-emerald-700">Commission ({booking.partnerCommissionType === 'flat' ? 'Flat' : `${booking.partnerCommission}%`}): -₹{(booking.partnerCommissionType === 'flat' ? (booking.partnerCommission || 0) : (((booking.bookingAmount || 0) * (booking.partnerCommission || 0)) / 100)).toLocaleString()}</p>
+                              <p className="text-emerald-700">Advance Collected: ₹{(booking.advanceByPartner || 0).toLocaleString()}</p>
+                              <p className="text-emerald-900 border-t border-emerald-900/10 mt-1 pt-1 block text-right">
+                                Partner Settlement: {
+                                  (() => {
+                                    const comm = booking.partnerCommissionType === 'flat' ? (booking.partnerCommission || 0) : (((booking.bookingAmount || 0) * (booking.partnerCommission || 0)) / 100);
+                                    const advance = booking.advanceByPartner || 0;
+                                    const bal = advance - comm;
+                                    return bal > 0 ? `Receivable ₹${bal.toLocaleString()}` : (bal < 0 ? `Payable ₹${Math.abs(bal).toLocaleString()}` : 'Settled');
+                                  })()
+                                }
+                              </p>
+                            </div>
+                          )}
+                          <p className={`pt-1 border-t ${booking.bookingSource === 'partner' ? 'border-luxury-dark/10' : 'border-luxury-dark/5'}`}>Received: ₹{(booking.amountPaid || 0).toLocaleString()}</p>
+                          <p className="text-luxury-gold">Client Balance: ₹{((booking.totalAmount || 0) - (booking.amountPaid || 0) - (booking.bookingSource === 'partner' ? (booking.advanceByPartner || 0) : 0)).toLocaleString()}</p>
                         </div>
                       </div>
                     </div>
@@ -7515,6 +7674,52 @@ export default {
           confirmText="Clear & Refresh"
           type="danger"
         />
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {whatsappPopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setWhatsappPopup(null)}
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="relative bg-white rounded-3xl p-6 shadow-2xl w-full max-w-sm border border-luxury-dark/5"
+          >
+            <h3 className="text-xl font-bold font-serif text-luxury-dark mb-4">Send WhatsApp</h3>
+            <p className="text-sm font-bold text-luxury-dark/60 mb-2">To: {whatsappPopup.name} ({whatsappPopup.mobile})</p>
+            <textarea 
+              value={whatsappPopup.message}
+              onChange={(e) => setWhatsappPopup({ ...whatsappPopup, message: e.target.value })}
+              className="w-full h-32 p-3 bg-luxury-cream border border-black/5 rounded-xl text-sm mb-6 focus:outline-none focus:border-luxury-gold resize-none"
+            />
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setWhatsappPopup(null)}
+                className="flex-1 py-3 text-luxury-dark font-bold hover:bg-black/5 rounded-xl transition-colors uppercase tracking-widest text-[10px]"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  const cleanNum = whatsappPopup.mobile.replace(/\D/g, '');
+                  const finalNum = cleanNum.length === 10 ? '91' + cleanNum : cleanNum;
+                  const url = `https://wa.me/${finalNum}?text=${encodeURIComponent(whatsappPopup.message)}`;
+                  window.open(url, '_blank');
+                  setWhatsappPopup(null);
+                }}
+                className="flex-1 py-3 bg-green-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-green-700 transition-colors uppercase tracking-widest text-[10px]"
+              >
+                <MessageSquare size={14} /> Send
+              </button>
+            </div>
+          </motion.div>
+        </div>
       )}
     </AnimatePresence>
   </div>
@@ -8672,8 +8877,8 @@ const BookingCalendar = ({
             <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Sold Out</span>
           </div>
           <div className="flex items-center gap-2 ml-2 border-l border-white/10 pl-4">
-            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekday: ₹{(pricingSettings?.weekday || 22000) / 1000}k</span>
-            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekend: ₹{(pricingSettings?.weekend || 25000) / 1000}k</span>
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekday: ₹{(pricingSettings?.weekday || 22000).toLocaleString()}</span>
+            <span className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Weekend: ₹{(pricingSettings?.weekend || 25000).toLocaleString()}</span>
           </div>
         </div>
       </DatePicker>
@@ -8681,7 +8886,7 @@ const BookingCalendar = ({
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings, partners = [] }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
@@ -8692,7 +8897,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
   expenseCategories?: any[],
   onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void,
-  pricingSettings?: any
+  pricingSettings?: any,
+  partners?: any[]
 }) => {
   const [name, setName] = useState(editBooking?.name || ((userRole === 'admin' || userRole === 'agent') && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
@@ -8731,6 +8937,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [clients, setClients] = useState<any[]>([]);
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
+  const [bookingSource, setBookingSource] = useState<'direct' | 'partner'>(editBooking?.bookingSource || 'direct');
+  const [partnerName, setPartnerName] = useState(editBooking?.partnerName || '');
+  const [partnerCommission, setPartnerCommission] = useState<number>(editBooking?.partnerCommission ?? 25);
+  const [partnerCommissionType, setPartnerCommissionType] = useState<'percent' | 'flat'>(editBooking?.partnerCommissionType || 'percent');
+  const [advanceByPartner, setAdvanceByPartner] = useState<number>(editBooking?.advanceByPartner || 0);
   const isPowerUser = userRole === 'admin' || userRole === 'agent' || isAdminBooking;
 
   useEffect(() => {
@@ -8891,12 +9102,15 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   };
 
   const discountedBookingAmount = useMemo(() => {
-    if (!appliedCoupon) return bookingAmount;
-    if (appliedCoupon.type === 'percent') {
-      return bookingAmount - (bookingAmount * (appliedCoupon.discount / 100));
-    } else {
-      return Math.max(0, bookingAmount - appliedCoupon.discount);
+    let amt = bookingAmount;
+    if (appliedCoupon) {
+      if (appliedCoupon.type === 'percent') {
+        amt = amt - (amt * (appliedCoupon.discount / 100));
+      } else {
+        amt = Math.max(0, amt - appliedCoupon.discount);
+      }
     }
+    return amt;
   }, [bookingAmount, appliedCoupon]);
 
   const totalAmount = discountedBookingAmount + securityAmount;
@@ -8965,11 +9179,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     
     if (dayGuestAdults + dayGuestChildren.length + nightGuestAdults + nightGuestChildren.length < 1) {
       newErrors.guests = "At least 1 guest (day or night) is required";
-    } else if (dayGuestAdults + dayGuestChildren.length > 25) {
+    } else if (dayGuestAdults + dayGuestChildren.length > 25 && userRole !== 'admin' && userRole !== 'agent') {
       newErrors.dayGuests = "Maximum 25 day guests allowed";
     }
     
-    if (nightGuestAdults + nightGuestChildren.length > 12) {
+    if (nightGuestAdults + nightGuestChildren.length > 12 && userRole !== 'admin' && userRole !== 'agent') {
       newErrors.nightGuests = "Maximum 12 night guests allowed";
     }
     
@@ -9032,7 +9246,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           } else {
             const textContent = await response.text().catch(() => '');
             console.error('Non-JSON response from create-order:', textContent.substring(0, 200));
-            errorMsg = `Cloudflare Functions Missing (Status: {response.status}). To fix this, connect Cloudflare Pages to your GitHub repository instead of uploading the dist folder manually, so it deploys the functions directory.`;
+            errorMsg = `Cloudflare Functions Missing (Status: ${response.status}). To fix this, connect Cloudflare Pages to your GitHub repository instead of uploading the dist folder manually, so it deploys the functions directory.`;
           }
           throw new Error(errorMsg);
         }
@@ -9170,7 +9384,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         amountPaid: Number(totalPaidAmount) || 0,
         securityDeposit: Number(securityAmount) || 0,
         expenses: expenses || [],
-        paymentStatus: totalPaidAmount >= (discountedBookingAmount + securityAmount) ? 'paid' : (totalPaidAmount > 0 ? 'part-paid' : 'unpaid'),
+        paymentStatus: (totalPaidAmount + (bookingSource === 'partner' ? advanceByPartner : 0)) >= (discountedBookingAmount + securityAmount) ? 'paid' : ((totalPaidAmount + (bookingSource === 'partner' ? advanceByPartner : 0)) > 0 ? 'part-paid' : 'unpaid'),
         createdAt: editBooking ? editBooking.createdAt : serverTimestamp(),
         name: name || '',
         mobile: mobile || '',
@@ -9178,7 +9392,14 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         occasion: occasion || '',
         payments: updatedPayments,
         bookedBy: (userRole === 'admin' || userRole === 'agent') ? (bookedBy || (isAdminBooking ? (userRole === 'admin' ? 'admin_for_client' : 'agent_for_client') : 'admin_personal')) : 'client',
-        paymentMethod: razorpayPaymentId ? 'card' : (paymentMethod || 'upi')
+        paymentMethod: razorpayPaymentId ? 'card' : (paymentMethod || 'upi'),
+        bookingSource: bookingSource,
+        ...(bookingSource === 'partner' ? {
+          partnerName,
+          partnerCommission,
+          partnerCommissionType,
+          advanceByPartner
+        } : {})
       };
 
       console.log('Submitting booking data:', bookingData);
@@ -9367,6 +9588,12 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Booking Amount</p>
                   <p className="font-bold text-luxury-dark">₹{bookingAmount.toLocaleString()}</p>
                 </div>
+                {(bookingAmount - discountedBookingAmount) > 0 && (
+                  <div className="flex justify-between items-center">
+                    <p className="text-[10px] text-green-600/60 uppercase tracking-widest">Discount</p>
+                    <p className="font-bold text-green-600">-₹{(bookingAmount - discountedBookingAmount).toLocaleString()}</p>
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
                   <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest">Security Deposit</p>
                   <p className="font-bold text-luxury-dark">₹{securityAmount.toLocaleString()}</p>
@@ -9440,6 +9667,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           </div>
         </div>
       )}
+
       {userRole === 'admin' && !editBooking && (
         <div className="space-y-4 mb-6">
           <div className="p-4 bg-luxury-gold/10 border border-luxury-gold/20 rounded-xl flex items-center justify-between">
@@ -9485,8 +9713,77 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               </button>
             </div>
           </div>
+        </div>
+      )}
 
-          {isAdminBooking && (
+      {(isPowerUser) && (
+        <div className="p-4 bg-luxury-cream/30 border border-luxury-gold/20 rounded-xl space-y-4 mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 bg-luxury-gold rounded-full flex items-center justify-center text-luxury-dark">
+              <Globe size={20} />
+            </div>
+            <div>
+              <p className="font-bold text-luxury-dark text-sm">Booking Source</p>
+              <p className="text-[10px] text-luxury-dark/60 uppercase tracking-widest">
+                Select if booking is direct or via partner
+              </p>
+            </div>
+          </div>
+          <div className="flex bg-white p-1 rounded-lg border border-luxury-dark/10 w-fit">
+            <button 
+              type="button" 
+              onClick={() => setBookingSource('direct')} 
+              className={`px-4 py-2 rounded-md font-bold text-[10px] uppercase tracking-widest transition-all ${bookingSource === 'direct' ? 'bg-luxury-dark text-white' : 'text-luxury-dark/40 hover:text-luxury-dark'}`}
+            >
+              Direct Booking
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setBookingSource('partner')} 
+              className={`px-4 py-2 rounded-md font-bold text-[10px] uppercase tracking-widest transition-all ${bookingSource === 'partner' ? 'bg-luxury-dark text-white' : 'text-luxury-dark/40 hover:text-luxury-dark'}`}
+            >
+              Booked Via Partner
+            </button>
+          </div>
+
+          {bookingSource === 'partner' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-luxury-dark/5">
+                 <div className="space-y-1.5">
+                   <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Partner Name</label>
+                   <select 
+                     value={partnerName} 
+                     onChange={(e) => {
+                       const val = e.target.value;
+                       setPartnerName(val);
+                       const partner = partners?.find(p => p.name === val);
+                       if (partner) {
+                         setPartnerCommission(partner.commission || 0);
+                         setPartnerCommissionType(partner.type || 'percent');
+                       }
+                     }} 
+                     className="w-full px-4 py-2 bg-white border border-black/5 rounded-xl text-sm h-[40px] focus:outline-none focus:border-luxury-gold" 
+                     required={bookingSource === 'partner'}
+                   >
+                     <option value="">Select Partner...</option>
+                     {partners?.filter(p => p.isActive !== false).map(p => (
+                       <option key={p.id} value={p.name}>{p.name}</option>
+                     ))}
+                   </select>
+                 </div>
+                 <div className="space-y-1.5">
+                   <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Commission Amount (or %)</label>
+                   <input type="number" value={partnerCommission} onChange={e=>setPartnerCommission(Number(e.target.value))} className="w-full px-4 py-2.5 bg-white border border-black/5 rounded-xl text-sm h-[40px]" placeholder="25" />
+                 </div>
+                 <div className="space-y-1.5">
+                   <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Advance Collected (₹)</label>
+                   <input type="number" value={advanceByPartner} onChange={e=>setAdvanceByPartner(Number(e.target.value))} className="w-full px-4 py-2.5 bg-white border border-black/5 rounded-xl text-sm" placeholder="0" />
+                 </div>
+              </div>
+          )}
+        </div>
+      )}
+
+      {userRole === 'admin' && !editBooking && isAdminBooking && (
             <div className="relative">
               <div className="relative">
                 <input
@@ -9579,8 +9876,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               </AnimatePresence>
             </div>
           )}
-        </div>
-      )}
 
       {allBookings.filter(b => b.status !== 'cancelled' && b.type !== 'external' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length > 0 && (
         <div className="mb-8 p-6 bg-red-50/50 border border-red-100/50 rounded-2xl backdrop-blur-sm">
@@ -9730,7 +10025,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   }
                 }} 
                 onBlur={() => {
-                  if (dayGuestAdults + dayGuestChildren.length > 25) {
+                  if (dayGuestAdults + dayGuestChildren.length > 25 && userRole !== 'admin' && userRole !== 'agent') {
                     setErrors(prev => ({...prev, dayGuests: "Maximum 25 day guests allowed"}));
                   }
                 }}
@@ -9744,7 +10039,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 onClick={() => {
                   const newChildren = [...dayGuestChildren, 0];
                   setDayGuestChildren(newChildren);
-                  if (dayGuestAdults + newChildren.length > 25) {
+                  if (dayGuestAdults + newChildren.length > 25 && userRole !== 'admin' && userRole !== 'agent') {
                     setErrors(prev => ({...prev, dayGuests: "Maximum 25 day guests allowed"}));
                   }
                 }} 
@@ -9768,7 +10063,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   setDayGuestChildren(newAges);
                 }} 
                 onBlur={() => {
-                  if (dayGuestAdults + dayGuestChildren.length > 25) {
+                  if (dayGuestAdults + dayGuestChildren.length > 25 && userRole !== 'admin' && userRole !== 'agent') {
                     setErrors(prev => ({...prev, dayGuests: "Maximum 25 day guests allowed"}));
                   }
                 }}
@@ -9817,7 +10112,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   }
                 }} 
                 onBlur={() => {
-                  if (nightGuestAdults + nightGuestChildren.length > 12) {
+                  if (nightGuestAdults + nightGuestChildren.length > 12 && userRole !== 'admin' && userRole !== 'agent') {
                     setErrors(prev => ({...prev, nightGuests: "Maximum 12 night guests allowed"}));
                   }
                 }}
@@ -9831,7 +10126,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 onClick={() => {
                   const newChildren = [...nightGuestChildren, 0];
                   setNightGuestChildren(newChildren);
-                  if (nightGuestAdults + newChildren.length > 12) {
+                  if (nightGuestAdults + newChildren.length > 12 && userRole !== 'admin' && userRole !== 'agent') {
                     setErrors(prev => ({...prev, nightGuests: "Maximum 12 night guests allowed"}));
                   }
                 }} 
@@ -9855,7 +10150,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   setNightGuestChildren(newAges);
                 }} 
                 onBlur={() => {
-                  if (nightGuestAdults + nightGuestChildren.length > 12) {
+                  if (nightGuestAdults + nightGuestChildren.length > 12 && userRole !== 'admin' && userRole !== 'agent') {
                     setErrors(prev => ({...prev, nightGuests: "Maximum 12 night guests allowed"}));
                   }
                 }}
@@ -10336,7 +10631,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
             </div>
             {appliedCoupon && (
               <p className="text-[9px] text-emerald-600 font-bold uppercase tracking-widest">
-                Discount Applied: -₹{(bookingAmount - discountedBookingAmount).toLocaleString()}
+                Discount Applied: -₹{((appliedCoupon.type === 'percent' ? (bookingAmount * (appliedCoupon.discount / 100)) : appliedCoupon.discount)).toLocaleString()}
               </p>
             )}
           </div>
@@ -10370,7 +10665,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings }: { 
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings, partners = [] }: { 
   isOpen: boolean, 
   onClose: () => void, 
   user: FirebaseUser | null, 
@@ -10380,7 +10675,8 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
   expenseCategories?: any[],
   onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void,
-  pricingSettings?: any
+  pricingSettings?: any,
+  partners?: any[]
 }) => {
   useEscapeKey(onClose, isOpen);
   return (
@@ -10413,7 +10709,7 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} />
             </div>
           </motion.div>
         </div>
@@ -11233,6 +11529,322 @@ const CouponManagement = ({ coupons, showToast }: { coupons: any[]; showToast: (
   );
 };
 
+const PartnerManagement = ({ partners, allBookings, showToast }: { partners: any[]; allBookings: any[]; showToast: (m: string, t: any) => void }) => {
+  const [newPartner, setNewPartner] = useState({ name: '', commission: 0, type: 'percent' });
+  const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewingLedger, setViewingLedger] = useState<any | null>(null);
+
+  const handleAdd = async () => {
+    if (!newPartner.name || newPartner.commission <= 0) {
+      showToast('Name and commission are required', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      if (editingId) {
+        await updateDoc(doc(db, 'partners', editingId), {
+          ...newPartner
+        });
+        showToast('Partner updated!', 'success');
+        setEditingId(null);
+      } else {
+        await addDoc(collection(db, 'partners'), {
+          ...newPartner,
+          isActive: true,
+          createdAt: serverTimestamp()
+        });
+        showToast('Partner added!', 'success');
+      }
+      setNewPartner({ name: '', commission: 0, type: 'percent' });
+    } catch (e) {
+      showToast(editingId ? 'Failed to update partner' : 'Failed to add partner', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const togglePartnerStatus = async (id: string, currentStatus: boolean) => {
+    try {
+      await updateDoc(doc(db, 'partners', id), { isActive: !currentStatus });
+      showToast('Partner status updated', 'success');
+    } catch (e) {
+      showToast('Failed to update status', 'error');
+    }
+  };
+
+  const handleEdit = (partner: any) => {
+    setNewPartner({
+      name: partner.name,
+      commission: partner.commission,
+      type: partner.type || 'percent'
+    });
+    setEditingId(partner.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'partners', id));
+      showToast('Partner deleted', 'info');
+    } catch (e) {
+      showToast('Failed to delete', 'error');
+    }
+  };
+
+  if (viewingLedger) {
+    const partnerBookings = allBookings.filter(b => b.bookingSource === 'partner' && b.partnerName === viewingLedger.name);
+    let totalConfirmedValue = 0;
+    let totalCommissions = 0;
+    let totalAdvances = 0;
+    
+    const validBookings = partnerBookings.filter(b => b.status === 'confirmed' || b.status === 'completed');
+    
+    validBookings.forEach(booking => {
+      totalConfirmedValue += (booking.bookingAmount || booking.totalAmount || 0);
+      let comm = booking.partnerCommission || 0;
+      if (booking.partnerCommissionType === 'percent') {
+        comm = ((booking.bookingAmount || booking.totalAmount || 0) * (booking.partnerCommission || 0)) / 100;
+      }
+      totalCommissions += comm;
+      totalAdvances += (booking.advanceByPartner || 0);
+    });
+    
+    const balanceDue = totalAdvances - totalCommissions;
+
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="flex items-center gap-4 border-b border-luxury-dark/5 pb-6">
+          <button 
+            onClick={() => setViewingLedger(null)}
+            className="p-2 hover:bg-black/5 rounded-full transition-colors text-luxury-dark/60 hover:text-luxury-dark shadow-sm bg-white border border-luxury-dark/5"
+          >
+            <ChevronLeft size={24} />
+          </button>
+          <div>
+            <h3 className="text-2xl font-serif font-bold text-luxury-dark">{viewingLedger.name} Ledger</h3>
+            <p className="text-sm text-luxury-dark/60">Commission config: {viewingLedger.commission}{viewingLedger.type === 'percent' ? '%' : ' Fixed'}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-luxury-dark/40 mb-2">Confirmed Bookings</h4>
+            <p className="text-2xl font-serif font-bold text-luxury-dark">₹{totalConfirmedValue.toLocaleString()}</p>
+          </div>
+          <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-luxury-dark/40 mb-2">Commissions Due</h4>
+            <p className="text-2xl font-serif font-bold text-luxury-dark">₹{totalCommissions.toLocaleString()}</p>
+          </div>
+          <div className="bg-white p-6 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-luxury-dark/40 mb-2">Partner Advances</h4>
+            <p className="text-2xl font-serif font-bold text-luxury-dark">₹{totalAdvances.toLocaleString()}</p>
+          </div>
+          <div className={`p-6 rounded-3xl border shadow-sm ${balanceDue >= 0 ? 'bg-red-50 border-red-100 text-red-900' : 'bg-green-50 border-green-100 text-green-900'}`}>
+            <h4 className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">{balanceDue > 0 ? 'Partner Owes You' : (balanceDue < 0 ? 'You Owe Partner' : 'Settled')}</h4>
+            <p className="text-2xl font-serif font-bold">₹{Math.abs(balanceDue).toLocaleString()}</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-luxury-dark/5 bg-gray-50/50">
+            <h4 className="font-bold text-luxury-dark text-sm uppercase tracking-widest">Booking History</h4>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-luxury-dark/5">
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Date</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Guest</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Value</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Comm.</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Adv.</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {partnerBookings.sort((a,b) => parse(b.checkIn, 'dd/MM/yyyy', new Date()).getTime() - parse(a.checkIn, 'dd/MM/yyyy', new Date()).getTime()).map(booking => {
+                 let comm = booking.partnerCommission || 0;
+                 if (booking.partnerCommissionType === 'percent') {
+                     comm = ((booking.bookingAmount || booking.totalAmount || 0) * (booking.partnerCommission || 0)) / 100;
+                 }
+                 return (
+                 <tr key={booking.id} className="border-b border-luxury-dark/5 hover:bg-gray-50/50 transition-colors">
+                   <td className="px-6 py-4 text-xs font-bold text-luxury-dark">{booking.checkIn}</td>
+                   <td className="px-6 py-4">
+                     <span className="text-xs font-bold text-luxury-dark block">{booking.name}</span>
+                     <span className="text-[10px] text-luxury-dark/40 block">Adults: {booking.guests}, Pets: {booking.pets}</span>
+                   </td>
+                   <td className="px-6 py-4 text-xs font-bold text-luxury-dark">₹{(booking.bookingAmount || booking.totalAmount || 0).toLocaleString()}</td>
+                   <td className="px-6 py-4 text-xs font-bold text-red-600">-₹{comm.toLocaleString()}</td>
+                   <td className="px-6 py-4 text-xs font-bold text-green-600">+₹{(booking.advanceByPartner || 0).toLocaleString()}</td>
+                   <td className="px-6 py-4">
+                     <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${booking.status === 'confirmed' || booking.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
+                        {booking.status}
+                     </span>
+                   </td>
+                 </tr>
+                 )
+              })}
+              {partnerBookings.length === 0 && (
+                 <tr><td colSpan={6} className="px-6 py-12 text-center text-luxury-dark/40 text-xs italic">No bookings found for this partner.</td></tr>
+              )}
+            </tbody>
+          </table>
+         </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="flex justify-between items-center">
+        <div>
+          <h3 className="text-xl font-serif font-bold text-luxury-dark">Partner Management</h3>
+          <p className="text-sm text-luxury-dark/60">Manage third-party agents and their commissions</p>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
+        <h4 className="text-[10px] font-black uppercase tracking-widest text-luxury-dark/30 mb-6">Create New Partner</h4>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div>
+            <label className="text-[8px] font-bold uppercase tracking-widest text-luxury-dark/40 mb-1 ml-1">Partner Name</label>
+            <input 
+              type="text" 
+              placeholder="E.g. MakeMyTrip" 
+              value={newPartner.name}
+              onChange={e => setNewPartner({...newPartner, name: e.target.value})}
+              className="w-full px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
+            />
+          </div>
+          <div>
+            <label className="text-[8px] font-bold uppercase tracking-widest text-luxury-dark/40 mb-1 ml-1">Commission Type</label>
+            <select 
+              value={newPartner.type}
+              onChange={e => setNewPartner({...newPartner, type: e.target.value})}
+              className="w-full px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
+            >
+              <option value="percent">Percentage (%)</option>
+              <option value="flat">Flat Amount (₹)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[8px] font-bold uppercase tracking-widest text-luxury-dark/40 mb-1 ml-1">Commission Value</label>
+            <input 
+              type="number" 
+              placeholder="e.g. 25" 
+              value={newPartner.commission || ''}
+              onChange={e => setNewPartner({...newPartner, commission: Number(e.target.value)})}
+              className="w-full px-6 py-4 bg-gray-50 border border-luxury-dark/5 rounded-2xl text-xs font-bold focus:outline-none focus:border-luxury-gold"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button 
+              disabled={loading}
+              onClick={handleAdd}
+              className="flex-1 py-4 bg-luxury-dark text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? 'Saving...' : (editingId ? 'Update' : 'Create')}
+            </button>
+            
+            {editingId && (
+              <button 
+                onClick={() => {
+                  setEditingId(null);
+                  setNewPartner({ name: '', commission: 0, type: 'percent' });
+                }}
+                className="flex-1 py-4 bg-gray-100 text-luxury-dark rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-200 transition-all"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-[2rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-luxury-dark/5 bg-gray-50/50">
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Partner Name</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Commission</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40">Status</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark/40 flex justify-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {partners.map(partner => (
+                <tr key={partner.id} className={"border-b border-luxury-dark/5 last:border-b-0 hover:bg-gray-50/30 transition-colors " + (partner.isActive !== false ? '' : 'bg-red-50/20')}>
+                  <td className="px-6 py-4">
+                    <span className="text-sm font-bold text-luxury-dark tracking-tight">{partner.name}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-sm font-bold text-luxury-gold">
+                      {partner.type === 'flat' ? '₹' : ''}{partner.commission}{partner.type === 'flat' ? '' : '%'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={"inline-flex px-2 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest " + (partner.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>
+                      {partner.isActive !== false ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center justify-end gap-2 sm:gap-4">
+                      <button 
+                         onClick={() => setViewingLedger(partner)}
+                         className="p-2 text-luxury-gold hover:text-luxury-dark hover:bg-luxury-gold/10 rounded-xl transition-all"
+                         title="View Ledger"
+                      >
+                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                      </button>
+                      <label className="flex items-center cursor-pointer group" title={partner.isActive !== false ? 'Deactivate' : 'Activate'}>
+                        <div className="relative">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only"
+                            checked={partner.isActive !== false}
+                            onChange={() => togglePartnerStatus(partner.id, partner.isActive !== false)}
+                          />
+                          <div className={`block w-8 h-4 rounded-full transition-colors ${partner.isActive !== false ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                          <div className={`absolute left-0.5 top-0.5 bg-white w-3 h-3 rounded-full transition-transform ${partner.isActive !== false ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                        </div>
+                      </label>
+                      <button 
+                        onClick={() => handleEdit(partner)}
+                        className="p-2 text-luxury-dark/40 hover:text-luxury-dark hover:bg-luxury-dark/5 rounded-xl transition-all"
+                        title="Edit Partner"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(partner.id)}
+                        className="p-2 text-red-500/40 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        title="Delete Partner"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {partners.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center text-luxury-dark/40 text-sm">
+                    No partners created yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const LoyaltyDashboard = ({ user, loyalty, referrals, appUsers, isAdmin, showToast }: any) => {
   const [isCopying, setIsCopying] = useState(false);
 
@@ -11519,6 +12131,7 @@ export default function App() {
   const [galleryImages, setGalleryImages] = useState<any[]>([]);
   const [heroSettings, setHeroSettings] = useState<any>(null);
   const [pricingSettings, setPricingSettings] = useState<any>(null);
+  const [partners, setPartners] = useState<any[]>([]);
   const [replyTemplates, setReplyTemplates] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -11931,6 +12544,15 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
+    const q = query(collection(db, 'partners'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setPartners(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'partners'));
+    return () => unsubscribe();
+  }, [userRole, user?.uid]);
+
   const openBookingModal = () => setIsBookingModalOpen(true);
   const closeBookingModal = () => setIsBookingModalOpen(false);
   const handleSignOut = () => {
@@ -12038,6 +12660,7 @@ export default function App() {
         showToast={showToast}
         onNotify={triggerNotification}
         pricingSettings={pricingSettings}
+        partners={partners}
       />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <GalleryModal 
