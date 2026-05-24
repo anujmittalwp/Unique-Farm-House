@@ -9893,24 +9893,22 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
               {allBookings.filter(b => b.status !== 'cancelled' && b.type !== 'external' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length} Booked
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {allBookings
               .filter(b => b.status !== 'cancelled' && b.type !== 'external' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date())
               .sort((a, b) => parse(a.checkIn, 'dd/MM/yyyy', new Date()).getTime() - parse(b.checkIn, 'dd/MM/yyyy', new Date()).getTime())
-              .slice(0, 6)
-              .map((b, i) => (
-                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white border border-red-100 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 group">
-                  <div className="w-1.5 h-1.5 rounded-full bg-red-400 group-hover:scale-125 transition-transform" />
-                  <span className="text-[10px] text-red-900 font-bold tracking-tight">
-                    {b.checkIn} <span className="text-red-300 mx-1">→</span> {b.checkOut}
-                  </span>
-                </div>
-              ))}
-            {allBookings.filter(b => b.status !== 'cancelled' && b.type !== 'external' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length > 6 && (
-              <div className="flex items-center px-3 py-2 bg-red-100/50 border border-red-200 rounded-xl text-[10px] text-red-600 font-bold uppercase tracking-widest">
-                + {allBookings.filter(b => b.status !== 'cancelled' && b.type !== 'external' && parse(b.checkOut, 'dd/MM/yyyy', new Date()) >= new Date()).length - 6} more
-              </div>
-            )}
+              .map((b, i) => {
+                const formattedCheckIn = b.checkIn && b.checkIn.length >= 10 ? b.checkIn.slice(0, 6) + b.checkIn.slice(8, 10) : b.checkIn;
+                const formattedCheckOut = b.checkOut && b.checkOut.length >= 10 ? b.checkOut.slice(0, 6) + b.checkOut.slice(8, 10) : b.checkOut;
+                return (
+                  <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-white border border-red-100 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 group">
+                    <div className="w-1 h-1 rounded-full bg-red-400 group-hover:scale-125 transition-transform" />
+                    <span className="text-[9px] text-red-900 font-bold tracking-tight whitespace-nowrap">
+                      {formattedCheckIn} <span className="text-red-300 mx-0.5">→</span> {formattedCheckOut}
+                    </span>
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}
