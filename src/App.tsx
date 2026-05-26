@@ -7858,9 +7858,9 @@ const Navbar = ({
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute right-0 mt-3 z-50 bg-white rounded-2xl shadow-2xl border border-black/10 overflow-hidden w-[380px]"
+                    className="absolute right-0 mt-3 z-50 bg-white rounded-2xl shadow-2xl border border-black/10 overflow-hidden w-[450px] max-h-[85vh] flex flex-col"
                   >
-                    <div className="p-3 max-h-[350px] overflow-y-auto no-scrollbar bg-white">
+                    <div className="p-3 bg-white overflow-y-auto no-scrollbar flex-1">
                       <CustomInteractiveCalendar
                         checkIn={prefilledCheckIn}
                         checkOut={prefilledCheckOut}
@@ -7873,7 +7873,7 @@ const Navbar = ({
                     </div>
 
                     {/* Book Now trigger & status */}
-                    <div className="bg-luxury-cream border-t border-black/5 p-4 flex flex-col gap-3 select-none">
+                    <div className="bg-luxury-cream border-t border-black/5 p-4 flex flex-col gap-3 select-none flex-shrink-0">
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-luxury-dark/45 font-bold uppercase tracking-wider">
                           {prefilledCheckIn && prefilledCheckOut ? "Reservation Ready" : "Select days on calendar"}
@@ -10826,21 +10826,23 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                 className="fixed inset-0 z-40" 
                 onClick={() => setShowCalendar(false)}
               />
-              <div className="absolute top-full left-0 right-0 mt-2 z-50 bg-white rounded-2xl shadow-xl border border-black/10 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 max-w-[450px] mx-auto md:max-w-none">
-                <CustomInteractiveCalendar
-                  checkIn={checkIn}
-                  checkOut={checkOut}
-                  setCheckIn={setCheckIn}
-                  setCheckOut={setCheckOut}
-                  allBookings={allBookings}
-                  pricingSettings={pricingSettings}
-                  userRole={userRole}
-                  errors={errors}
-                  setErrors={setErrors}
-                />
+              <div className="absolute top-full left-0 right-0 mt-2 z-50 bg-white rounded-2xl shadow-xl border border-black/10 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 max-w-[450px] mx-auto md:max-w-none flex flex-col max-h-[65vh]">
+                <div className="overflow-y-auto no-scrollbar flex-1">
+                  <CustomInteractiveCalendar
+                    checkIn={checkIn}
+                    checkOut={checkOut}
+                    setCheckIn={setCheckIn}
+                    setCheckOut={setCheckOut}
+                    allBookings={allBookings}
+                    pricingSettings={pricingSettings}
+                    userRole={userRole}
+                    errors={errors}
+                    setErrors={setErrors}
+                  />
+                </div>
                 
                 {/* Close/Done Helper Strip */}
-                <div className="bg-luxury-cream/80 border-t border-black/5 p-3 flex justify-between items-center select-none">
+                <div className="bg-luxury-cream/80 border-t border-black/5 p-3 flex justify-between items-center select-none flex-shrink-0">
                   <span className="text-[10px] text-luxury-dark/50 font-bold uppercase tracking-wider">
                     {checkIn && checkOut ? "Dates selected" : "Tap days on calendar"}
                   </span>
