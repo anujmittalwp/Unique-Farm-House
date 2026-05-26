@@ -5603,11 +5603,17 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       
       if (!isValid(checkInDate) || !isValid(checkOutDate)) return false;
       
+      const now = new Date();
+      const checkOutMoment = parse(booking.checkOut, 'dd/MM/yyyy', new Date());
+      if (isValid(checkOutMoment)) {
+        checkOutMoment.setHours(11, 0, 0, 0);
+      }
+      
       if (filterToUse === 'upcoming') {
-        return (booking.status === 'confirmed' || booking.status === 'pending') && checkInDate >= new Date(today.getTime() - 86400000);
+        return (booking.status === 'confirmed' || booking.status === 'pending') && now < checkOutMoment;
       }
       if (filterToUse === 'completed') {
-        return booking.status === 'confirmed' && checkOutDate < today;
+        return booking.status === 'confirmed' && now >= checkOutMoment;
       }
       return true;
     }).sort((a, b) => {
@@ -6922,13 +6928,13 @@ export default {
                         if (tab.id === 'all') return true;
                         if (tab.id === 'pending') return b.status === 'pending';
                         if (!b.checkIn || !b.checkOut) return false;
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-                        const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
-                        const checkOutDate = parse(b.checkOut, 'dd/MM/yyyy', new Date());
-                        if (!isValid(checkInDate) || !isValid(checkOutDate)) return false;
-                        if (tab.id === 'upcoming') return (b.status === 'confirmed' || b.status === 'pending') && checkInDate >= new Date(today.getTime() - 86400000);
-                        if (tab.id === 'completed') return b.status === 'confirmed' && checkOutDate < today;
+                        const now = new Date();
+                        const checkOutMoment = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+                        if (isValid(checkOutMoment)) {
+                          checkOutMoment.setHours(11, 0, 0, 0);
+                        }
+                        if (tab.id === 'upcoming') return (b.status === 'confirmed' || b.status === 'pending') && now < checkOutMoment;
+                        if (tab.id === 'completed') return b.status === 'confirmed' && now >= checkOutMoment;
                         return true;
                       }).length}
                     </span>
@@ -7736,7 +7742,13 @@ const Navbar = ({
   notifications,
   onNotificationClick,
   soundEnabled,
-  onToggleSound
+  onToggleSound,
+  allBookings = [],
+  pricingSettings,
+  prefilledCheckIn,
+  setPrefilledCheckIn,
+  prefilledCheckOut,
+  setPrefilledCheckOut
 }: { 
   onBookNow: () => void; 
   onLogin: () => void;
@@ -7748,10 +7760,18 @@ const Navbar = ({
   onNotificationClick: () => void;
   soundEnabled: boolean;
   onToggleSound: () => void;
+  allBookings?: any[];
+  pricingSettings?: any;
+  prefilledCheckIn?: Date | null;
+  setPrefilledCheckIn: (date: Date | null) => void;
+  prefilledCheckOut?: Date | null;
+  setPrefilledCheckOut: (date: Date | null) => void;
 }) => {
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isCalDropdownOpen, setIsCalDropdownOpen] = useState(false);
+  const [isMobileCalendarOpen, setIsMobileCalendarOpen] = useState(false);
   const location = useLocation();
   const isHomePage = location.pathname === '/';
 
@@ -7781,8 +7801,8 @@ const Navbar = ({
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${isNavSolid ? 'glass-nav py-4' : 'bg-transparent py-6'}`}>
-      <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-        <Link to="/" className="flex items-center gap-2 sm:gap-3">
+      <div className="max-w-7xl mx-auto px-6 flex justify-between items-center w-full">
+        <Link to="/" className="flex items-center gap-2 sm:gap-3 shrink-0">
           <img 
             src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
             alt="Unique Farmhouse Logo" 
@@ -7796,7 +7816,7 @@ const Navbar = ({
         </Link>
 
         {/* Desktop Nav */}
-        <div className="hidden md:flex items-center space-x-8">
+        <div className="hidden md:flex items-center space-x-6 lg:space-x-8">
           {navLinks.map((link) => (
             <Link 
               key={link.name} 
@@ -7808,6 +7828,90 @@ const Navbar = ({
           ))}
           
           <div className="h-4 w-px bg-white/20" />
+
+          {/* Airbnb-style Date Picker Pill - Compact & Elegant */}
+          <div className="relative">
+            <button 
+              onClick={() => setIsCalDropdownOpen(!isCalDropdownOpen)}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-full text-xs font-semibold select-none shadow-sm hover:shadow-md transition-all cursor-pointer ${
+                prefilledCheckIn 
+                  ? 'border-luxury-gold bg-luxury-cream text-luxury-dark font-bold' 
+                  : (isNavSolid ? 'border-black/15 bg-white text-luxury-dark/85' : 'border-white/25 bg-white/10 text-white')
+              }`}
+            >
+              <Calendar size={14} className={prefilledCheckIn ? 'text-luxury-gold animate-pulse' : ''} />
+              {prefilledCheckIn ? (
+                <span>
+                  {format(prefilledCheckIn, 'dd MMM')} - {prefilledCheckOut ? format(prefilledCheckOut, 'dd MMM') : 'Add Out'}
+                </span>
+              ) : (
+                <span>Plan Dates</span>
+              )}
+            </button>
+
+            {/* Dropdown for Calendar */}
+            <AnimatePresence>
+              {isCalDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsCalDropdownOpen(false)} />
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-3 z-50 bg-white rounded-2xl shadow-2xl border border-black/10 overflow-hidden w-[380px]"
+                  >
+                    <div className="p-3 max-h-[350px] overflow-y-auto no-scrollbar bg-white">
+                      <CustomInteractiveCalendar
+                        checkIn={prefilledCheckIn}
+                        checkOut={prefilledCheckOut}
+                        setCheckIn={setPrefilledCheckIn}
+                        setCheckOut={setPrefilledCheckOut}
+                        allBookings={allBookings}
+                        pricingSettings={pricingSettings}
+                        userRole={userRole}
+                      />
+                    </div>
+
+                    {/* Book Now trigger & status */}
+                    <div className="bg-luxury-cream border-t border-black/5 p-4 flex flex-col gap-3 select-none">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-luxury-dark/45 font-bold uppercase tracking-wider">
+                          {prefilledCheckIn && prefilledCheckOut ? "Reservation Ready" : "Select days on calendar"}
+                        </span>
+                        {prefilledCheckIn && (
+                          <button
+                            type="button"
+                            onClick={() => { setPrefilledCheckIn(null); setPrefilledCheckOut(null); }}
+                            className="text-luxury-gold font-bold hover:underline"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      
+                      {prefilledCheckIn && prefilledCheckOut ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCalDropdownOpen(false);
+                            onBookNow();
+                          }}
+                          className="w-full py-3 bg-gradient-to-r from-luxury-dark to-luxury-gold text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          <Zap size={14} className="animate-pulse" />
+                          Book Now
+                        </button>
+                      ) : (
+                        <div className="text-[11px] text-center text-luxury-dark/40 py-1 italic">
+                          Choose dates to unlock booking
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
 
           {user ? (
             <div className="flex items-center gap-4">
@@ -7946,10 +8050,10 @@ const Navbar = ({
 
           <button 
             onClick={onBookNow}
-            className="luxury-button !py-2 !px-6 text-sm flex items-center gap-2"
+            className="luxury-button !py-2 !px-6 text-sm flex items-center gap-2 cursor-pointer"
           >
             <Calendar size={16} />
-            Book Now
+            {prefilledCheckIn && prefilledCheckOut ? 'Book Selected Stay' : 'Book Now'}
           </button>
         </div>
 
@@ -7970,7 +8074,7 @@ const Navbar = ({
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="absolute top-full left-0 right-0 bg-white border-b border-black/5 p-6 md:hidden flex flex-col space-y-4 shadow-xl"
+            className="absolute top-full left-0 right-0 bg-white border-b border-black/5 p-6 md:hidden flex flex-col space-y-4 shadow-xl max-h-[85vh] overflow-y-auto no-scrollbar"
           >
             {navLinks.map((link) => (
               <Link 
@@ -7982,6 +8086,68 @@ const Navbar = ({
                 {link.name}
               </Link>
             ))}
+
+            {/* Mobile Calendar Section - Airbnb Style Inline */}
+            <div className="pt-3 border-t border-luxury-dark/5">
+              <button
+                type="button"
+                onClick={() => setIsMobileCalendarOpen(!isMobileCalendarOpen)}
+                className="w-full flex items-center justify-between text-left text-lg font-serif text-luxury-dark hover:text-luxury-gold mb-2 cursor-pointer"
+              >
+                <span>Select Stay Dates</span>
+                <span className="text-xs bg-luxury-cream text-luxury-gold px-3 py-1 rounded-full font-sans font-bold">
+                  {prefilledCheckIn ? `${format(prefilledCheckIn, 'dd/MM')} - ${prefilledCheckOut ? format(prefilledCheckOut, 'dd/MM') : 'Stay'}` : 'Not Set'}
+                </span>
+              </button>
+
+              <AnimatePresence>
+                {isMobileCalendarOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden mt-2 bg-luxury-cream/40 rounded-xl p-2 border border-black/5"
+                  >
+                    <CustomInteractiveCalendar
+                      checkIn={prefilledCheckIn}
+                      checkOut={prefilledCheckOut}
+                      setCheckIn={setPrefilledCheckIn}
+                      setCheckOut={setPrefilledCheckOut}
+                      allBookings={allBookings}
+                      pricingSettings={pricingSettings}
+                      userRole={userRole}
+                    />
+
+                    {/* Mobile inline Book Stay Now action */}
+                    {prefilledCheckIn && prefilledCheckOut && (
+                      <div className="mt-4 p-2 bg-white rounded-xl border border-black/5 flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-[10px] font-bold text-luxury-dark/40 px-1 uppercase tracking-wider">
+                          <span>Dates Ready</span>
+                          <button
+                            type="button"
+                            onClick={() => { setPrefilledCheckIn(null); setPrefilledCheckOut(null); }}
+                            className="text-luxury-gold"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMobileCalendarOpen(false);
+                            setIsMobileMenuOpen(false);
+                            onBookNow();
+                          }}
+                          className="w-full py-3 bg-luxury-gold text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-luxury-dark shadow-sm transition-colors text-center cursor-pointer"
+                        >
+                          Book Stay Now
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             
             <div className="pt-6 border-t border-luxury-dark/5 flex flex-col gap-4">
               {user ? (
@@ -8021,10 +8187,10 @@ const Navbar = ({
                   onBookNow();
                   setIsMobileMenuOpen(false);
                 }}
-                className="luxury-button w-full flex items-center justify-center gap-2"
+                className="luxury-button w-full flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Calendar size={20} />
-                Book Now
+                {prefilledCheckIn && prefilledCheckOut ? 'Book Selected Stay' : 'Book Now'}
               </button>
             </div>
           </motion.div>
@@ -8886,7 +9052,326 @@ const BookingCalendar = ({
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings, partners = [] }: { 
+const CustomInteractiveCalendar = ({
+  checkIn,
+  checkOut,
+  setCheckIn,
+  setCheckOut,
+  allBookings = [],
+  pricingSettings,
+  userRole,
+  errors = {},
+  setErrors
+}: any) => {
+  const [viewDate, setViewDate] = useState<Date>(() => {
+    return checkIn || new Date();
+  });
+  const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
+  const firstDayOfMonth = new Date(year, month, 1);
+  const firstDayIndex = firstDayOfMonth.getDay(); 
+  const firstDayMonIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+
+  const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const handlePrevMonth = () => {
+    setViewDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setViewDate(new Date(year, month + 1, 1));
+  };
+
+  const weekDays = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
+  const cells = [];
+  for (let i = 0; i < firstDayMonIndex; i++) {
+    cells.push({ isPadding: true, key: `pad-${i}` });
+  }
+
+  for (let day = 1; day <= totalDaysInMonth; day++) {
+    const date = new Date(year, month, day);
+    date.setHours(0, 0, 0, 0);
+    cells.push({ isPadding: false, day, date, key: `day-${day}` });
+  }
+
+  const handleDateClick = (date: Date) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    if (userRole !== 'admin' && date < today) {
+      return;
+    }
+
+    if (!checkIn || (checkIn && checkOut)) {
+      setCheckIn(date);
+      setCheckOut(null);
+      if (setErrors) {
+        setErrors((prev: any) => {
+          const next = { ...prev };
+          delete next.checkIn;
+          delete next.checkOut;
+          return next;
+        });
+      }
+    } else {
+      if (date.getTime() === checkIn.getTime()) {
+        setCheckIn(null);
+        setCheckOut(null);
+      } else if (date < checkIn) {
+        setCheckIn(date);
+        setCheckOut(null);
+      } else {
+        const hasConflict = allBookings.some((b: any) => {
+          if (b.status === 'cancelled') return false;
+          const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+          const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+          bStart.setHours(0, 0, 0, 0);
+          bEnd.setHours(0, 0, 0, 0);
+
+          const reqStart = new Date(checkIn);
+          reqStart.setHours(0, 0, 0, 0);
+          const reqEnd = new Date(date);
+          reqEnd.setHours(0, 0, 0, 0);
+
+          return reqStart < bEnd && reqEnd > bStart;
+        });
+
+        if (hasConflict && userRole !== 'admin') {
+          setCheckIn(date);
+          setCheckOut(null);
+          if (setErrors) {
+            setErrors((prev: any) => ({ ...prev, checkIn: "Overlap detected with booked slots. Reset check-in." }));
+          }
+        } else {
+          setCheckOut(date);
+          if (setErrors) {
+            setErrors((prev: any) => {
+              const next = { ...prev };
+              delete next.checkIn;
+              delete next.checkOut;
+              return next;
+            });
+          }
+        }
+      }
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    if (status === 'confirmed') return '#ce3e3e';
+    if (status === 'pending') return '#e89a3e';
+    return '#439c36';
+  };
+
+  const monthsList = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  // Dynamic counts for the visual legend
+  let availableCount = 0;
+  let bookedCount = 0;
+  let pendingCount = 0;
+
+  cells.forEach(cell => {
+    if (cell.isPadding) return;
+    const { date } = cell;
+    const tDate = date.getTime();
+
+    let morningStatus = 'available';
+    let afternoonStatus = 'available';
+
+    allBookings.forEach((b: any) => {
+      if (b.status === 'cancelled') return;
+      const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+      const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+      start.setHours(0,0,0,0);
+      end.setHours(0,0,0,0);
+
+      const tStart = start.getTime();
+      const tEnd = end.getTime();
+
+      if (tDate > tStart && tDate < tEnd) {
+        morningStatus = b.status;
+        afternoonStatus = b.status;
+      } else if (tDate === tStart) {
+        afternoonStatus = b.status;
+      } else if (tDate === tEnd) {
+        morningStatus = b.status;
+      }
+    });
+
+    if (morningStatus === 'confirmed' || afternoonStatus === 'confirmed') {
+      bookedCount++;
+    } else if (morningStatus === 'pending' || afternoonStatus === 'pending') {
+      pendingCount++;
+    } else {
+      availableCount++;
+    }
+  });
+
+  return (
+    <div className="w-full bg-white rounded-xl border border-black/5 overflow-hidden shadow-sm select-none p-4">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-sm font-bold text-luxury-dark tracking-wide">
+          {monthsList[month]} {year}
+        </h3>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handlePrevMonth}
+            className="w-8 h-8 rounded-lg hover:bg-luxury-cream border border-black/5 text-luxury-dark flex items-center justify-center transition-all active:scale-95"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={handleNextMonth}
+            className="w-8 h-8 rounded-lg hover:bg-luxury-cream border border-black/5 text-luxury-dark flex items-center justify-center transition-all active:scale-95"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1.5 mb-2 text-center text-[10px] font-bold text-luxury-dark/40 tracking-wider">
+        {weekDays.map(wd => (
+          <div key={wd} className="py-1">{wd}</div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1.5">
+        {cells.map(cell => {
+          if (cell.isPadding) {
+            return <div key={cell.key} className="aspect-square bg-luxury-cream/30 border border-transparent rounded-lg animate-pulse" />;
+          }
+
+          const { day, date } = cell;
+          const tDate = date.getTime();
+
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          const isPast = date < today && userRole !== 'admin';
+
+          const dayOfWeek = date.getDay();
+          const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
+          const price = isWeekend ? (pricingSettings?.weekend || 25000) : (pricingSettings?.weekday || 22000);
+
+          let morningStatus = 'available';
+          let afternoonStatus = 'available';
+
+          allBookings.forEach((b: any) => {
+            if (b.status === 'cancelled') return;
+            const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+            const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
+            start.setHours(0,0,0,0);
+            end.setHours(0,0,0,0);
+
+            const tStart = start.getTime();
+            const tEnd = end.getTime();
+
+            if (tDate > tStart && tDate < tEnd) {
+              morningStatus = b.status;
+              afternoonStatus = b.status;
+            } else if (tDate === tStart) {
+              afternoonStatus = b.status;
+            } else if (tDate === tEnd) {
+              morningStatus = b.status;
+            }
+          });
+
+          let isSelected = false;
+          if (checkIn && checkOut) {
+            isSelected = tDate >= checkIn.getTime() && tDate <= checkOut.getTime();
+          } else if (checkIn) {
+            if (tDate === checkIn.getTime()) {
+              isSelected = true;
+            } else if (hoveredDate && hoveredDate > checkIn) {
+              isSelected = tDate >= checkIn.getTime() && tDate <= hoveredDate.getTime();
+            }
+          }
+
+          let style: React.CSSProperties = {};
+          let cellClass = "aspect-square rounded-lg flex flex-col items-center justify-center relative cursor-pointer group p-1 transition-all text-white font-semibold shadow-sm overflow-hidden";
+
+          if (isPast) {
+            cellClass += " opacity-25 cursor-not-allowed";
+          }
+
+          if (isSelected) {
+            cellClass += " bg-[#488ac7] hover:bg-[#3d7cb9] active:scale-95";
+          } else if (morningStatus === afternoonStatus) {
+            const color = getStatusColor(morningStatus);
+            style = { backgroundColor: color };
+            cellClass += " hover:brightness-105 active:scale-95";
+          } else {
+            const colorMorning = getStatusColor(morningStatus);
+            const colorAfternoon = getStatusColor(afternoonStatus);
+            style = {
+              background: `linear-gradient(135deg, ${colorMorning} 50%, ${colorAfternoon} 50%)`
+            };
+            cellClass += " hover:brightness-105 active:scale-95";
+          }
+
+          return (
+            <div
+              key={cell.key}
+              onClick={() => !isPast && handleDateClick(date)}
+              onMouseEnter={() => !isPast && checkIn && !checkOut && setHoveredDate(date)}
+              onMouseLeave={() => setHoveredDate(null)}
+              style={style}
+              className={cellClass}
+            >
+              <span className="text-xs sm:text-sm font-bold z-10 leading-none">
+                {day}
+              </span>
+              {!isPast && (
+                <span className="text-[7.5px] uppercase tracking-tighter text-white/90 z-10 mt-1 leading-none font-bold">
+                  ₹{(price / 1000).toFixed(0)}k
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap gap-4 sm:gap-6 justify-center items-center mt-6 pt-5 border-t border-black/5">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-[#439c36] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+            {availableCount}
+          </div>
+          <span className="text-[11px] font-bold text-luxury-dark/60">- Available</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-[#ce3e3e] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+            {bookedCount}
+          </div>
+          <span className="text-[11px] font-bold text-luxury-dark/60">- Booked</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-[#e89a3e] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+            {pendingCount}
+          </div>
+          <span className="text-[11px] font-bold text-luxury-dark/60">- Pending</span>
+        </div>
+        {(checkIn || checkOut) && (
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-[#488ac7] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+              {checkIn && checkOut ? Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / 86400000)) : 1}
+            </div>
+            <span className="text-[11px] font-bold text-[#488ac7]">- Selected</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
@@ -8898,7 +9383,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   expenseCategories?: any[],
   onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void,
   pricingSettings?: any,
-  partners?: any[]
+  partners?: any[],
+  prefilledCheckIn?: Date | null,
+  prefilledCheckOut?: Date | null
 }) => {
   const [name, setName] = useState(editBooking?.name || ((userRole === 'admin' || userRole === 'agent') && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
@@ -8909,8 +9396,28 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [nightGuestChildren, setNightGuestChildren] = useState<number[]>(editBooking?.nightGuestChildren || []);
   const [occasion, setOccasion] = useState(editBooking?.occasion || '');
   const [bookedBy, setBookedBy] = useState(editBooking?.bookedBy && !['admin_for_client', 'admin_personal', 'client', 'agent_for_client'].includes(editBooking.bookedBy) ? editBooking.bookedBy : '');
-  const [checkIn, setCheckIn] = useState<Date | null>(editBooking?.checkIn ? parse(editBooking.checkIn, 'dd/MM/yyyy', new Date()) : null);
-  const [checkOut, setCheckOut] = useState<Date | null>(editBooking?.checkOut ? parse(editBooking.checkOut, 'dd/MM/yyyy', new Date()) : null);
+  const [checkIn, setCheckIn] = useState<Date | null>(() => {
+    if (editBooking?.checkIn) return parse(editBooking.checkIn, 'dd/MM/yyyy', new Date());
+    if (prefilledCheckIn) return prefilledCheckIn;
+    return null;
+  });
+  const [checkOut, setCheckOut] = useState<Date | null>(() => {
+    if (editBooking?.checkOut) return parse(editBooking.checkOut, 'dd/MM/yyyy', new Date());
+    if (prefilledCheckOut) return prefilledCheckOut;
+    return null;
+  });
+
+  useEffect(() => {
+    if (prefilledCheckIn && !editBooking) {
+      setCheckIn(prefilledCheckIn);
+    }
+  }, [prefilledCheckIn, editBooking]);
+
+  useEffect(() => {
+    if (prefilledCheckOut && !editBooking) {
+      setCheckOut(prefilledCheckOut);
+    }
+  }, [prefilledCheckOut, editBooking]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [isAdminBooking, setIsAdminBooking] = useState((userRole === 'admin' || userRole === 'agent') && !editBooking);
@@ -8930,6 +9437,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [payments, setPayments] = useState<any[]>(editBooking?.payments || []);
   const [expenses, setExpenses] = useState<any[]>(editBooking?.expenses || []);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [showCalendar, setShowCalendar] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [couponCode, setCouponCode] = useState('');
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
@@ -10266,83 +10774,91 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
 
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div className="space-y-1.5">
-          <div className="flex justify-between items-center">
-            <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-In (At 2:00 PM)</label>
-            <div className="flex gap-3">
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-red-400/50" />
-                <span className="text-[8px] uppercase font-bold text-luxury-dark/30">Sold Out</span>
-              </div>
-              {(checkIn || checkOut) && (
-                <button 
-                  type="button" 
-                  onClick={() => { setCheckIn(null); setCheckOut(null); }}
-                  className="text-[9px] uppercase tracking-widest font-bold text-luxury-gold hover:text-luxury-dark transition-colors"
-                >
-                  Clear
-                </button>
-              )}
+      <div className="col-span-1 md:col-span-2 space-y-3 bg-white p-6 border border-black/5 rounded-2xl shadow-sm relative">
+        <div className="flex justify-between items-center mb-1">
+          <div>
+            <h4 className="text-xs font-bold text-luxury-dark uppercase tracking-widest">Select Reservation Dates</h4>
+            <p className="text-[10px] text-luxury-dark/40">Click on any date field to open the calendar selection</p>
+          </div>
+          {(checkIn || checkOut) && (
+            <button 
+              type="button" 
+              onClick={() => { setCheckIn(null); setCheckOut(null); }}
+              className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold hover:text-luxury-dark transition-colors px-2.5 py-1 border border-luxury-gold/20 hover:border-luxury-gold rounded-lg bg-luxury-cream"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 relative">
+          <div 
+            onClick={() => setShowCalendar(!showCalendar)}
+            className="p-3.5 bg-luxury-cream border border-black/5 rounded-xl flex items-center justify-between cursor-pointer hover:border-luxury-gold/40 transition-colors select-none"
+          >
+            <div>
+              <span className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest block">Check-In (At 2:00 PM)</span>
+              <span className="text-sm font-bold text-luxury-dark">
+                {checkIn ? format(checkIn, 'dd/MM/yyyy') : 'Select Date'}
+              </span>
             </div>
+            <Calendar className="text-luxury-gold/60" size={18} />
           </div>
-          <div className="relative">
-            <BookingCalendar
-              pricingSettings={pricingSettings}
-              selected={checkIn}
-              onChange={(date: Date) => {
-                setCheckIn(date);
-                if (date && (!checkOut || date >= checkOut)) {
-                  setCheckOut(addDays(date, 1));
-                }
-                if (errors.checkIn) setErrors(prev => {
-                  const next = {...prev};
-                  delete next.checkIn;
-                  return next;
-                });
-              }}
-              minDate={userRole === 'admin' ? undefined : new Date()}
-              filterDate={(date: Date) => userRole === 'admin' ? true : !excludeCheckInDates.some(d => d.toDateString() === date.toDateString())}
-              dayClassName={getDayClassName}
-              placeholderText="Select check-in date"
-              startDate={checkIn}
-              endDate={checkOut}
-              selectsStart
-              allBookings={allBookings}
-              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkIn ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
-            />
-            <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
+
+          <div 
+            onClick={() => setShowCalendar(!showCalendar)}
+            className="p-3.5 bg-luxury-cream border border-black/5 rounded-xl flex items-center justify-between cursor-pointer hover:border-luxury-gold/40 transition-colors select-none"
+          >
+            <div>
+              <span className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest block">Check-Out (At 11:00 AM)</span>
+              <span className="text-sm font-bold text-luxury-dark">
+                {checkOut ? format(checkOut, 'dd/MM/yyyy') : 'Select Date'}
+              </span>
+            </div>
+            <Calendar className="text-luxury-gold/60" size={18} />
           </div>
-          {errors.checkIn && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.checkIn}</p>}
+
+          {/* Absolute Popup Dropdown for Custom Calendar */}
+          {showCalendar && (
+            <>
+              {/* Overlay backdrop to catch click outside */}
+              <div 
+                className="fixed inset-0 z-40" 
+                onClick={() => setShowCalendar(false)}
+              />
+              <div className="absolute top-full left-0 right-0 mt-2 z-50 bg-white rounded-2xl shadow-xl border border-black/10 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 max-w-[450px] mx-auto md:max-w-none">
+                <CustomInteractiveCalendar
+                  checkIn={checkIn}
+                  checkOut={checkOut}
+                  setCheckIn={setCheckIn}
+                  setCheckOut={setCheckOut}
+                  allBookings={allBookings}
+                  pricingSettings={pricingSettings}
+                  userRole={userRole}
+                  errors={errors}
+                  setErrors={setErrors}
+                />
+                
+                {/* Close/Done Helper Strip */}
+                <div className="bg-luxury-cream/80 border-t border-black/5 p-3 flex justify-between items-center select-none">
+                  <span className="text-[10px] text-luxury-dark/50 font-bold uppercase tracking-wider">
+                    {checkIn && checkOut ? "Dates selected" : "Tap days on calendar"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCalendar(false)}
+                    className="px-4 py-1.5 bg-luxury-gold text-white font-bold text-xs uppercase tracking-widest rounded-lg hover:bg-luxury-dark transition-colors active:scale-95"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-        <div className="space-y-1.5">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Check-Out (At 11:00 AM)</label>
-          <div className="relative">
-            <BookingCalendar
-              pricingSettings={pricingSettings}
-              selected={checkOut}
-              onChange={(date: Date) => {
-                setCheckOut(date);
-                if (errors.checkOut) setErrors(prev => {
-                  const next = {...prev};
-                  delete next.checkOut;
-                  return next;
-                });
-              }}
-              minDate={userRole === 'admin' ? undefined : (checkIn ? addDays(checkIn, 1) : new Date())}
-              filterDate={(date: Date) => userRole === 'admin' ? true : !excludeCheckOutDates.some(d => d.toDateString() === date.toDateString())}
-              dayClassName={getDayClassName}
-              placeholderText="Select check-out date"
-              startDate={checkIn}
-              endDate={checkOut}
-              selectsEnd
-              allBookings={allBookings}
-              className={`w-full px-4 py-4 bg-luxury-cream border ${errors.checkOut ? 'border-red-500' : 'border-black/5'} rounded-xl focus:outline-none focus:border-luxury-gold transition-colors text-sm`}
-            />
-            <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-luxury-dark/20 pointer-events-none" size={16} />
-          </div>
-          {errors.checkOut && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.checkOut}</p>}
-        </div>
+
+        {errors.checkIn && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.checkIn}</p>}
+        {errors.checkOut && <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">{errors.checkOut}</p>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -10663,7 +11179,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings, partners = [] }: { 
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut }: { 
   isOpen: boolean, 
   onClose: () => void, 
   user: FirebaseUser | null, 
@@ -10674,7 +11190,9 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
   expenseCategories?: any[],
   onNotify?: (title: string, message: string, type?: 'success' | 'info' | 'error') => void,
   pricingSettings?: any,
-  partners?: any[]
+  partners?: any[],
+  prefilledCheckIn?: Date | null,
+  prefilledCheckOut?: Date | null
 }) => {
   useEscapeKey(onClose, isOpen);
   return (
@@ -10707,7 +11225,7 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} prefilledCheckIn={prefilledCheckIn} prefilledCheckOut={prefilledCheckOut} />
             </div>
           </motion.div>
         </div>
@@ -11989,6 +12507,8 @@ export default function App() {
   };
 
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [prefilledCheckIn, setPrefilledCheckIn] = useState<Date | null>(null);
+  const [prefilledCheckOut, setPrefilledCheckOut] = useState<Date | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
@@ -12620,6 +13140,12 @@ export default function App() {
         onNotificationClick={() => setShowNotifPanel(!showNotifPanel)}
         soundEnabled={soundEnabled}
         onToggleSound={() => setSoundEnabled(!soundEnabled)}
+        allBookings={allBookings}
+        pricingSettings={pricingSettings}
+        prefilledCheckIn={prefilledCheckIn}
+        setPrefilledCheckIn={setPrefilledCheckIn}
+        prefilledCheckOut={prefilledCheckOut}
+        setPrefilledCheckOut={setPrefilledCheckOut}
       />
       <main>
         <React.Suspense fallback={
@@ -12659,6 +13185,8 @@ export default function App() {
         onNotify={triggerNotification}
         pricingSettings={pricingSettings}
         partners={partners}
+        prefilledCheckIn={prefilledCheckIn}
+        prefilledCheckOut={prefilledCheckOut}
       />
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <GalleryModal 
