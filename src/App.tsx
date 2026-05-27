@@ -9177,42 +9177,30 @@ const CustomInteractiveCalendar = ({
   let bookedCount = 0;
   let pendingCount = 0;
 
-  cells.forEach(cell => {
-    if (cell.isPadding) return;
-    const { date } = cell;
-    const tDate = date.getTime();
+  const confirmedCheckIns = new Set<string>();
+  const pendingCheckIns = new Set<string>();
 
-    let morningStatus = 'available';
-    let afternoonStatus = 'available';
-
-    allBookings.forEach((b: any) => {
-      if (b.status === 'cancelled') return;
-      const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
-      const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
-      start.setHours(0,0,0,0);
-      end.setHours(0,0,0,0);
-
-      const tStart = start.getTime();
-      const tEnd = end.getTime();
-
-      if (tDate > tStart && tDate < tEnd) {
-        morningStatus = b.status;
-        afternoonStatus = b.status;
-      } else if (tDate === tStart) {
-        afternoonStatus = b.status;
-      } else if (tDate === tEnd) {
-        morningStatus = b.status;
+  allBookings.forEach((b: any) => {
+    if (b.status === 'cancelled') return;
+    try {
+      const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
+      if (checkInDate.getMonth() === month && checkInDate.getFullYear() === year) {
+        if (b.status === 'confirmed') {
+          confirmedCheckIns.add(b.checkIn);
+        } else if (b.status === 'pending') {
+          pendingCheckIns.add(b.checkIn);
+        }
       }
-    });
-
-    if (morningStatus === 'confirmed' || afternoonStatus === 'confirmed') {
-      bookedCount++;
-    } else if (morningStatus === 'pending' || afternoonStatus === 'pending') {
-      pendingCount++;
-    } else {
-      availableCount++;
+    } catch (e) {
+      // ignore parsing error
     }
   });
+
+  bookedCount = confirmedCheckIns.size;
+  pendingCount = pendingCheckIns.size;
+
+  const totalNonPaddingDays = cells.filter(cell => !cell.isPadding).length;
+  availableCount = Math.max(0, totalNonPaddingDays - bookedCount - pendingCount);
 
   return (
     <div className="w-full bg-white rounded-xl border border-black/5 overflow-hidden shadow-sm select-none p-4">

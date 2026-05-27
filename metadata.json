@@ -3,5 +3,8 @@
   "description": "Premium farmhouse and villa rental in Noida (also known as Unique Farm House) for luxury stays, private parties, and corporate events near Delhi NCR. Features pool, garden, and high-end amenities.",
   "requestFramePermissions": [
     "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }
