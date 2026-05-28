@@ -517,6 +517,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
   const [followUpActivityType, setFollowUpActivityType] = useState<ActivityLog['type']>('remark');
   const [followUpOutcome, setFollowUpOutcome] = useState<ActivityLog['outcome']>('none');
   const [isFollowUpDrawerOpen, setIsFollowUpDrawerOpen] = useState(false);
+  const [followUpDateState, setFollowUpDateState] = useState('');
+  const [followUpTimeState, setFollowUpTimeState] = useState('');
   const [notifiedLeads, setNotifiedLeads] = useState<Set<string>>(new Set());
 
   // Search Debouncing
@@ -1098,7 +1100,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                     onAddFollowUp={(l) => {
                       setSelectedLeadForFollowUp(l);
                       setIsFollowUpDrawerOpen(true);
-                      setEditDetailValue(l.followUpDate || '');
+                      setFollowUpDateState(l.followUpDate || format(addDays(new Date(), 1), 'yyyy-MM-dd'));
+                      setFollowUpTimeState(l.followUpTime || '10:00');
                       setRemarksValue(l.followUpRemarks || '');
                     }}
                     onViewLog={setSelectedLeadForLog}
@@ -1280,8 +1283,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                         <Calendar size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" />
                         <input 
                           type="date"
-                          value={editDetailValue || format(addDays(new Date(), 1), 'yyyy-MM-dd')}
-                          onChange={(e) => setEditDetailValue(e.target.value)}
+                          value={followUpDateState}
+                          onChange={(e) => setFollowUpDateState(e.target.value)}
                           className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-luxury-dark/10 rounded-2xl text-xs font-bold shadow-sm outline-none focus:border-luxury-gold transition-all"
                         />
                       </div>
@@ -1292,12 +1295,9 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                         <Clock size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" />
                         <input 
                           type="time"
-                          value={selectedLeadForFollowUp.followUpTime || '10:00'}
-                          onChange={(e) => {
-                            const time = e.target.value;
-                            setSelectedLeadForFollowUp(prev => prev ? {...prev, followUpTime: time} : null);
-                          }}
-                          className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-luxury-dark/10 rounded-2xl text-xs font-bold shadow-sm outline-none focus:border-luxury-gold transition-all"
+                          value={followUpTimeState}
+                          onChange={(e) => setFollowUpTimeState(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 bg-gray-55 border border-luxury-dark/10 rounded-2xl text-xs font-bold shadow-sm outline-none focus:border-luxury-gold transition-all"
                         />
                       </div>
                     </div>
@@ -1342,8 +1342,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                       // Update follow-up date/time and remarks in main lead object
                       const updates: any = {
                         followUpRemarks: remarksValue,
-                        followUpDate: editDetailValue,
-                        followUpTime: selectedLeadForFollowUp.followUpTime || '10:00',
+                        followUpDate: followUpDateState,
+                        followUpTime: followUpTimeState || '10:00',
                         status: 'contacted'
                       };
 
@@ -1354,7 +1354,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                         await addDoc(collection(db, 'notifications'), {
                           type: 'followup_scheduled',
                           title: 'Follow-up Scheduled',
-                          message: `New follow-up for ${selectedLeadForFollowUp.name} on ${editDetailValue} at ${updates.followUpTime}`,
+                          message: `New follow-up for ${selectedLeadForFollowUp.name} on ${followUpDateState} at ${updates.followUpTime}`,
                           leadId: selectedLeadForFollowUp.id,
                           assignedAgent: selectedLeadForFollowUp.assignedAgent || null,
                           createdAt: serverTimestamp()
