@@ -420,7 +420,7 @@ const LeadRow = React.memo(({
 
     {/* Status Switcher */}
     <td className="px-4 py-6 min-w-[150px]">
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <div className="relative">
           <select 
             value={lead.status || 'new'} 
@@ -437,6 +437,23 @@ const LeadRow = React.memo(({
             <option value="contacted" className="bg-white text-luxury-dark">Contacted</option>
             <option value="converted" className="bg-white text-luxury-dark">Converted</option>
             <option value="lost" className="bg-white text-luxury-dark">Lost</option>
+          </select>
+        </div>
+
+        <div className="relative">
+          <select 
+            value={lead.score || 'WARM'} 
+            onChange={(e) => onUpdateDetail(lead.id, 'score', e.target.value)}
+            disabled={isUpdating}
+            className={`w-full text-[9px] font-black uppercase tracking-[0.15em] border-none rounded-xl px-3 py-2 appearance-none outline-none transition-all shadow-md cursor-pointer ${
+              lead.score === 'HOT' ? 'bg-[#EF4444] text-white' :
+              lead.score === 'COLD' ? 'bg-[#3B82F6] text-white' :
+               'bg-[#F59E0B] text-white'
+            }`}
+          >
+            <option value="HOT" className="bg-white text-luxury-dark">Hot Lead</option>
+            <option value="WARM" className="bg-white text-luxury-dark">Warm Lead</option>
+            <option value="COLD" className="bg-white text-luxury-dark">Cold Lead</option>
           </select>
         </div>
         
@@ -503,6 +520,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'contacted' | 'followup' | 'converted' | 'lost'>('new');
+  const [scoreFilter, setScoreFilter] = useState<'ALL' | 'HOT' | 'WARM' | 'COLD'>('ALL');
   const [followUpFilter, setFollowUpFilter] = useState<'all' | 'overdue' | 'today' | 'upcoming'>('all');
   const [editingRemarks, setEditingRemarks] = useState<string | null>(null);
   const [remarksValue, setRemarksValue] = useState('');
@@ -680,7 +698,9 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
         }
       }
       
-      return matchesSearch && matchesTab;
+      const matchesScore = scoreFilter === 'ALL' || lead.score === scoreFilter || (scoreFilter === 'WARM' && (!lead.score || lead.score === 'WARM'));
+      
+      return matchesSearch && matchesTab && matchesScore;
     }).sort((a, b) => {
       if (activeTab === 'followup') {
         // Sort by follow-up date and time (closest/overdue first)
@@ -693,12 +713,12 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
       const timeB = getSafeDate(b.createdAt).getTime();
       return timeB - timeA;
     });
-  }, [leads, debouncedSearch, activeTab, followUpFilter]);
+  }, [leads, debouncedSearch, activeTab, followUpFilter, scoreFilter]);
 
   // Reset pagination when filters change
   useEffect(() => {
     setVisibleLeadsCount(50);
-  }, [activeTab, debouncedSearch, followUpFilter]);
+  }, [activeTab, debouncedSearch, followUpFilter, scoreFilter]);
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -1017,6 +1037,23 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-12 pr-6 py-3 bg-white border border-luxury-dark/10 rounded-2xl text-sm w-full focus:ring-2 focus:ring-luxury-gold/20 focus:border-luxury-gold outline-none transition-all shadow-sm"
                 />
+              </div>
+
+              <div className="relative w-full md:w-auto">
+                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+                <select
+                  value={scoreFilter}
+                  onChange={(e) => setScoreFilter(e.target.value as any)}
+                  className="pl-10 pr-8 py-3 bg-white border border-luxury-dark/10 rounded-2xl text-sm font-bold text-luxury-dark focus:border-luxury-gold outline-none transition-all shadow-sm appearance-none cursor-pointer w-full"
+                >
+                  <option value="ALL">All Scores</option>
+                  <option value="HOT">Hot Leads</option>
+                  <option value="WARM">Warm Leads</option>
+                  <option value="COLD">Cold Leads</option>
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <div className="w-2 h-2 border-b-2 border-r-2 border-luxury-dark/30 transform rotate-45"></div>
+                </div>
               </div>
               
               <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 w-full md:w-auto">
