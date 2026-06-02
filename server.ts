@@ -941,45 +941,59 @@ async function startServer() {
   // iCal Export
   const exportRoute = async (req, res) => {
     try {
-      const projectId = firebaseConfig.projectId;
-      const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
-      const apiKey = firebaseConfig.apiKey;
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/public/calendar?key=${apiKey}`;
+      const aDb = getAdminDb();
+      let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n";
       
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-      });
-      if (!response.ok) {
-        if (response.status === 404) {
-          res.setHeader('Content-Type', 'text/calendar');
-          return res.send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR\r\n'));
-        }
-        const errorText = await response.text();
-        console.error('Firestore fetch error:', response.status, errorText);
-        throw new Error('Failed to fetch calendar from Firestore');
-      }
-      
-      const data = await response.json();
-      let icsContent = data.fields?.icsData?.stringValue;
-      
-      if (!icsContent) {
-        res.setHeader('Content-Type', 'text/calendar');
-        return res.send(Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nEND:VCALENDAR\r\n'));
-      }
+      const processDocs = (docs, prefix) => {
+        docs.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (prefix === 'booking' && data.status !== 'confirmed') return;
 
-      if (!icsContent.includes('CALSCALE:GREGORIAN')) {
-        icsContent = icsContent.replace('PRODID:-//Unique Farmhouse//Bookings//EN\r\n', 'PRODID:-//Unique Farmhouse//Bookings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n');
+          if (data.checkIn && data.checkOut) {
+            const partsIn = data.checkIn.split('/');
+            const partsOut = data.checkOut.split('/');
+            if (partsIn.length === 3 && partsOut.length === 3) {
+              const startStr = `${partsIn[2]}${partsIn[1].padStart(2,'0')}${partsIn[0].padStart(2,'0')}`;
+
+              const outDate = new Date(parseInt(partsOut[2]), parseInt(partsOut[1]) - 1, parseInt(partsOut[0]));
+              const endStr = `${outDate.getFullYear()}${String(outDate.getMonth() + 1).padStart(2,'0')}${String(outDate.getDate()).padStart(2,'0')}`;
+
+              const dtstamp = new Date().toISOString().replace(/[:-]/g, '').substring(0, 15) + 'Z';
+              const uid = `${docSnap.id}-${prefix}@uniquefarms`;
+
+              icsContent += "BEGIN:VEVENT\r\n";
+              icsContent += `UID:${uid}\r\n`;
+              icsContent += `DTSTAMP:${dtstamp}\r\n`;
+              icsContent += `DTSTART;VALUE=DATE:${startStr}\r\n`;
+              icsContent += `DTEND;VALUE=DATE:${endStr}\r\n`;
+              icsContent += "SUMMARY:Reserved - Unique Farmhouse\r\n";
+              icsContent += "STATUS:CONFIRMED\r\n";
+              icsContent += "END:VEVENT\r\n";
+            }
+          }
+        });
+      };
+
+      if (aDb) {
+        const [blockedSnap, availabilitySnap] = await Promise.all([
+          aDb.collection('blocked_dates').get(),
+          aDb.collection('availability').get()
+        ]);
+        processDocs(blockedSnap.docs, 'block');
+        processDocs(availabilitySnap.docs, 'booking');
+      } else {
+        const [blockedSnap, availabilitySnap] = await Promise.all([
+          getDocs(collection(db, 'blocked_dates')),
+          getDocs(collection(db, 'availability'))
+        ]);
+        processDocs(blockedSnap.docs, 'block');
+        processDocs(availabilitySnap.docs, 'booking');
       }
       
-      if (!icsContent.endsWith('\r\n')) {
-        icsContent += '\r\n';
-      }
+      icsContent += "END:VCALENDAR\r\n";
 
       res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
-      // Some platforms require caching headers
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
@@ -1473,6 +1487,149 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // --- Auto Sync Calendars Background Task ---
+  async function runAutoSync() {
+    try {
+      const aDb = getAdminDb();
+      let syncDoc;
+      if (aDb) {
+        syncDoc = await aDb.collection('settings').doc('calendar_sync').get();
+      } else {
+        syncDoc = await getDoc(doc(db, 'settings', 'calendar_sync'));
+      }
+      
+      const exists = typeof syncDoc.exists === 'function' ? syncDoc.exists() : syncDoc.exists;
+      if (!exists) return;
+
+      const data = typeof syncDoc.data === 'function' ? syncDoc.data() : null;
+      if (!data) return;
+
+      const intervalMinutes = data.syncInterval;
+      if (!intervalMinutes || intervalMinutes <= 0) return;
+
+      const lastSyncedDate = data.lastSynced && data.lastSynced.toDate 
+        ? data.lastSynced.toDate() 
+        : (data.lastSynced ? new Date(data.lastSynced) : null);
+        
+      if (lastSyncedDate) {
+        const diffMinutes = (Date.now() - lastSyncedDate.getTime()) / 60000;
+        if (diffMinutes < intervalMinutes) return; // Not due yet
+      }
+
+      const urls = data.urls || [];
+      if (urls.length === 0) return;
+
+      console.log(`[AutoSync] Background true auto-sync started (Interval: ${intervalMinutes}m)...`);
+
+      const response = await fetch(`http://127.0.0.1:${PORT}/api/calendar/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls })
+      });
+       
+      if (!response.ok) throw new Error('Internal sync fetch failed');
+      const { events } = await response.json();
+
+      if (events && Array.isArray(events)) {
+        if (aDb) {
+          const oldDocs = await aDb.collection('blocked_dates').where('type', '==', 'external').get();
+          let batch = aDb.batch();
+          let count = 0;
+          for (const d of oldDocs.docs) {
+            batch.delete(d.ref);
+            count++;
+            if (count > 400) { await batch.commit(); batch = aDb.batch(); count = 0; }
+          }
+          if (count > 0) await batch.commit();
+          
+          let batch2 = aDb.batch();
+          count = 0;
+          for (const ev of events) {
+            let checkInStr = ev.checkIn;
+            let checkOutStr = ev.checkOut;
+            if (!checkInStr && ev.start) {
+               const d = new Date(ev.start);
+               checkInStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+            }
+            if (!checkOutStr && ev.end) {
+               const d = new Date(ev.end);
+               checkOutStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+            }
+            if (checkInStr && checkOutStr) {
+               const newRef = aDb.collection('blocked_dates').doc();
+               batch2.set(newRef, {
+                 checkIn: checkInStr,
+                 checkOut: checkOutStr,
+                 type: 'external',
+                 source: ev.source || 'AutoSync',
+                 uid: ev.uid || '',
+                 status: 'confirmed',
+                 guestName: ev.summary || 'OTA Booking'
+               });
+               count++;
+               if (count > 400) { await batch2.commit(); batch2 = aDb.batch(); count = 0; }
+            }
+          }
+          if (count > 0) await batch2.commit();
+          
+          await aDb.collection('settings').doc('calendar_sync').update({ lastSynced: AdminFieldValue.serverTimestamp() });
+        } else {
+          const qb = query(collection(db, 'blocked_dates'), where('type', '==', 'external'));
+          const oldDocs = await getDocs(qb);
+          let b = writeBatch(db);
+          let c = 0;
+          oldDocs.docs.forEach((d: any) => {
+            b.delete(d.ref);
+            c++;
+            if (c > 400) { b.commit(); b = writeBatch(db); c = 0; }
+          });
+          if (c > 0) await b.commit();
+            
+          let b2 = writeBatch(db);
+          c = 0;
+          events.forEach((ev: any) => {
+            let checkInStr = ev.checkIn;
+            let checkOutStr = ev.checkOut;
+            if (!checkInStr && ev.start) {
+               const d = new Date(ev.start);
+               checkInStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+            }
+            if (!checkOutStr && ev.end) {
+               const d = new Date(ev.end);
+               checkOutStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+            }
+            if (checkInStr && checkOutStr) {
+               const newRef = doc(collection(db, 'blocked_dates'));
+               b2.set(newRef, {
+                 checkIn: checkInStr,
+                 checkOut: checkOutStr,
+                 type: 'external',
+                 source: ev.source || 'AutoSync',
+                 uid: ev.uid || '',
+                 status: 'confirmed',
+                 guestName: ev.summary || 'OTA Booking'
+               });
+               c++;
+               if (c > 400) { b2.commit(); b2 = writeBatch(db); c = 0; }
+            }
+          });
+          if (c > 0) await b2.commit();
+          
+          await setDoc(doc(db, 'settings', 'calendar_sync'), { lastSynced: serverTimestamp() }, { merge: true });
+        }
+        console.log(`[AutoSync] Background true auto-sync completed! Fetched ${events.length} events.`);
+      }
+    } catch (err: any) {
+      console.error(`[AutoSync] Background sync failed:`, err.message);
+    }
+  }
+
+  // Check every 1 minute
+  setInterval(runAutoSync, 60000);
+  
+  // Also run immediately after server start (delay 5s)
+  setTimeout(runAutoSync, 5000);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

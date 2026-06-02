@@ -88,7 +88,10 @@ import {
   Table,
   Ticket,
   Gift,
-  Globe
+  Globe,
+  ClipboardList,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 const Blog = React.lazy(() => import('./Blog').then(m => ({ default: m.Blog })));
@@ -147,7 +150,18 @@ import {
   Area
 } from 'recharts';
 import "react-datepicker/dist/react-datepicker.css";
+import { OtherPropertiesPage, PropertySubSite } from './PropertySubSite';
+import { ShantiFarmAdmin } from './ShantiFarmAdmin';
 import { auth, db } from './firebase';
+
+export const AVAILABLE_THEMES = [
+  { id: 'default', name: 'Classic Gold', gold: '#C5A059', cream: '#FDFBF7', dark: '#1A1A1A' },
+  { id: 'ocean', name: 'Ocean Breeze', gold: '#0ea5e9', cream: '#f0f9ff', dark: '#0f172a' },
+  { id: 'forest', name: 'Forest Retreat', gold: '#22c55e', cream: '#f0fdf4', dark: '#14532d' },
+  { id: 'royal', name: 'Royal Purple', gold: '#a855f7', cream: '#faf5ff', dark: '#3b0764' },
+  { id: 'ruby', name: 'Ruby Elegance', gold: '#f43f5e', cream: '#fff1f2', dark: '#4c0519' },
+  { id: 'midnight', name: 'Midnight Spark', gold: '#fbbf24', cream: '#fafafa', dark: '#171717' }
+];
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
 
@@ -1349,19 +1363,28 @@ const UserManagement = ({
   );
 };
 
-const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, canEditSettingsAdmin?: boolean }) => {
-  const [urls, setUrls] = useState<{ name: string, url: string }[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [newUrl, setNewUrl] = useState({ name: '', url: '' });
+const ICalSyncSettings = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: string, type?: 'success' | 'error' | 'info') => void, canEditSettingsAdmin?: boolean }) => {
+  const [urls, setUrls] = React.useState<{ id: string, name: string, url: string }[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [syncing, setSyncing] = React.useState(false);
+  const [newUrl, setNewUrl] = React.useState({ name: '', url: '' });
+  const [lastSynced, setLastSynced] = React.useState<Date | null>(null);
+  const [syncInterval, setSyncInterval] = React.useState<number | ''>('');
+  const [savingInterval, setSavingInterval] = React.useState(false);
 
-  useEffect(() => {
+  React.useEffect(() => {
     const fetchSettings = async () => {
       try {
         const docRef = doc(db, 'settings', 'calendar_sync');
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           setUrls(docSnap.data().urls || []);
+          if (docSnap.data().syncInterval !== undefined) {
+             setSyncInterval(docSnap.data().syncInterval);
+          }
+          if (docSnap.data().lastSynced) {
+            setLastSynced(docSnap.data().lastSynced.toDate ? docSnap.data().lastSynced.toDate() : new Date(docSnap.data().lastSynced));
+          }
         }
       } catch (error) {
         console.error('Error fetching sync settings:', error);
@@ -1377,275 +1400,290 @@ const CalendarSync = ({ showToast, canEditSettingsAdmin }: { showToast: (msg: st
       showToast('Please fill in both name and URL', 'error');
       return;
     }
-    const updatedUrls = [...urls, newUrl];
+    const newId = Date.now().toString();
+    const updatedUrls = [...urls, { ...newUrl, id: newId }];
     try {
       await setDoc(doc(db, 'settings', 'calendar_sync'), { urls: updatedUrls }, { merge: true });
       setUrls(updatedUrls);
       setNewUrl({ name: '', url: '' });
-      showToast('Calendar URL added successfully', 'success');
+      showToast('Import URL added successfully', 'success');
     } catch (error) {
-      showToast('Failed to add calendar URL', 'error');
+      showToast('Failed to add Import URL', 'error');
     }
   };
 
-  const handleRemoveUrl = async (index: number) => {
-    const updatedUrls = urls.filter((_, i) => i !== index);
+  const handleSaveInterval = async () => {
+    setSavingInterval(true);
+    try {
+      await setDoc(doc(db, 'settings', 'calendar_sync'), { syncInterval: Number(syncInterval) || 0 }, { merge: true });
+      showToast('Auto sync interval saved successfully', 'success');
+    } catch (e) {
+      showToast('Failed to save interval', 'error');
+    } finally {
+      setSavingInterval(false);
+    }
+  };
+
+  const handleRemoveUrl = async (idToRemove: string) => {
+    if (!window.confirm('Are you sure you want to remove this sync URL?')) return;
+    const updatedUrls = urls.filter(u => u.id !== idToRemove);
     try {
       await setDoc(doc(db, 'settings', 'calendar_sync'), { urls: updatedUrls }, { merge: true });
       setUrls(updatedUrls);
-      showToast('Calendar URL removed', 'success');
+      showToast('Import URL removed', 'success');
     } catch (error) {
-      showToast('Failed to remove calendar URL', 'error');
+      showToast('Failed to remove Import URL', 'error');
     }
   };
 
-  const handleSyncNow = async () => {
+  const handleManualSync = async () => {
     setSyncing(true);
     try {
-      const response = await fetch(BACKEND_URL + '/api/calendar/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server Sync failed with status ${response.status}`);
-      }
-
-      const result = await response.json();
-      const allExternalEvents = result.events || [];
-
-      if (allExternalEvents.length > 0 || urls.length > 0) {
-        const batch = writeBatch(db);
-        const blockedSnapshot = await getDocs(query(collection(db, 'blocked_dates'), where('type', '==', 'external')));
-        blockedSnapshot.forEach(doc => batch.delete(doc.ref));
-        
-        allExternalEvents.forEach((event: any) => {
-          const docRef = doc(collection(db, 'blocked_dates'));
-          batch.set(docRef, {
-            ...event,
-            type: 'external',
-            status: 'confirmed',
-            checkIn: format(new Date(event.start), 'dd/MM/yyyy'),
-            checkOut: format(new Date(event.end), 'dd/MM/yyyy'),
-            updatedAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
-          });
+      // Direct call to Cloudflare worker to bypass IP blocking
+      const workerUrl = 'https://calender.a9812275402.workers.dev/api/calendar/sync';
+      let response;
+      try {
+        response = await fetch(workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls })
         });
-        await batch.commit();
-        showToast(`Sync completed! ${allExternalEvents.length} external events imported.`, 'success');
-      } else {
-        showToast('Sync completed! No new events found.', 'info');
+      } catch (e) {
+        // Fallback to Express backend
+        response = await fetch((import.meta.env.VITE_BACKEND_URL || window.location.origin) + '/api/calendar/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls })
+        });
       }
-    } catch (error: any) {
-      console.error('Sync error:', error);
-      showToast(`Sync failed: ${error.message}`, 'error');
+      
+      if (!response.ok) throw new Error('Sync failed');
+      const data = await response.json();
+      
+      if (data.events && Array.isArray(data.events)) {
+        // Find existing external blocked dates
+        const qBlocked = query(collection(db, 'blocked_dates'), where('type', '==', 'external'));
+        const blockedSnap = await getDocs(qBlocked);
+        
+        let batch = writeBatch(db);
+        let count = 0;
+        
+        // Delete old external dates
+        blockedSnap.docs.forEach(d => {
+          batch.delete(d.ref);
+          count++;
+          if (count >= 400) {
+            batch.commit();
+            batch = writeBatch(db);
+            count = 0;
+          }
+        });
+        
+        // Add new events
+        data.events.forEach(ev => {
+          try {
+            let checkInStr = ev.checkIn;
+            let checkOutStr = ev.checkOut;
+            
+            // if server returned start/end objects
+            if (!checkInStr && ev.start) {
+              const startDate = new Date(ev.start);
+              checkInStr = `${String(startDate.getDate()).padStart(2, '0')}/${String(startDate.getMonth() + 1).padStart(2, '0')}/${startDate.getFullYear()}`;
+            }
+            if (!checkOutStr && ev.end) {
+              const endDate = new Date(ev.end);
+              checkOutStr = `${String(endDate.getDate()).padStart(2, '0')}/${String(endDate.getMonth() + 1).padStart(2, '0')}/${endDate.getFullYear()}`;
+            }
+            
+            if (!checkInStr || !checkOutStr) return;
+            
+            const newDocRef = doc(collection(db, 'blocked_dates'));
+            batch.set(newDocRef, { 
+              checkIn: checkInStr,
+              checkOut: checkOutStr,
+              type: 'external',
+              source: ev.source || 'Sync',
+              uid: ev.uid || '',
+              status: 'confirmed', 
+              guestName: ev.summary || 'OTA Booking' 
+            });
+            count++;
+            if (count >= 400) {
+              batch.commit();
+              batch = writeBatch(db);
+              count = 0;
+            }
+          } catch(e) {
+            console.error("error formatting date", e);
+          }
+        });
+        
+        if (count > 0) {
+          await batch.commit();
+        }
+      }
+      
+      const now = new Date();
+      await setDoc(doc(db, 'settings', 'calendar_sync'), { lastSynced: now }, { merge: true });
+      setLastSynced(now);
+      
+      showToast(`Calendar successfully synced! Found ${data.events ? data.events.length : 0} events.`, 'success');
+    } catch (error) {
+      console.error(error);
+      showToast('Manual sync failed - Please check your Cloudflare Worker is updated.', 'error');
     } finally {
       setSyncing(false);
     }
   };
 
-  if (loading) return <div className="py-24 text-center"><p className="text-luxury-dark/40 italic">Loading settings...</p></div>;
-
-  const exportUrl = `${window.location.origin}/api/calendar/export.ics`;
-
   return (
-    <div className="space-y-8">
-      <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
-        <h3 className="text-xl font-serif font-bold text-luxury-dark mb-6 flex items-center gap-2">
-          <Share2 size={20} className="text-luxury-gold" />
-          Export Your Calendar
-        </h3>
-        <p className="text-sm text-luxury-dark/60 mb-6">
-          Share this URL with Airbnb, Booking.com, or other platforms to sync your farmhouse availability.
-        </p>
-        <div className="flex gap-3">
-          <input 
-            readOnly
-            value={exportUrl}
-            className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-xs font-mono text-luxury-dark/60"
-          />
-          <button 
-            onClick={() => {
-              navigator.clipboard.writeText(exportUrl);
-              showToast('Export URL copied!', 'success');
-            }}
-            className="px-6 py-3 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all"
-          >
-            Copy URL
-          </button>
+    <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h3 className="text-2xl font-serif font-bold text-luxury-dark">iCal Sync Settings</h3>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mt-1">Manage Calendar Import & Export URLs</p>
         </div>
-
-        <div className="mt-8 pt-8 border-t border-luxury-dark/5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="text-sm font-bold text-luxury-dark">Cloudflare Worker Sync + Notifications</h4>
-              <p className="text-[10px] text-luxury-dark/50 mt-1">Deploy this to handle calendar sync, email relay, and real-time alerts.</p>
-            </div>
-            <button 
-               onClick={() => {
-                  const code = `/** Unique Farmhouse Worker v3.0 **/
-let controllers = new Set();
-
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const headers = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    };
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers });
-    }
-
-    // 3. CORS PROXY ROUTE
-    if (url.pathname === '/api/proxy/fetch') {
-      try {
-        const bodyData = await request.json();
-        const targetUrl = bodyData.url;
-        const res = await fetch(targetUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/calendar, text/plain, */*"
-          }
-        });
-        const text = await res.text();
-        return new Response(text, {
-           headers: { ...headers, "Content-Type": res.headers.get("Content-Type") || "text/plain" }
-        });
-      } catch(e) {
-        return new Response("CORS Fetch failed", { status: 500, headers });
-      }
-    }
-    
-    // 4. CALENDAR EXPORT
-    if (url.pathname.includes('/export.ics')) {
-      const PROJECT_ID = "gen-lang-client-0648775775";
-      const DATABASE_ID = "ai-studio-f7380372-aa21-47e5-a700-4543b093cb2e";
-      const API_KEY = "AIzaSyBWtRZJYKaFyix-eY5Up2QQWoTB07y7zAk";
-      try {
-        const firestoreUrl = \`https://firestore.googleapis.com/v1/projects/\${PROJECT_ID}/databases/\${DATABASE_ID}/documents/public/calendar?key=\${API_KEY}\`;
-        const res = await fetch(firestoreUrl);
-        const data = await res.json();
-        let icsContent = data.fields?.icsData?.stringValue;
-        let lastUpdated = data.fields?.updatedAt?.stringValue || new Date().toUTCString();
-        if (!icsContent) {
-           icsContent = "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//Unique Farmhouse//Bookings//EN\\r\\nCALSCALE:GREGORIAN\\r\\nMETHOD:PUBLISH\\r\\nEND:VCALENDAR\\r\\n";
-        }
-        return new Response(icsContent, {
-          headers: {
-            ...headers,
-            "Content-Type": "text/calendar; charset=utf-8",
-            "Content-Disposition": 'attachment; filename="calendar.ics"',
-            "Last-Modified": lastUpdated
-          }
-        });
-      } catch (e) {
-        return new Response("Error", { status: 500, headers });
-      }
-    }
-    
-    return new Response("Not Found", { status: 404, headers });
-  }
-};`;
-                  navigator.clipboard.writeText(code);
-                  showToast('Updated Worker code copied!', 'success');
-               }}
-               className="px-4 py-2 bg-luxury-gold text-luxury-dark font-bold text-[10px] uppercase rounded-lg hover:bg-luxury-dark hover:text-white transition-colors"
-            >
-               Copy Advanced Worker Script
-            </button>
+        {lastSynced && (
+          <div className="flex items-center gap-2 bg-green-50/50 text-green-700 px-3 py-1.5 rounded-full border border-green-200 text-xs font-bold shadow-sm self-start sm:self-auto">
+            <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+            <span>Last synced: {lastSynced.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
           </div>
-          <div className="p-3 bg-luxury-cream/50 rounded-xl border border-black/5">
-            <p className="text-[10px] text-luxury-dark/60 leading-relaxed italic">
-              <b>Notification Sync:</b> This script now supports Server-Sent Events (SSE). After deploying, ensure your Worker URL is saved in <b>Settings</b>.
-            </p>
-          </div>
-        </div>
-
+        )}
       </div>
 
-      <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
-        <div className="flex justify-between items-center mb-8">
-          <h3 className="text-xl font-serif font-bold text-luxury-dark flex items-center gap-2">
-            <Download size={20} className="text-luxury-gold" />
-            Import External Calendars
-          </h3>
-          <button 
-            onClick={handleSyncNow}
-            disabled={syncing || urls.length === 0}
-            className="px-6 py-3 bg-emerald-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-2 disabled:opacity-50"
-          >
-            <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Syncing...' : 'Sync Now'}
-          </button>
+      {loading ? (
+        <div className="text-center py-6 text-luxury-dark border border-luxury-dark/10 rounded-2xl bg-luxury-dark/5">
+          <RefreshCw size={24} className="animate-spin mx-auto text-luxury-gold mb-2" />
+          <p className="text-xs font-bold uppercase tracking-widest opacity-60">Loading iCal settings...</p>
         </div>
-
+      ) : (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold ml-1">Platform Name</label>
+          <div className="bg-luxury-cream/20 p-6 rounded-2xl border border-luxury-dark/5 space-y-4">
+            <h4 className="font-bold text-luxury-dark uppercase tracking-widest text-xs flex items-center gap-2">
+              <Upload size={14} className="text-luxury-gold" /> Export Calendar URL
+            </h4>
+            <p className="text-sm text-luxury-dark/60">
+              Provide this URL to external websites (like Airbnb, MakeMyTrip) so they can block their calendars based on your bookings.
+            </p>
+            <div className="flex items-center gap-2">
               <input 
-                placeholder="e.g. Airbnb, Ellivas"
-                value={newUrl.name}
-                onChange={(e) => setNewUrl(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm focus:outline-none focus:border-luxury-gold"
+                type="text" 
+                readOnly 
+                value={'https://calender.a9812275402.workers.dev/calendar.ics'} 
+                className="w-full bg-white px-4 py-3 border border-luxury-dark/10 rounded-xl text-sm outline-none text-luxury-dark" 
               />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-widest text-luxury-dark/60 font-bold ml-1">iCal URL</label>
-              <div className="flex gap-2">
-                <input 
-                  placeholder="https://..."
-                  value={newUrl.url}
-                  onChange={(e) => setNewUrl(prev => ({ ...prev, url: e.target.value }))}
-                  className="flex-1 px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm focus:outline-none focus:border-luxury-gold"
-                />
-                <button 
-                  onClick={handleAddUrl}
-                  disabled={!canEditSettingsAdmin}
-                  className="px-6 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
-                >
-                  Add
-                </button>
-              </div>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText('https://calender.a9812275402.workers.dev/calendar.ics');
+                  showToast('Export URL copied to clipboard', 'info');
+                }}
+                className="bg-luxury-gold text-white p-3 rounded-xl hover:bg-luxury-dark transition-colors"
+                title="Copy to clipboard"
+              >
+                <ClipboardList size={18} />
+              </button>
             </div>
           </div>
 
-          <div className="pt-8 border-t border-luxury-dark/5">
-            <p className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold mb-4">Connected Calendars</p>
-            <div className="space-y-3">
-              {urls.map((item, index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-luxury-cream/30 rounded-2xl border border-luxury-dark/5">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-luxury-gold shadow-sm">
-                      <Calendar size={18} />
-                    </div>
-                    <div>
-                      <p className="font-bold text-luxury-dark">{item.name}</p>
-                      <p className="text-[10px] text-luxury-dark/40 font-mono truncate max-w-[200px] md:max-w-md">{item.url}</p>
-                    </div>
-                  </div>
-                  {canEditSettingsAdmin && (
-                    <button 
-                      onClick={() => handleRemoveUrl(index)}
-                      className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  )}
-                </div>
-              ))}
-              {urls.length === 0 && (
-                <div className="py-12 text-center bg-luxury-dark/5 rounded-3xl border border-dashed border-luxury-dark/10">
-                  <p className="text-luxury-dark/40 font-medium italic">No external calendars connected yet.</p>
-                </div>
-              )}
+          <div className="bg-luxury-cream/20 p-6 rounded-2xl border border-luxury-dark/5 space-y-4">
+            <div className="flex justify-between items-center mb-4">
+              <h4 className="font-bold text-luxury-dark uppercase tracking-widest text-xs flex items-center gap-2">
+                <Download size={14} className="text-luxury-gold" /> Import iCal URLs
+              </h4>
+              <button
+                disabled={syncing || urls.length === 0}
+                onClick={handleManualSync}
+                className="flex items-center gap-2 px-4 py-2 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold transition-colors disabled:opacity-50"
+              >
+                {syncing ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {syncing ? 'Syncing...' : 'Sync Now'}
+              </button>
             </div>
+            
+            <p className="text-sm text-luxury-dark/60 mb-2">
+              Add the iCal URLs provided by external websites here. Our system will periodically sync them and block those dates in your calendar.
+            </p>
+            
+            {urls.length > 0 ? (
+              <ul className="space-y-3 mb-6">
+                {urls.map((u, i) => (
+                  <li key={u.id || i} className="flex justify-between items-center bg-white p-4 rounded-xl border border-luxury-dark/5">
+                    <div>
+                      <p className="font-bold text-sm text-luxury-dark">{u.name}</p>
+                      <p className="text-xs text-luxury-dark/60 truncate max-w-[200px] sm:max-w-xs">{u.url}</p>
+                    </div>
+                    {canEditSettingsAdmin && (
+                      <button onClick={() => handleRemoveUrl(u.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-luxury-dark/40 italic mb-6">No import URLs configured.</p>
+            )}
+
+            {canEditSettingsAdmin && (
+              <div className="pt-4 border-t border-luxury-dark/10 grid grid-cols-1 sm:grid-cols-12 gap-3">
+                 <div className="sm:col-span-3">
+                   <input
+                     type="text"
+                     placeholder="Name (e.g. Airbnb)"
+                     value={newUrl.name}
+                     onChange={(e) => setNewUrl({ ...newUrl, name: e.target.value })}
+                     className="w-full bg-white px-4 py-3 border border-luxury-dark/10 rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none"
+                   />
+                 </div>
+                 <div className="sm:col-span-7">
+                   <input
+                     type="url"
+                     placeholder="iCal Import URL"
+                     value={newUrl.url}
+                     onChange={(e) => setNewUrl({ ...newUrl, url: e.target.value })}
+                     className="w-full bg-white px-4 py-3 border border-luxury-dark/10 rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none"
+                   />
+                 </div>
+                 <div className="sm:col-span-2">
+                   <button 
+                     onClick={handleAddUrl}
+                     className="w-full bg-luxury-gold text-white px-4 py-3 rounded-xl text-sm font-bold shadow-md hover:bg-luxury-dark transition-all flex items-center justify-center gap-2"
+                   >
+                     <Plus size={16} /> Add
+                   </button>
+                 </div>
+              </div>
+            )}
+
+            {canEditSettingsAdmin && (
+              <div className="pt-4 border-t border-luxury-dark/10 flex flex-col sm:flex-row gap-4 items-end">
+                <div className="flex-1 w-full">
+                   <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 mb-1">
+                     Auto Sync Interval (Minutes)
+                   </label>
+                   <input
+                     type="number"
+                     min="0"
+                     placeholder="e.g. 15 (0 to disable)"
+                     value={syncInterval}
+                     onChange={(e) => setSyncInterval(e.target.value === '' ? '' : parseInt(e.target.value))}
+                     className="w-full bg-white px-4 py-3 border border-luxury-dark/10 rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none"
+                   />
+                </div>
+                <div className="w-full sm:w-auto">
+                   <button 
+                     onClick={handleSaveInterval}
+                     disabled={savingInterval}
+                     className="w-full sm:w-auto bg-luxury-dark text-white px-6 py-3 rounded-xl text-sm font-bold shadow-md hover:bg-luxury-gold hover:text-luxury-dark transition-all disabled:opacity-50 whitespace-nowrap"
+                   >
+                     {savingInterval ? 'Saving...' : 'Save Interval'}
+                   </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -1932,10 +1970,10 @@ const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, coun
     { id: 'gallery', filter: 'gallery', label: 'Gallery', count: counts.gallery, permission: 'viewSettings' },
     { id: 'logs', filter: 'logs', label: 'Logs', count: counts.logs, permission: 'viewSettings' },
     { id: 'notifications', filter: 'notifications', label: 'Notifications', count: counts.notifications, permission: 'viewSettings' },
-    { id: 'sync', filter: 'sync', label: 'Calendar Sync', labelShort: 'iCal', permission: 'leadsSettings' },
     // Only show User Management for Admins
     ...(userRole === 'admin' ? [{ id: 'users', filter: 'users', label: 'User Management', labelShort: 'Users' }] : []),
     { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool', permission: 'leadsSettings' },
+    { id: 'ical', filter: 'ical', label: 'iCal Calendar', labelShort: 'iCal', permission: 'editSettings' },
     { id: 'coupons', filter: 'coupons', label: 'Discount Coupons', labelShort: 'Coupons', permission: 'editSettings' },
     { id: 'partners', filter: 'partners', label: 'Partners', labelShort: 'Partners', permission: 'editSettings' }
   ];
@@ -3776,10 +3814,11 @@ export default {
   );
 };
 
-const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], onAssignExpense, showToast, userRole }: { 
+const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], otherIncomes = [], onAssignExpense, showToast, userRole }: { 
   bookings: any[], 
   expenseCategories: any[], 
   globalExpenses?: any[],
+  otherIncomes?: any[],
   onAssignExpense: (b: any) => void,
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
   userRole?: string | null
@@ -3789,14 +3828,31 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
   const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
 
   // Filter State
-  const [selectedMonth, setSelectedMonth] = useState<string>(new Date().getMonth().toString());
-  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+  const todayDate = new Date();
+  const firstDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+  const lastDay = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0);
+  const [fromDate, setFromDate] = useState<string>(format(firstDay, 'yyyy-MM-dd'));
+  const [toDate, setToDate] = useState<string>(format(lastDay, 'yyyy-MM-dd'));
+
+  // Expander State
+  const [isBookingIncomeOpen, setIsBookingIncomeOpen] = useState(false);
+  const [isGlobalExpensesOpen, setIsGlobalExpensesOpen] = useState(false);
+  const [isOtherIncomesOpen, setIsOtherIncomesOpen] = useState(false);
 
   // Global Expense State
   const [isAddingGlobalExpense, setIsAddingGlobalExpense] = useState(false);
   const [newGlobalExpense, setNewGlobalExpense] = useState({
     amount: '',
     category: expenseCategories.length > 0 ? expenseCategories[0].name : 'Other',
+    note: '',
+    date: format(new Date(), 'yyyy-MM-dd')
+  });
+
+  // Other Income State
+  const [isAddingOtherIncome, setIsAddingOtherIncome] = useState(false);
+  const [newOtherIncome, setNewOtherIncome] = useState({
+    amount: '',
+    source: '',
     note: '',
     date: format(new Date(), 'yyyy-MM-dd')
   });
@@ -3837,32 +3893,42 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
     }
   };
 
-  const years = useMemo(() => {
-    const yearsSet = new Set<string>();
-    bookings.forEach(b => {
-      const d = parse(b.checkIn, 'dd/MM/yyyy', new Date());
-      if (isValid(d)) yearsSet.add(d.getFullYear().toString());
-    });
-    const currentYear = new Date().getFullYear().toString();
-    yearsSet.add(currentYear);
-    return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
-  }, [bookings]);
+  const handleAddOtherIncome = async () => {
+    if (!newOtherIncome.amount || !newOtherIncome.source || !newOtherIncome.date) {
+      showToast('Please fill all required fields', 'error');
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'other_incomes'), {
+        amount: Number(newOtherIncome.amount),
+        source: newOtherIncome.source,
+        note: newOtherIncome.note,
+        date: newOtherIncome.date,
+        createdAt: serverTimestamp()
+      });
+      showToast('Other income added', 'success');
+      setNewOtherIncome({
+        amount: '',
+        source: '',
+        note: '',
+        date: format(new Date(), 'yyyy-MM-dd')
+      });
+      setIsAddingOtherIncome(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'other_incomes');
+    }
+  };
 
-  const months = [
-    { value: 'all', label: 'All Months' },
-    { value: '0', label: 'January' },
-    { value: '1', label: 'February' },
-    { value: '2', label: 'March' },
-    { value: '3', label: 'April' },
-    { value: '4', label: 'May' },
-    { value: '5', label: 'June' },
-    { value: '6', label: 'July' },
-    { value: '7', label: 'August' },
-    { value: '8', label: 'September' },
-    { value: '9', label: 'October' },
-    { value: '10', label: 'November' },
-    { value: '11', label: 'December' },
-  ];
+  const handleDeleteOtherIncome = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'other_incomes', id));
+      showToast('Other income deleted', 'success');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `other_incomes/${id}`);
+    }
+  };
+
+  // unused arrays removed
 
   const filteredBookings = useMemo(() => {
     return bookings.filter(b => {
@@ -3870,16 +3936,19 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
       const d = parse(b.checkIn, 'dd/MM/yyyy', new Date());
       if (!isValid(d)) return false;
       
-      const yearMatch = d.getFullYear().toString() === selectedYear;
-      const monthMatch = selectedMonth === 'all' || d.getMonth().toString() === selectedMonth;
+      if (!fromDate || !toDate) return true;
+      const from = new Date(fromDate);
+      from.setHours(0,0,0,0);
+      const to = new Date(toDate);
+      to.setHours(23,59,59,999);
       
-      return yearMatch && monthMatch;
+      return d >= from && d <= to;
     }).sort((a, b) => {
       const dateA = parse(a.checkIn, 'dd/MM/yyyy', new Date());
       const dateB = parse(b.checkIn, 'dd/MM/yyyy', new Date());
       return dateB.getTime() - dateA.getTime();
     });
-  }, [bookings, selectedMonth, selectedYear]);
+  }, [bookings, fromDate, toDate]);
 
   const handleAddCategory = async () => {
     if (!newCategory.trim()) return;
@@ -3925,12 +3994,17 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
   const financialData = useMemo(() => {
     const monthsData: { [key: string]: { income: number; expenses: number; bookings: number } } = {};
     
-    // Process last 12 months based on selected year
-    const year = parseInt(selectedYear);
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(year, i, 1);
-      const monthKey = format(d, 'MMM yyyy');
-      monthsData[monthKey] = { income: 0, expenses: 0, bookings: 0 };
+    // Generate months between fromDate and toDate
+    if (fromDate && toDate) {
+      const start = new Date(fromDate);
+      start.setDate(1);
+      const end = new Date(toDate);
+      let current = start;
+      while (current <= end) {
+        const monthKey = format(current, 'MMM yyyy');
+        monthsData[monthKey] = { income: 0, expenses: 0, bookings: 0 };
+        current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+      }
     }
 
     bookings.forEach(booking => {
@@ -3969,12 +4043,22 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
       }
     });
 
+    otherIncomes.forEach(inc => {
+      const incDate = parse(inc.date, 'yyyy-MM-dd', new Date());
+      if (!isValid(incDate)) return;
+      
+      const monthKey = format(incDate, 'MMM yyyy');
+      if (monthsData[monthKey]) {
+        monthsData[monthKey].income += (Number(inc.amount) || 0);
+      }
+    });
+
     return Object.entries(monthsData)
       .map(([name, data]) => ({ name, ...data }));
-  }, [bookings, selectedYear]);
+  }, [bookings, globalExpenses, otherIncomes, fromDate, toDate]);
 
   const stats = useMemo(() => {
-    const totalIncome = filteredBookings.reduce((sum, b) => {
+    let baseIncome = filteredBookings.reduce((sum, b) => {
       let income = b.bookingAmount || 0;
       if (b.bookingSource === 'partner') {
         const commissionAmt = b.partnerCommissionType === 'percent'
@@ -3991,24 +4075,46 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
       return sum + expSum;
     }, 0);
 
-    // Global expenses (filtered by selected month/year)
+    // Global expenses (filtered by from/to dates)
     const filteredGlobalExpenses = globalExpenses.filter(e => {
       const d = parse(e.date, 'yyyy-MM-dd', new Date());
       if (!isValid(d)) return false;
-      const yearMatch = d.getFullYear().toString() === selectedYear;
-      const monthMatch = selectedMonth === 'all' || d.getMonth().toString() === selectedMonth;
-      return yearMatch && monthMatch;
+      
+      if (!fromDate || !toDate) return true;
+      const from = new Date(fromDate);
+      from.setHours(0,0,0,0);
+      const to = new Date(toDate);
+      to.setHours(23,59,59,999);
+      
+      return d >= from && d <= to;
     });
 
     const totalGlobalExp = filteredGlobalExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
     const totalExpenses = bookingExpenses + totalGlobalExp;
+
+    // Other Incomes (filtered by from/to dates)
+    const filteredOtherIncomes = otherIncomes.filter(i => {
+      const d = parse(i.date, 'yyyy-MM-dd', new Date());
+      if (!isValid(d)) return false;
+      
+      if (!fromDate || !toDate) return true;
+      const from = new Date(fromDate);
+      from.setHours(0,0,0,0);
+      const to = new Date(toDate);
+      to.setHours(23,59,59,999);
+      
+      return d >= from && d <= to;
+    });
+
+    const totalOtherIncome = filteredOtherIncomes.reduce((sum, i) => sum + (i.amount || 0), 0);
+    const totalIncome = baseIncome + totalOtherIncome;
     
     const totalBookings = filteredBookings.length;
     const netProfit = totalIncome - totalExpenses;
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : '0.0';
     
-    return { totalIncome, totalExpenses, totalBookings, netProfit, profitMargin, bookingExpenses, totalGlobalExp };
-  }, [filteredBookings, globalExpenses, selectedMonth, selectedYear]);
+    return { totalIncome, totalExpenses, totalBookings, netProfit, profitMargin, bookingExpenses, totalGlobalExp, filteredGlobalExpenses, filteredOtherIncomes, totalOtherIncome };
+  }, [filteredBookings, globalExpenses, otherIncomes, fromDate, toDate]);
 
   const expenseByCategory = useMemo(() => {
     const categories: { [key: string]: number } = {};
@@ -4026,16 +4132,20 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
     globalExpenses.forEach(exp => {
       const d = parse(exp.date, 'yyyy-MM-dd', new Date());
       if (!isValid(d)) return;
-      const yearMatch = d.getFullYear().toString() === selectedYear;
-      const monthMatch = selectedMonth === 'all' || d.getMonth().toString() === selectedMonth;
       
-      if (yearMatch && monthMatch) {
+      if (!fromDate || !toDate) return;
+      const from = new Date(fromDate);
+      from.setHours(0,0,0,0);
+      const to = new Date(toDate);
+      to.setHours(23,59,59,999);
+      
+      if (d >= from && d <= to) {
         categories[exp.category] = (categories[exp.category] || 0) + (Number(exp.amount) || 0);
       }
     });
 
     return Object.entries(categories).map(([name, value]) => ({ name, value }));
-  }, [filteredBookings, globalExpenses, selectedMonth, selectedYear]);
+  }, [filteredBookings, globalExpenses, fromDate, toDate]);
 
   const COLORS = ['#C8A45D', '#141414', '#4B5563', '#9CA3AF', '#D1D5DB', '#F3F4F6'];
 
@@ -4053,26 +4163,21 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
           </div>
         </div>
         
-        <div className="flex gap-3 w-full sm:w-auto">
-          <select 
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
+        <div className="flex gap-3 w-full sm:w-auto items-center">
+          <label className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest hidden sm:block">From</label>
+          <input 
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
             className="flex-1 sm:flex-none px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-xs font-bold focus:outline-none focus:border-luxury-gold transition-colors"
-          >
-            {months.map(m => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-          
-          <select 
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
+          />
+          <label className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest hidden sm:block">To</label>
+          <input 
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
             className="flex-1 sm:flex-none px-4 py-2 bg-luxury-cream border border-black/5 rounded-xl text-xs font-bold focus:outline-none focus:border-luxury-gold transition-colors"
-          >
-            {years.map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          />
         </div>
       </div>
 
@@ -4136,95 +4241,31 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
         ))}
       </div>
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
-          <h3 className="text-xl font-serif font-bold text-luxury-dark mb-8">Monthly Performance</h3>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={financialData}>
-                <defs>
-                  <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#C8A45D" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#C8A45D" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fontSize: 10, fontWeight: 600, fill: '#9CA3AF' }}
-                  dy={10}
-                />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fontSize: 10, fontWeight: 600, fill: '#9CA3AF' }}
-                  tickFormatter={(value) => `₹${value/1000}k`}
-                />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#141414', 
-                    border: 'none', 
-                    borderRadius: '16px',
-                    color: '#fff',
-                    fontSize: '12px'
-                  }}
-                  itemStyle={{ color: '#fff' }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }} />
-                <Area type="monotone" dataKey="income" stroke="#C8A45D" strokeWidth={3} fillOpacity={1} fill="url(#colorIncome)" name="Income" />
-                <Area type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={3} fillOpacity={0} name="Expenses" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm">
-          <h3 className="text-xl font-serif font-bold text-luxury-dark mb-8">Expense Distribution</h3>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={expenseByCategory} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F3F4F6" />
-                <XAxis type="number" hide />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
-                  axisLine={false} 
-                  tickLine={false}
-                  tick={{ fontSize: 10, fontWeight: 700, fill: '#141414' }}
-                  width={100}
-                />
-                <Tooltip 
-                  cursor={{ fill: 'transparent' }}
-                  contentStyle={{ 
-                    backgroundColor: '#141414', 
-                    border: 'none', 
-                    borderRadius: '16px',
-                    color: '#fff',
-                    fontSize: '12px'
-                  }}
-                />
-                <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={20}>
-                  {expenseByCategory.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
       {/* Income List Section */}
       <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
-        <div className="flex justify-between items-center mb-8">
-          <h3 className="text-xl font-serif font-bold text-luxury-dark">Booking Income Details</h3>
-          <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Confirmed Bookings Only</p>
+        <div 
+          className="flex justify-between items-center mb-8 cursor-pointer select-none group"
+          onClick={() => setIsBookingIncomeOpen(!isBookingIncomeOpen)}
+        >
+          <div>
+            <h3 className="text-xl font-serif font-bold text-luxury-dark group-hover:text-luxury-gold transition-colors">Booking Income Details</h3>
+            <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest mt-1">Confirmed Bookings Only</p>
+          </div>
+          <div className="p-2 bg-luxury-dark/5 rounded-full text-luxury-dark group-hover:bg-luxury-gold group-hover:text-white transition-all">
+            {isBookingIncomeOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        
+        <AnimatePresence>
+          {isBookingIncomeOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-luxury-dark/5">
                 <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date</th>
@@ -4295,7 +4336,10 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
               )}
             </tbody>
           </table>
-        </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {userRole === 'admin' && (
@@ -4357,23 +4401,43 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
 
           {/* Global Expenses Section */}
           <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
-            <div className="flex justify-between items-center mb-8">
+            <div 
+              className="flex justify-between items-center mb-8 cursor-pointer select-none group"
+              onClick={() => setIsGlobalExpensesOpen(!isGlobalExpensesOpen)}
+            >
               <div>
-                <h3 className="text-xl font-serif font-bold text-luxury-dark">Global Property Expenses</h3>
+                <h3 className="text-xl font-serif font-bold text-luxury-dark group-hover:text-luxury-gold transition-colors">Global Property Expenses</h3>
                 <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest mt-1">Marketing, Maintenance, Salaries</p>
-          </div>
-          <button 
-            onClick={() => setIsAddingGlobalExpense(!isAddingGlobalExpense)}
-            className="flex items-center gap-2 px-4 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all uppercase tracking-widest"
-          >
-            {isAddingGlobalExpense ? <X size={14} /> : <Plus size={14} />}
-            {isAddingGlobalExpense ? 'Cancel' : 'Add Expense'}
-          </button>
-        </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsAddingGlobalExpense(!isAddingGlobalExpense);
+                    setIsGlobalExpensesOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all uppercase tracking-widest"
+                >
+                  {isAddingGlobalExpense ? <X size={14} /> : <Plus size={14} />}
+                  {isAddingGlobalExpense ? 'Cancel' : 'Add Expense'}
+                </button>
+                <div className="p-2 bg-luxury-dark/5 rounded-full text-luxury-dark group-hover:bg-luxury-gold group-hover:text-white transition-all">
+                  {isGlobalExpensesOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </div>
+              </div>
+            </div>
 
-        <AnimatePresence>
-          {isAddingGlobalExpense && (
-            <motion.div
+            <AnimatePresence>
+              {isGlobalExpensesOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <AnimatePresence>
+                    {isAddingGlobalExpense && (
+                      <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
@@ -4445,7 +4509,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
               </tr>
             </thead>
             <tbody className="divide-y divide-luxury-dark/5">
-              {globalExpenses.map(expense => (
+              {(stats.filteredGlobalExpenses || []).map(expense => (
                 <tr key={expense.id} className="hover:bg-luxury-cream/30 transition-colors group">
                   <td className="px-4 py-4 text-xs font-medium text-luxury-dark/60">{format(parse(expense.date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}</td>
                   <td className="px-4 py-4 text-xs font-bold text-luxury-dark">{expense.category}</td>
@@ -4461,17 +4525,146 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], on
                   </td>
                 </tr>
               ))}
-              {globalExpenses.length === 0 && (
+              {(stats.filteredGlobalExpenses || []).length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-xs text-luxury-dark/40 italic">
-                    No global expenses recorded yet.
+                    No global expenses recorded for the selected period.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-      </div>
+
+       {/* Other Incomes Section */}
+      <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden mt-8">
+        <div 
+          className="flex justify-between items-center mb-8 cursor-pointer select-none group"
+          onClick={() => setIsOtherIncomesOpen(!isOtherIncomesOpen)}
+        >
+          <div>
+            <h3 className="text-xl font-serif font-bold text-luxury-dark group-hover:text-luxury-gold transition-colors">Other Incomes</h3>
+            <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest mt-1">Partnerships, Farms, Extras</p>
+          </div>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsAddingOtherIncome(!isAddingOtherIncome);
+                setIsOtherIncomesOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-luxury-gold text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark hover:text-white transition-all uppercase tracking-widest"
+            >
+              {isAddingOtherIncome ? <X size={14} /> : <Plus size={14} />}
+              {isAddingOtherIncome ? 'Cancel' : 'Add Income'}
+            </button>
+            <div className="p-2 bg-luxury-dark/5 rounded-full text-luxury-dark group-hover:bg-luxury-gold group-hover:text-white transition-all">
+              {isOtherIncomesOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </div>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {isOtherIncomesOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <AnimatePresence>
+                {isAddingOtherIncome && (
+                  <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden mb-6"
+            >
+              <div className="bg-luxury-cream p-6 rounded-2xl border border-black/5 flex flex-col md:flex-row gap-4 mb-4">
+                <input 
+                  type="date"
+                  value={newOtherIncome.date}
+                  onChange={(e) => setNewOtherIncome({...newOtherIncome, date: e.target.value})}
+                  className="px-4 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:outline-none"
+                />
+                <input 
+                  type="text"
+                  placeholder="Source (e.g., Farm 2 Booking)"
+                  value={newOtherIncome.source}
+                  onChange={(e) => setNewOtherIncome({...newOtherIncome, source: e.target.value})}
+                  className="flex-1 px-4 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:outline-none"
+                />
+                <input 
+                  type="number"
+                  placeholder="Amount (₹)"
+                  value={newOtherIncome.amount}
+                  onChange={(e) => setNewOtherIncome({...newOtherIncome, amount: e.target.value})}
+                  className="flex-1 px-4 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:outline-none"
+                />
+                <input 
+                  type="text"
+                  placeholder="Note (Optional)"
+                  value={newOtherIncome.note}
+                  onChange={(e) => setNewOtherIncome({...newOtherIncome, note: e.target.value})}
+                  className="flex-[2] px-4 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:outline-none"
+                />
+                <button 
+                  onClick={handleAddOtherIncome}
+                  className="px-6 py-2 bg-luxury-dark text-white rounded-xl text-xs font-bold hover:bg-black transition-all"
+                >
+                  Save
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-[#FAFAFA] border-b border-luxury-dark/5">
+                <th className="px-4 py-3 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Date</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Source</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Amount</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest">Note</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-luxury-dark/5">
+              {(stats.filteredOtherIncomes || []).map(inc => (
+                <tr key={inc.id} className="hover:bg-luxury-cream/30 transition-colors group">
+                  <td className="px-4 py-4 text-xs font-medium text-luxury-dark/60">{format(parse(inc.date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}</td>
+                  <td className="px-4 py-4 text-xs font-bold text-luxury-dark">{inc.source}</td>
+                  <td className="px-4 py-4 text-xs font-bold text-emerald-600">₹{(inc.amount || 0).toLocaleString()}</td>
+                  <td className="px-4 py-4 text-xs text-luxury-dark/60">{inc.note || '-'}</td>
+                  <td className="px-4 py-4 text-right">
+                    <button 
+                      onClick={() => handleDeleteOtherIncome(inc.id)}
+                      className="p-2 bg-luxury-dark/5 text-luxury-dark/40 rounded-xl hover:bg-red-500 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {(stats.filteredOtherIncomes || []).length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-luxury-dark/40 italic">
+                    No other incomes recorded for the selected period.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
         </>
       )}
     </div>
@@ -4639,7 +4832,9 @@ const MyBookings = ({
   setUnreadCount,
   soundEnabled,
   setSoundEnabled,
-  onNotify
+  onNotify,
+  currentTheme,
+  setCurrentTheme
 }: { 
   user: FirebaseUser; 
   userRole: string | null; 
@@ -4663,15 +4858,17 @@ const MyBookings = ({
   soundEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;
   onNotify: (title: string, message: string, type?: 'success' | 'info' | 'error') => void;
+  currentTheme: string;
+  setCurrentTheme: (theme: string) => void;
 }) => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'sync' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
-  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'sync' | 'migration' | 'chatbot_settings' | 'users'>('general');
+  const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'migration' | 'chatbot_settings' | 'users' | 'ical'>('general');
 
   const [isAdminCreating, setIsAdminCreating] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
@@ -4685,6 +4882,7 @@ const MyBookings = ({
   const [syncingReviews, setSyncingReviews] = useState(false);
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
   const [globalExpenses, setGlobalExpenses] = useState<any[]>([]);
+  const [otherIncomes, setOtherIncomes] = useState<any[]>([]);
   const [assigningExpenseBooking, setAssigningExpenseBooking] = useState<any | null>(null);
   const [blogs, setBlogs] = useState<any[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
@@ -5287,7 +5485,13 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       const unExp = onSnapshot(qExp, (snapshot) => {
         setGlobalExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'global_expenses'));
-      return () => { unCat(); unExp(); };
+      
+      const qInc = query(collection(db, 'other_incomes'), orderBy('createdAt', 'desc'));
+      const unInc = onSnapshot(qInc, (snapshot) => {
+        setOtherIncomes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'other_incomes'));
+
+      return () => { unCat(); unExp(); unInc(); };
     }
     if (activeFilter === 'leads' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewLeads))) {
       const q = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
@@ -5805,7 +6009,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] bg-white overflow-y-auto"
+      className="fixed inset-0 z-[100] bg-luxury-cream overflow-y-auto"
     >
       <div className="max-w-7xl mx-auto px-6 py-12 md:py-24">
         {editingBooking ? (
@@ -5818,7 +6022,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
               Back to Bookings
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
-            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
               <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} />
             </div>
           </div>
@@ -5845,7 +6049,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
               Back to Bookings
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{(userRole === 'admin' || userRole === 'agent') ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
-            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
               <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} />
             </div>
           </div>
@@ -5874,7 +6078,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                 {(userRole === 'admin' || userRole === 'client' || (userRole === 'agent' && userPermissions?.addBookings)) && (
                 <button
                   onClick={() => setIsAdminCreating(true)}
-                  className="px-8 py-4 bg-[#141414] text-white rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 shadow-xl shadow-black/10 shrink-0 w-full sm:w-auto"
+                  className="px-8 py-4 bg-luxury-dark text-white rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 shadow-xl shadow-black/10 shrink-0 w-full sm:w-auto"
                 >
                   <Calendar size={16} />
                   {(userRole === 'admin' || userRole === 'agent') ? 'CREATE BOOKING' : 'BOOK NOW'}
@@ -5883,9 +6087,9 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                 </div>
 
                 {/* Right Side: Compact User Profile Card */}
-                <div className="bg-[#F5F5F5] p-5 sm:p-6 rounded-[2rem] flex items-center gap-4 sm:gap-5 w-full sm:w-auto sm:min-w-[340px] shadow-sm">
+                <div className="bg-white/50 backdrop-blur-sm border border-luxury-dark/10 p-5 sm:p-6 rounded-[2rem] flex items-center gap-4 sm:gap-5 w-full sm:w-auto sm:min-w-[340px] shadow-sm">
                   {/* Avatar - Rounded Square style from screenshot */}
-                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-3xl bg-[#C8A45D] flex items-center justify-center text-luxury-dark font-bold text-xl sm:text-2xl shrink-0 shadow-lg shadow-[#C8A45D]/20">
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-3xl bg-luxury-gold flex items-center justify-center text-luxury-dark font-bold text-xl sm:text-2xl shrink-0 shadow-lg shadow-luxury-gold/20">
                     {user.displayName?.[0] || user.email?.[0].toUpperCase()}
                   </div>
                   
@@ -5957,7 +6161,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                   { id: 'leads', label: 'Leads', icon: Users, colorClass: 'bg-purple-600 shadow-purple-500/20', hoverIconClass: 'text-purple-500 group-hover:text-purple-600', permission: 'viewLeads' },
                   { id: 'finance', label: 'Finance', icon: BarChart3, colorClass: 'bg-emerald-600 shadow-emerald-500/20', hoverIconClass: 'text-emerald-500 group-hover:text-emerald-600', permission: 'viewFinance' },
                   { id: 'blogs', label: 'Blogs', icon: BookOpen, colorClass: 'bg-rose-500 shadow-rose-500/20', hoverIconClass: 'text-rose-500 group-hover:text-rose-600', permission: 'viewBlogs' },
-                  { id: 'settings', label: 'Settings', icon: Settings, colorClass: 'bg-[#C8A45D] shadow-[#C8A45D]/20', hoverIconClass: 'text-[#C8A45D] group-hover:text-luxury-gold', permission: 'viewSettings' }
+                  { id: 'settings', label: 'Settings', icon: Settings, colorClass: 'bg-luxury-gold shadow-luxury-gold/20', hoverIconClass: 'text-luxury-gold group-hover:text-luxury-dark', permission: 'viewSettings' }
                 ].filter(tab => {
                   if (userRole === 'admin') return true;
                   if (userRole === 'agent') {
@@ -5966,7 +6170,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                   }
                   return false;
                 }).map((tab) => {
-               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'sync', 'migration', 'notifications', 'coupons'].includes(activeFilter);
+               const isSettingsTab = ['settings', 'reviews', 'gallery', 'logs', 'migration', 'notifications', 'coupons', 'ical'].includes(activeFilter);
                const isActive = tab.id === 'settings' ? isSettingsTab : activeFilter === tab.id;
                
                return (
@@ -6164,6 +6368,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             bookings={bookings} 
             expenseCategories={expenseCategories}
             globalExpenses={globalExpenses}
+            otherIncomes={otherIncomes}
             onAssignExpense={setAssigningExpenseBooking}
             showToast={showToast}
             userRole={userRole}
@@ -6172,6 +6377,13 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             <CouponManagement coupons={coupons} showToast={showToast} />
+          </div>
+        ) : activeFilter === 'ical' && (userRole === 'admin' || userRole === 'agent') ? (
+          <div className="space-y-8 animate-fade-in">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm max-w-4xl mx-auto">
+              <ICalSyncSettings showToast={showToast} canEditSettingsAdmin={canEditSettingsAdmin} />
+            </div>
           </div>
         ) : activeFilter === 'partners' && (userRole === 'admin' || userRole === 'agent') ? (
           <div className="space-y-8">
@@ -6236,7 +6448,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         ) : (activeFilter === 'gallery' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
-            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <h3 className="text-xl font-serif font-bold text-luxury-dark mb-6">Add New Image to Gallery</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="space-y-2">
@@ -6507,7 +6719,29 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
           <div className="max-w-4xl mx-auto space-y-12">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
             
-            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Theme Settings</h3>
+              <p className="text-sm text-luxury-dark/60 mb-6">Select a visual theme for the entire application.</p>
+              
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {AVAILABLE_THEMES.map((theme) => (
+                  <button
+                    key={theme.id}
+                    onClick={() => setCurrentTheme(theme.id)}
+                    className={`flex flex-col items-center gap-3 p-4 rounded-2xl border-2 transition-all ${currentTheme === theme.id ? 'border-luxury-gold bg-luxury-gold/5 scale-[1.02] shadow-md' : 'border-luxury-dark/5 hover:border-luxury-dark/20 hover:bg-gray-50'}`}
+                  >
+                    <div className="flex w-full h-12 rounded-lg overflow-hidden border border-black/10">
+                      <div className="flex-1" style={{ backgroundColor: theme.cream }}></div>
+                      <div className="flex-1" style={{ backgroundColor: theme.gold }}></div>
+                      <div className="flex-1" style={{ backgroundColor: theme.dark }}></div>
+                    </div>
+                    <span className="text-xs font-bold text-luxury-dark uppercase tracking-widest">{theme.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-serif font-bold text-luxury-dark">Pricing & Security Settings</h3>
                 {canEditSettingsAdmin && (
@@ -6623,7 +6857,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-serif font-bold text-luxury-dark">Hero Section Settings</h3>
                 {canEditSettingsAdmin && (
@@ -6696,7 +6930,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-serif font-bold text-luxury-dark">Quick Reply Templates</h3>
                 {canEditSettingsAdmin && (
@@ -6741,7 +6975,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
               </div>
             </div>
             
-            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-4">App Maintenance</h3>
               <p className="text-sm text-luxury-dark/60 mb-8">
                 If you are experiencing issues with outdated content or login problems, you can force clear the application cache and cookies.
@@ -6753,11 +6987,6 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                 Clear Cache & Refresh App
               </button>
             </div>
-          </div>
-        ) : (activeFilter === 'sync' && (userRole === 'admin' || userRole === 'agent')) ? (
-          <div className="space-y-8">
-            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
-            <CalendarSync showToast={showToast} canEditSettingsAdmin={canEditSettingsAdmin} />
           </div>
         ) : (activeFilter === 'blogs' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewBlogs))) ? (
           <React.Suspense fallback={
@@ -6776,7 +7005,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         ) : (activeFilter === 'notifications' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8 mt-12 animate-fade-in">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
-            <div className="bg-white p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-luxury-gold/10 rounded-xl flex items-center justify-center text-luxury-gold">
@@ -9052,7 +9281,7 @@ const BookingCalendar = ({
   );
 };
 
-const CustomInteractiveCalendar = ({
+export const CustomInteractiveCalendar = ({
   checkIn,
   checkOut,
   setCheckIn,
@@ -11570,6 +11799,7 @@ const Footer = () => {
               <li><Link to="/about" className="hover:text-luxury-gold transition-colors">About Us</Link></li>
               <li><Link to="/amenities" className="hover:text-luxury-gold transition-colors">Amenities</Link></li>
               <li><Link to="/gallery" className="hover:text-luxury-gold transition-colors">Gallery</Link></li>
+              <li><Link to="/other-properties" className="hover:text-luxury-gold transition-colors">Our Other Properties</Link></li>
               <li><Link to="/reviews" className="hover:text-luxury-gold transition-colors">Reviews</Link></li>
               <li><Link to="/blog" className="hover:text-luxury-gold transition-colors">Local Guide & Blog</Link></li>
               <li><Link to="/" className="hover:text-luxury-gold transition-colors">Book Now</Link></li>
@@ -12482,7 +12712,23 @@ const LoyaltyDashboard = ({ user, loyalty, referrals, appUsers, isAdmin, showToa
 };
 
 export default function App() {
+  const location = useLocation();
+  const isPropertySubSite = location.pathname.startsWith('/property/');
+  const isShantiAdmin = location.pathname === '/shanti-farm-admin';
+  const hideMainLayout = isPropertySubSite || isShantiAdmin;
+
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState(() => {
+    return localStorage.getItem('app_theme') || 'default';
+  });
+
+  useEffect(() => {
+    const theme = AVAILABLE_THEMES.find(t => t.id === currentTheme) || AVAILABLE_THEMES[0];
+    document.documentElement.style.setProperty('--theme-gold', theme.gold);
+    document.documentElement.style.setProperty('--theme-cream', theme.cream);
+    document.documentElement.style.setProperty('--theme-dark', theme.dark);
+    localStorage.setItem('app_theme', currentTheme);
+  }, [currentTheme]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -12915,71 +13161,7 @@ export default function App() {
     };
   }, [user?.uid, userRole]);
 
-  // Auto-sync iCal every 30 minutes
-  useEffect(() => {
-    let intervalId: any;
-    
-    const runSync = async () => {
-      try {
-        const docRef = doc(db, 'settings', 'calendar_sync');
-        const docSnap = await getDoc(docRef).catch(() => 
-          getDocFromServer(docRef)
-        );
 
-        if (docSnap.exists() && docSnap.data().urls && docSnap.data().urls.length > 0) {
-          const urls = docSnap.data().urls;
-          
-          const response = await fetch(BACKEND_URL + '/api/calendar/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ urls })
-          });
-
-          if (!response.ok) {
-            throw new Error(`Server sync failed: ${response.status}`);
-          }
-
-          const result = await response.json();
-          const allExternalEvents = result.events || [];
-
-          if (allExternalEvents.length > 0) {
-            const batch = writeBatch(db);
-            const blockedSnapshot = await getDocs(query(collection(db, 'blocked_dates'), where('type', '==', 'external')));
-            blockedSnapshot.forEach(doc => batch.delete(doc.ref));
-            
-            allExternalEvents.forEach((event: any) => {
-              const docRef = doc(collection(db, 'blocked_dates'));
-              batch.set(docRef, {
-                ...event,
-                type: 'external',
-                status: 'confirmed',
-                checkIn: format(new Date(event.start), 'dd/MM/yyyy'),
-                checkOut: format(new Date(event.end), 'dd/MM/yyyy'),
-                updatedAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss'),
-              });
-            });
-            await batch.commit();
-          }
-        }
-      } catch (err) {
-        console.error('Auto iCal Sync error:', err);
-      }
-    };
-
-    // Run once after 1 minute, then every 30 mins
-    const timeoutId = setTimeout(() => {
-      // Only run sync if user is admin or agent and has permissions
-      if (user && (userRole === 'admin' || userRole === 'agent')) {
-        runSync();
-        intervalId = setInterval(runSync, 30 * 60 * 1000);
-      }
-    }, 60000);
-
-    return () => {
-      clearTimeout(timeoutId);
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [user, userRole]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -13119,24 +13301,26 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="relative">
-      <Navbar 
-        onBookNow={openBookingModal} 
-        onLogin={() => setIsAuthModalOpen(true)}
-        user={user}
-        userRole={userRole}
-        onMyBookings={() => setIsDashboardOpen(true)}
-        unreadCount={unreadCount}
-        notifications={notifications}
-        onNotificationClick={() => setShowNotifPanel(!showNotifPanel)}
-        soundEnabled={soundEnabled}
-        onToggleSound={() => setSoundEnabled(!soundEnabled)}
-        allBookings={allBookings}
-        pricingSettings={pricingSettings}
-        prefilledCheckIn={prefilledCheckIn}
-        setPrefilledCheckIn={setPrefilledCheckIn}
-        prefilledCheckOut={prefilledCheckOut}
-        setPrefilledCheckOut={setPrefilledCheckOut}
-      />
+      {!hideMainLayout && (
+        <Navbar 
+          onBookNow={openBookingModal} 
+          onLogin={() => setIsAuthModalOpen(true)}
+          user={user}
+          userRole={userRole}
+          onMyBookings={() => setIsDashboardOpen(true)}
+          unreadCount={unreadCount}
+          notifications={notifications}
+          onNotificationClick={() => setShowNotifPanel(!showNotifPanel)}
+          soundEnabled={soundEnabled}
+          onToggleSound={() => setSoundEnabled(!soundEnabled)}
+          allBookings={allBookings}
+          pricingSettings={pricingSettings}
+          prefilledCheckIn={prefilledCheckIn}
+          setPrefilledCheckIn={setPrefilledCheckIn}
+          prefilledCheckOut={prefilledCheckOut}
+          setPrefilledCheckOut={setPrefilledCheckOut}
+        />
+      )}
       <main>
         <React.Suspense fallback={
           <div className="pt-32 pb-24 text-center min-h-[50vh] flex items-center justify-center">
@@ -13159,10 +13343,13 @@ export default function App() {
             <Route path="/blog" element={<div className="pt-24"><Blog /></div>} />
             <Route path="/blog/:id" element={<div className="pt-24"><BlogPost /></div>} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/other-properties" element={<OtherPropertiesPage />} />
+            <Route path="/property/:propertyId" element={<PropertySubSite allBookings={allBookings} pricingSettings={pricingSettings} onBookNow={openBookingModal} />} />
+            <Route path="/shanti-farm-admin" element={<ShantiFarmAdmin />} />
           </Routes>
         </React.Suspense>
       </main>
-      <Footer />
+      {!hideMainLayout && <Footer />}
       
       <BookingModal 
         isOpen={isBookingModalOpen} 
@@ -13219,6 +13406,8 @@ export default function App() {
             soundEnabled={soundEnabled}
             setSoundEnabled={setSoundEnabled}
             onNotify={triggerNotification}
+            currentTheme={currentTheme}
+            setCurrentTheme={setCurrentTheme}
           />
         )}
       </AnimatePresence>

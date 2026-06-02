@@ -906,34 +906,34 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
       {/* Header & Stats */}
       <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-end">
         <div className="space-y-1">
-          <h2 className="text-4xl font-serif font-black text-luxury-dark tracking-tight">Leads Intelligence</h2>
+          <h2 className="text-4xl font-serif font-black bg-clip-text text-transparent bg-gradient-to-r from-luxury-dark via-luxury-gold to-[#3b3a37] tracking-tight">Leads Intelligence</h2>
           <p className="text-luxury-dark/55 font-medium">Manage your high-value enquiries with precision.</p>
         </div>
         
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4 w-full xl:w-auto overflow-x-auto pb-2 xl:pb-0">
           {[
-            { label: 'Total Enquiries', value: stats.total, icon: Users, color: 'text-luxury-dark' },
-            { label: 'New Leads', value: stats.new, icon: Zap, color: 'text-blue-600' },
-            { label: 'Contacted Leads', value: stats.contacted, icon: Phone, color: 'text-amber-500' },
-            { label: 'Follow-ups Today', value: stats.followUpsToday, icon: Clock, color: 'text-indigo-600' },
-            { label: 'Converted', value: stats.converted, icon: CheckCircle2, color: 'text-emerald-600' },
-            { label: 'Lost', value: stats.lost, icon: XCircle, color: 'text-red-500' }
+            { label: 'Total Enquiries', value: stats.total, icon: Users, color: 'text-indigo-600', bg: 'bg-indigo-50/50', border: 'border-indigo-100', shadow: 'hover:shadow-indigo-500/20' },
+            { label: 'New Leads', value: stats.new, icon: Zap, color: 'text-blue-600', bg: 'bg-blue-50/50', border: 'border-blue-100', shadow: 'hover:shadow-blue-500/20' },
+            { label: 'Contacted Leads', value: stats.contacted, icon: Phone, color: 'text-amber-500', bg: 'bg-amber-50/50', border: 'border-amber-100', shadow: 'hover:shadow-amber-500/20' },
+            { label: 'Follow-ups Today', value: stats.followUpsToday, icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50/50', border: 'border-purple-100', shadow: 'hover:shadow-purple-500/20' },
+            { label: 'Converted', value: stats.converted, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50/50', border: 'border-emerald-100', shadow: 'hover:shadow-emerald-500/20' },
+            { label: 'Lost', value: stats.lost, icon: XCircle, color: 'text-red-500', bg: 'bg-red-50/50', border: 'border-red-100', shadow: 'hover:shadow-red-500/20' }
           ].map((stat, i) => (
-            <div key={i} className="bg-white p-4 rounded-3xl border border-luxury-dark/5 shadow-sm hover:shadow-md transition-shadow">
-              <div className="flex items-center gap-3 mb-1">
-                <div className={`p-2 rounded-xl bg-luxury-dark/5 ${stat.color}`}>
-                  <stat.icon size={16} />
+            <div key={i} className={`p-4 rounded-3xl border ${stat.border} ${stat.bg} shadow-sm transition-all duration-300 ${stat.shadow} hover:-translate-y-1`}>
+              <div className="flex items-center gap-3 mb-2">
+                <div className={`p-2 rounded-2xl bg-white shadow-sm ${stat.color}`}>
+                  <stat.icon size={18} strokeWidth={2.5} />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">{stat.label}</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60">{stat.label}</span>
               </div>
-              <p className="text-2xl font-serif font-black text-luxury-dark">{stat.value}</p>
+              <p className={`text-3xl font-black ${stat.color} pl-1`}>{stat.value}</p>
             </div>
           ))}
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="bg-white rounded-[3rem] border border-luxury-dark/5 shadow-xl shadow-luxury-dark/5 overflow-hidden">
+      <div className="bg-white/60 backdrop-blur-3xl rounded-[3rem] border border-luxury-dark/5 shadow-xl shadow-luxury-dark/5 overflow-hidden">
         {/* Toolbar */}
         <div className="p-6 border-b border-luxury-dark/5 bg-gray-50/30">
           <div className="flex flex-col gap-6">
@@ -951,10 +951,10 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`px-6 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                  className={`px-6 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all duration-300 ${
                     activeTab === tab.id 
-                    ? 'bg-luxury-dark text-white shadow-lg shadow-luxury-dark/20' 
-                    : 'text-luxury-dark/40 hover:text-luxury-dark hover:bg-luxury-dark/5'
+                    ? 'bg-gradient-to-r from-luxury-dark to-[#3b3a37] text-white shadow-lg shadow-black/30 scale-[1.02]' 
+                    : 'text-luxury-dark/40 hover:text-luxury-dark hover:bg-luxury-dark/5 hover:scale-105'
                   }`}
                 >
                   {tab.label}
@@ -974,10 +974,10 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                   setActiveTab('followup');
                   setFollowUpFilter('overdue');
                 }}
-                className="flex items-center gap-3 px-6 py-3 bg-red-50 border border-red-100 rounded-2xl animate-pulse cursor-pointer hover:bg-red-100 transition-colors"
+                className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-red-500 to-rose-600 border border-red-400 rounded-2xl animate-pulse cursor-pointer hover:from-red-600 hover:to-rose-700 transition-all shadow-lg shadow-red-500/30"
               >
-                <AlertTriangle className="text-red-500" size={18} />
-                <span className="text-[10px] font-black text-red-600 uppercase tracking-widest">Action Required: Overdue Follow-ups Detected</span>
+                <AlertTriangle className="text-white" size={18} />
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">Action Required: Overdue Follow-ups Detected</span>
               </div>
             )}
           </div>
@@ -1104,7 +1104,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
         <div className="overflow-x-auto overflow-y-hidden">
           <table className="w-full text-left border-collapse min-w-[900px]">
             <thead>
-              <tr className="bg-gray-50/50 border-b border-luxury-dark/5">
+              <tr className="bg-gradient-to-r from-luxury-dark/5 to-transparent border-y-2 border-t-luxury-gold/20 border-b-luxury-dark/10">
                 <th className="px-4 py-5 w-10">
                   <button 
                     onClick={toggleSelectAll}

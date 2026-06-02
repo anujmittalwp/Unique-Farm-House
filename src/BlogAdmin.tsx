@@ -174,7 +174,7 @@ export const BlogAdmin = ({ showToast, galleryImages, userRole, userPermissions 
 
   if (isEditing && currentBlog) {
     return (
-      <div className="bg-white rounded-3xl border border-luxury-dark/5 shadow-sm p-8">
+      <div className="bg-white/60 backdrop-blur-3xl rounded-3xl border border-luxury-dark/5 shadow-sm p-8">
         <div className="flex justify-between items-center mb-8">
           <h3 className="text-2xl font-serif font-bold text-luxury-dark">
             {currentBlog.id ? 'Edit Blog Post' : 'Create New Blog Post'}
@@ -345,7 +345,7 @@ export const BlogAdmin = ({ showToast, galleryImages, userRole, userPermissions 
           <div className="w-8 h-8 border-4 border-luxury-gold/20 border-t-luxury-gold rounded-full animate-spin" />
         </div>
       ) : blogs.length === 0 ? (
-        <div className="bg-white rounded-3xl border border-luxury-dark/5 p-12 text-center">
+        <div className="bg-white/60 backdrop-blur-3xl rounded-3xl border border-luxury-dark/5 p-12 text-center">
           <div className="w-16 h-16 bg-luxury-dark/5 rounded-full flex items-center justify-center mx-auto mb-4 text-luxury-dark/40">
             <ImageIcon size={24} />
           </div>
@@ -465,7 +465,7 @@ export const BlogAdmin = ({ showToast, galleryImages, userRole, userPermissions 
 
       {blogToDelete && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
+          <div className="bg-white/60 backdrop-blur-3xl rounded-3xl p-8 max-w-md w-full shadow-2xl">
             <h3 className="text-2xl font-serif text-luxury-dark mb-4">Delete Blog Post?</h3>
             <p className="text-luxury-dark/60 mb-8">Are you sure you want to delete this blog post? This action cannot be undone.</p>
             <div className="flex justify-end gap-4">

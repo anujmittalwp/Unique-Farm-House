@@ -282,8 +282,9 @@ service cloud.firestore {
     }
 
     match /settings/calendar_sync {
-      allow read: if isAdmin() || (isAgent() && getPermissions().get('viewSettings', false) == true);
-      allow write: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
+      allow read: if true;
+      allow update: if (isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSynced']));
+      allow create: if isAdmin() || (isAgent() && getPermissions().get('editSettings', false) == true);
     }
 
     match /public/{docId} {
@@ -293,7 +294,7 @@ service cloud.firestore {
 
     match /blocked_dates/{dateId} {
       allow read: if true;
-      allow write: if isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true);
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true) || (request.resource != null && request.resource.data.type == 'external') || (resource != null && resource.data.type == 'external' && request.resource == null);
     }
 
     match /gallery/{imageId} {
@@ -317,6 +318,11 @@ service cloud.firestore {
     }
 
     match /global_expenses/{expenseId} {
+      allow read: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
+      allow write: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
+    }
+
+    match /other_incomes/{incomeId} {
       allow read: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
       allow write: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
     }

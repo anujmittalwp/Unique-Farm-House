@@ -7,9 +7,9 @@
   --font-display: "Space Grotesk", sans-serif;
   --font-modern: "Outfit", sans-serif;
   
-  --color-luxury-gold: #C5A059;
-  --color-luxury-cream: #FDFBF7;
-  --color-luxury-dark: #1A1A1A;
+  --color-luxury-gold: var(--theme-gold, #C5A059);
+  --color-luxury-cream: var(--theme-cream, #FDFBF7);
+  --color-luxury-dark: var(--theme-dark, #1A1A1A);
 }
 
 @layer base {
