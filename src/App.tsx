@@ -5460,6 +5460,15 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
 
   useEffect(() => {
     if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
+    const qCat = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
+    const unCat = onSnapshot(qCat, (snapshot) => {
+      setExpenseCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'expense_categories'));
+    return () => unCat();
+  }, [userRole, user?.uid]);
+
+  useEffect(() => {
+    if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
     
     if (activeFilter === 'reviews' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewSettings))) {
       const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
@@ -5476,11 +5485,6 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       return () => unsubscribe();
     }
     if (activeFilter === 'finance' && (userRole === 'admin' || userRole === 'agent')) {
-      const qCat = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
-      const unCat = onSnapshot(qCat, (snapshot) => {
-        setExpenseCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      }, (error) => handleFirestoreError(error, OperationType.GET, 'expense_categories'));
-
       const qExp = query(collection(db, 'global_expenses'), orderBy('createdAt', 'desc'));
       const unExp = onSnapshot(qExp, (snapshot) => {
         setGlobalExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -5491,7 +5495,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         setOtherIncomes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'other_incomes'));
 
-      return () => { unCat(); unExp(); unInc(); };
+      return () => { unExp(); unInc(); };
     }
     if (activeFilter === 'leads' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewLeads))) {
       const q = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
