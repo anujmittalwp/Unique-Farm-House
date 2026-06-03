@@ -245,7 +245,7 @@ export default {
           let response = await env.ASSETS.fetch(request);
           if (response.status === 404 && request.method === "GET") {
             const indexUrl = new URL(request.url);
-            indexUrl.pathname = "/index.html";
+            indexUrl.pathname = "/";
             const fallbackRequest = new Request(indexUrl, request);
             response = await env.ASSETS.fetch(fallbackRequest);
           }
