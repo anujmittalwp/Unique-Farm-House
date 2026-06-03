@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Phone, Mail, MapPin, Menu, X, ArrowLeft } from 'lucide-react';
 import { CustomInteractiveCalendar } from './App';
-import { collection, query, onSnapshot } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { format } from 'date-fns';
 // Assuming we might need to reuse some components like BookingSection or Gallery.
 // But we want it isolated. We can create a self-contained simple version, or reuse where appropriate.
 
@@ -63,6 +64,79 @@ export const PropertySubSite = ({ allBookings = [], pricingSettings = {}, onBook
   const [checkIn, setCheckIn] = useState<Date | null>(null);
   const [checkOut, setCheckOut] = useState<Date | null>(null);
   const [shantiBookings, setShantiBookings] = useState<any[]>([]);
+
+  const [actionDate, setActionDate] = useState<Date | null>(null);
+  const [isBlockingMode, setIsBlockingMode] = useState(false);
+  const [blockRemarks, setBlockRemarks] = useState('');
+  const [blockPassword, setBlockPassword] = useState('');
+
+  const handleNormalSelection = (date: Date) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    if (date < today) return;
+
+    if (!checkIn || (checkIn && checkOut)) {
+      setCheckIn(date);
+      setCheckOut(null);
+    } else {
+      if (date.getTime() === checkIn.getTime()) {
+        setCheckIn(null);
+      } else if (date < checkIn) {
+        setCheckIn(date);
+        setCheckOut(null);
+      } else {
+        setCheckOut(date);
+      }
+    }
+  };
+
+  const handleBlockUnblock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (blockPassword !== 'admin123' && blockPassword !== 'shanti123') {
+      alert('Incorrect password!');
+      return;
+    }
+    if (!actionDate || !db) return;
+
+    const existingBlock = shantiBookings.find(b => {
+      const bDate = b.checkIn?.seconds ? new Date(b.checkIn.seconds * 1000) : b.checkIn;
+      return b.status === 'blocked' && bDate && bDate.toDateString() === actionDate.toDateString();
+    });
+
+    try {
+      if (existingBlock) {
+        await deleteDoc(doc(db, 'shanti_farm_bookings', existingBlock.id));
+        alert('Date unblocked successfully');
+      } else {
+        const nextDate = new Date(actionDate);
+        nextDate.setDate(nextDate.getDate() + 1);
+
+        await addDoc(collection(db, 'shanti_farm_bookings'), {
+          name: 'Blocked',
+          phone: '',
+          checkIn: actionDate,
+          checkOut: nextDate,
+          amount: 0,
+          status: 'blocked',
+          remarks: blockRemarks,
+          createdAt: serverTimestamp()
+        });
+        alert('Date blocked successfully');
+      }
+      setActionDate(null);
+      setIsBlockingMode(false);
+      setBlockPassword('');
+      setBlockRemarks('');
+    } catch (err) {
+      console.error(err);
+      alert('Error processing request');
+    }
+  };
+
+  const existingBlock = actionDate ? shantiBookings.find(b => {
+    const bDate = b.checkIn?.seconds ? new Date(b.checkIn.seconds * 1000) : b.checkIn;
+    return b.status === 'blocked' && bDate && bDate.toDateString() === actionDate.toDateString();
+  }) : null;
 
   useEffect(() => {
     if (!db || property.id !== 'shanti-farm') return;
@@ -132,9 +206,20 @@ export const PropertySubSite = ({ allBookings = [], pricingSettings = {}, onBook
               checkOut={checkOut}
               setCheckIn={setCheckIn}
               setCheckOut={setCheckOut}
-              allBookings={property.id === 'shanti-farm' ? shantiBookings.map(b => ({...b, checkIn: b.checkIn?.seconds ? new Date(b.checkIn.seconds * 1000) : b.checkIn, checkOut: b.checkOut?.seconds ? new Date(b.checkOut.seconds * 1000) : b.checkOut})) : allBookings.filter(b => b.propertyId === property.id)}
+              allBookings={property.id === 'shanti-farm' ? shantiBookings.map(b => ({
+                ...b, 
+                checkIn: b.checkIn?.seconds ? format(new Date(b.checkIn.seconds * 1000), 'dd/MM/yyyy') : (b.checkIn instanceof Date ? format(b.checkIn, 'dd/MM/yyyy') : b.checkIn), 
+                checkOut: b.checkOut?.seconds ? format(new Date(b.checkOut.seconds * 1000), 'dd/MM/yyyy') : (b.checkOut instanceof Date ? format(b.checkOut, 'dd/MM/yyyy') : b.checkOut)
+              })) : allBookings.filter(b => b.propertyId === property.id)}
               pricingSettings={pricingSettings}
               userRole="user"
+              isShantiFarmAdmin={property.id === 'shanti-farm'}
+              onShantiDateClick={property.id === 'shanti-farm' ? (date: Date) => {
+                setActionDate(date);
+                setIsBlockingMode(false);
+                setBlockPassword('');
+                setBlockRemarks('');
+              } : undefined}
             />
             
             <div className="mt-8 pt-8 border-t border-luxury-dark/10 text-center">
@@ -213,6 +298,80 @@ export const PropertySubSite = ({ allBookings = [], pricingSettings = {}, onBook
       <footer className="bg-black py-8 text-center text-white/50 text-sm">
         <p>&copy; {new Date().getFullYear()} {property.name}. All rights reserved.</p>
       </footer>
+
+      {/* Date Action Modal */}
+      {actionDate && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-luxury-dark/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm p-6 relative">
+            <button onClick={() => setActionDate(null)} className="absolute top-4 right-4 p-2 hover:bg-black/5 rounded-full">
+              <X size={20} />
+            </button>
+            <h2 className="text-2xl font-serif mb-2">Calendar Action</h2>
+            <p className="text-luxury-dark/60 mb-6 text-sm">
+              {actionDate.toDateString()}
+            </p>
+            
+            {!isBlockingMode ? (
+              <div className="space-y-4">
+                <button 
+                  className="w-full bg-luxury-gold hover:bg-luxury-gold/90 text-white py-3 rounded-xl font-bold uppercase tracking-widest text-sm transition-colors"
+                  onClick={() => {
+                    handleNormalSelection(actionDate);
+                    setActionDate(null);
+                  }}
+                >
+                  Select for Booking
+                </button>
+                
+                <div className="relative flex items-center py-2">
+                  <div className="flex-grow border-t border-black/10"></div>
+                  <span className="flex-shrink-0 mx-4 text-luxury-dark/40 text-[10px] font-bold tracking-widest uppercase">Admin Logic</span>
+                  <div className="flex-grow border-t border-black/10"></div>
+                </div>
+                
+                <button 
+                  className="w-full px-4 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-sm tracking-widest hover:bg-red-100 transition-colors uppercase"
+                  onClick={() => setIsBlockingMode(true)}
+                >
+                  Manage Block
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleBlockUnblock} className="space-y-4">
+                {!existingBlock && (
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Remarks / Reason</label>
+                    <input 
+                      type="text" 
+                      required 
+                      className="w-full border-b border-black/10 focus:border-luxury-gold outline-none py-2 text-sm" 
+                      value={blockRemarks} 
+                      onChange={e => setBlockRemarks(e.target.value)} 
+                      placeholder="e.g. Maintenance"
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Admin Password</label>
+                  <input 
+                    type="password" 
+                    required 
+                    className="w-full border-b border-black/10 focus:border-luxury-gold outline-none py-2 text-sm" 
+                    value={blockPassword} 
+                    onChange={e => setBlockPassword(e.target.value)} 
+                    placeholder="Enter password"
+                  />
+                </div>
+                <div className="pt-2">
+                  <button type="submit" className="w-full bg-luxury-dark text-white py-3 rounded-xl font-bold uppercase tracking-widest text-sm hover:bg-black transition-colors">
+                    {existingBlock ? 'Confirm Unblock' : 'Confirm Block'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

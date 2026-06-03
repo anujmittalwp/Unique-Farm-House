@@ -5459,13 +5459,19 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
   };
 
   useEffect(() => {
-    if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
-    const qCat = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
-    const unCat = onSnapshot(qCat, (snapshot) => {
-      setExpenseCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'expense_categories'));
-    return () => unCat();
-  }, [userRole, user?.uid]);
+    let unCat: any = null;
+    if (user && userRole && (userRole === 'admin' || userRole === 'agent')) {
+      if (userRole === 'admin' || userPermissions?.viewFinance || userPermissions?.viewBookings) {
+        const qCat = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
+        unCat = onSnapshot(qCat, (snapshot) => {
+          setExpenseCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => handleFirestoreError(error, OperationType.GET, 'expense_categories'));
+      }
+    }
+    return () => {
+      if (unCat) unCat();
+    };
+  }, [userRole, user?.uid, userPermissions]);
 
   useEffect(() => {
     if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
@@ -5484,7 +5490,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       }, (error) => handleFirestoreError(error, OperationType.GET, 'logs'));
       return () => unsubscribe();
     }
-    if (activeFilter === 'finance' && (userRole === 'admin' || userRole === 'agent')) {
+    if (activeFilter === 'finance' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewFinance))) {
       const qExp = query(collection(db, 'global_expenses'), orderBy('createdAt', 'desc'));
       const unExp = onSnapshot(qExp, (snapshot) => {
         setGlobalExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -9294,7 +9300,9 @@ export const CustomInteractiveCalendar = ({
   pricingSettings,
   userRole,
   errors = {},
-  setErrors
+  setErrors,
+  isShantiFarmAdmin,
+  onShantiDateClick
 }: any) => {
   const [viewDate, setViewDate] = useState<Date>(() => {
     return checkIn || new Date();
@@ -9332,12 +9340,19 @@ export const CustomInteractiveCalendar = ({
   }
 
   const handleDateClick = (date: Date) => {
+    if (isShantiFarmAdmin && onShantiDateClick) {
+      onShantiDateClick(date);
+      return;
+    }
+
     const today = new Date();
     today.setHours(0,0,0,0);
 
     if (userRole !== 'admin' && date < today) {
       return;
     }
+
+    if (!setCheckIn) return;
 
     if (!checkIn || (checkIn && checkOut)) {
       setCheckIn(date);
@@ -9395,9 +9410,9 @@ export const CustomInteractiveCalendar = ({
   };
 
   const getStatusColor = (status: string) => {
-    if (status === 'confirmed') return '#ce3e3e';
-    if (status === 'pending') return '#e89a3e';
-    return '#439c36';
+    if (status === 'confirmed' || status === 'blocked') return '#ce3e3e'; // red
+    if (status === 'pending') return '#e89a3e'; // yellow
+    return '#439c36'; // green
   };
 
   const monthsList = [
@@ -9418,7 +9433,7 @@ export const CustomInteractiveCalendar = ({
     try {
       const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
       if (checkInDate.getMonth() === month && checkInDate.getFullYear() === year) {
-        if (b.status === 'confirmed') {
+        if (b.status === 'confirmed' || b.status === 'blocked') {
           confirmedCheckIns.add(b.checkIn);
         } else if (b.status === 'pending') {
           pendingCheckIns.add(b.checkIn);
@@ -11218,7 +11233,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
             <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Booking Expenses</label>
             <button 
               type="button"
-              onClick={() => setExpenses([...expenses, { category: 'Other', amount: 0, note: '', date: format(new Date(), 'yyyy-MM-dd') }])}
+              onClick={() => setExpenses([...expenses, { category: expenseCategories && expenseCategories.length > 0 ? expenseCategories[0].name : 'Cleaning', amount: 0, note: '', date: format(new Date(), 'yyyy-MM-dd') }])}
               className="text-[9px] font-bold text-luxury-gold hover:text-luxury-dark uppercase tracking-widest flex items-center gap-1"
             >
               <Plus size={12} /> Add Expense
@@ -12890,6 +12905,7 @@ export default function App() {
   const [heroSettings, setHeroSettings] = useState<any>(null);
   const [pricingSettings, setPricingSettings] = useState<any>(null);
   const [partners, setPartners] = useState<any[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
   const [replyTemplates, setReplyTemplates] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -13055,10 +13071,15 @@ export default function App() {
     const qBlocked = query(collection(db, 'blocked_dates'));
 
     const unsubscribeAvailability = onSnapshot(qAvailability, (snapshot) => {
-      const availabilityData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const availabilityData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          checkIn: data.checkIn?.seconds ? format(new Date(data.checkIn.seconds * 1000), 'dd/MM/yyyy') : (data.checkIn instanceof Date ? format(data.checkIn, 'dd/MM/yyyy') : data.checkIn),
+          checkOut: data.checkOut?.seconds ? format(new Date(data.checkOut.seconds * 1000), 'dd/MM/yyyy') : (data.checkOut instanceof Date ? format(data.checkOut, 'dd/MM/yyyy') : data.checkOut)
+        };
+      });
       
       // We'll merge these later with blocked dates
       setAllBookings(prev => {
@@ -13068,10 +13089,15 @@ export default function App() {
     }, (error) => handleFirestoreError(error, OperationType.GET, 'availability'));
 
     const unsubscribeBlocked = onSnapshot(qBlocked, (snapshot) => {
-      const blockedData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const blockedData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          checkIn: data.checkIn?.seconds ? format(new Date(data.checkIn.seconds * 1000), 'dd/MM/yyyy') : (data.checkIn instanceof Date ? format(data.checkIn, 'dd/MM/yyyy') : data.checkIn),
+          checkOut: data.checkOut?.seconds ? format(new Date(data.checkOut.seconds * 1000), 'dd/MM/yyyy') : (data.checkOut instanceof Date ? format(data.checkOut, 'dd/MM/yyyy') : data.checkOut)
+        };
+      });
       
       setAllBookings(prev => {
         const availability = prev.filter(b => b.type !== 'external');
@@ -13119,51 +13145,55 @@ export default function App() {
 
   // Global Real-time Notification Listener for Admins/Agents
   useEffect(() => {
-    if (!user || userRole === null || (userRole !== 'admin' && userRole !== 'agent')) return;
+    let unsubscribeLeads: any = null;
+    let unsubscribeBookings: any = null;
 
-    // Listen for new leads
-    const qLeads = query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(10));
-    // Listen for new bookings
-    const qBookings = query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(10));
+    if (user && userRole && (userRole === 'admin' || userRole === 'agent')) {
+      const canViewLeads = userRole === 'admin' || userPermissions?.viewLeads;
+      const canViewBookings = userRole === 'admin' || userPermissions?.viewBookings;
 
-    let initialLeadsLoad = true;
-    let initialBookingsLoad = true;
-
-    const unsubscribeLeads = onSnapshot(qLeads, (snapshot) => {
-      if (initialLeadsLoad) {
-        initialLeadsLoad = false;
-        return;
+      if (canViewLeads) {
+        const qLeads = query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(10));
+        let initialLeadsLoad = true;
+        unsubscribeLeads = onSnapshot(qLeads, (snapshot) => {
+          if (initialLeadsLoad) {
+            initialLeadsLoad = false;
+            return;
+          }
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === "added") {
+              const lead = change.doc.data();
+              if (lead.uid === user.uid) return;
+              triggerNotification('New Lead Received', `From ${lead.name || 'Anonymous'} via ${lead.source || 'Direct'}`, 'success');
+            }
+          });
+        }, (error) => console.error("Leads notification error:", error));
       }
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added") {
-          const lead = change.doc.data();
-          // Avoid duplicate notification if we added it ourselves
-          if (lead.uid === user.uid) return;
-          triggerNotification('New Lead Received', `From ${lead.name || 'Anonymous'} via ${lead.source || 'Direct'}`, 'success');
-        }
-      });
-    }, (error) => console.error("Leads notification error:", error));
 
-    const unsubscribeBookings = onSnapshot(qBookings, (snapshot) => {
-      if (initialBookingsLoad) {
-        initialBookingsLoad = false;
-        return;
+      if (canViewBookings) {
+        const qBookings = query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(10));
+        let initialBookingsLoad = true;
+        unsubscribeBookings = onSnapshot(qBookings, (snapshot) => {
+          if (initialBookingsLoad) {
+            initialBookingsLoad = false;
+            return;
+          }
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === "added") {
+              const booking = change.doc.data();
+              if (booking.uid === user.uid) return;
+              triggerNotification('New Booking Request', `By ${booking.name || 'Guest'} for ${booking.checkIn}`, 'success');
+            }
+          });
+        }, (error) => console.error("Bookings notification error:", error));
       }
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added") {
-          const booking = change.doc.data();
-          // Avoid duplicate notification if we added it ourselves
-          if (booking.uid === user.uid) return;
-          triggerNotification('New Booking Request', `By ${booking.name || 'Guest'} for ${booking.checkIn}`, 'success');
-        }
-      });
-    }, (error) => console.error("Bookings notification error:", error));
+    }
 
     return () => {
-      unsubscribeLeads();
-      unsubscribeBookings();
+      if (unsubscribeLeads) unsubscribeLeads();
+      if (unsubscribeBookings) unsubscribeBookings();
     };
-  }, [user?.uid, userRole]);
+  }, [user?.uid, userRole, userPermissions]);
 
 
 
@@ -13246,6 +13276,21 @@ export default function App() {
     }, (error) => handleFirestoreError(error, OperationType.GET, 'partners'));
     return () => unsubscribe();
   }, [userRole, user?.uid]);
+
+  useEffect(() => {
+    let unCat: any = null;
+    if (user && userRole && (userRole === 'admin' || userRole === 'agent')) {
+      if (userRole === 'admin' || userPermissions?.viewFinance || userPermissions?.viewBookings) {
+        const qCat = query(collection(db, 'expense_categories'), orderBy('createdAt', 'asc'));
+        unCat = onSnapshot(qCat, (snapshot) => {
+          setExpenseCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => handleFirestoreError(error, OperationType.GET, 'expense_categories'));
+      }
+    }
+    return () => {
+      if (unCat) unCat();
+    };
+  }, [userRole, user?.uid, userPermissions]);
 
   const openBookingModal = () => setIsBookingModalOpen(true);
   const closeBookingModal = () => setIsBookingModalOpen(false);
@@ -13363,6 +13408,7 @@ export default function App() {
         onLogin={() => setIsAuthModalOpen(true)} 
         allBookings={allBookings}
         showToast={showToast}
+        expenseCategories={expenseCategories}
         onNotify={triggerNotification}
         pricingSettings={pricingSettings}
         partners={partners}

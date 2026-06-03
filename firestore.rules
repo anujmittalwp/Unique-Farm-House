@@ -366,6 +366,11 @@ service cloud.firestore {
       allow write: if isAuthenticated() && (isAdmin() || isAgent());
     }
 
+    match /shanti_farm_bookings/{bookingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     match /{path=**} {
       allow read, write: if false;
     }
