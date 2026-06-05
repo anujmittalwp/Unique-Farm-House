@@ -278,17 +278,17 @@ export const PropertySubSite = ({ allBookings = [], pricingSettings = {}, onBook
             <div className="space-y-4">
               <Phone className="w-8 h-8 text-luxury-gold mx-auto" />
               <p className="font-bold tracking-wider">CALL US</p>
-              <p className="text-white/70">+91 9876543210</p>
+              <p className="text-white/70"><a href="tel:+919313501001" className="hover:text-luxury-gold transition-colors">+91 9313501001</a></p>
             </div>
             <div className="space-y-4">
               <Mail className="w-8 h-8 text-luxury-gold mx-auto" />
               <p className="font-bold tracking-wider">EMAIL US</p>
-              <p className="text-white/70">bookings@{property.id}.com</p>
+              <p className="text-white/70">bookings@uniquefarmhouse.com</p>
             </div>
             <div className="space-y-4">
               <MapPin className="w-8 h-8 text-luxury-gold mx-auto" />
               <p className="font-bold tracking-wider">LOCATION</p>
-              <p className="text-white/70">Coming soon</p>
+              <p className="text-white/70">Plot No 22, Phase 17, Sector 135, Noida, UP 201305</p>
             </div>
           </div>
         </div>

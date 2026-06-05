@@ -4058,17 +4058,37 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
   }, [bookings, globalExpenses, otherIncomes, fromDate, toDate]);
 
   const stats = useMemo(() => {
-    let baseIncome = filteredBookings.reduce((sum, b) => {
-      let income = b.bookingAmount || 0;
-      if (b.bookingSource === 'partner') {
-        const commissionAmt = b.partnerCommissionType === 'percent'
-          ? ((income * (b.partnerCommission || 0)) / 100)
-          : (b.partnerCommission || 0);
-        income -= commissionAmt;
+    let baseIncome = 0;
+    let totalCouponAmount = 0;
+    let totalCommissionAmount = 0;
+
+    filteredBookings.forEach(b => {
+      const originalAmount = b.originalBookingAmount || b.bookingAmount || 0;
+      baseIncome += originalAmount;
+
+      let couponAmount = 0;
+      if (b.appliedCoupon) {
+        if (b.appliedCoupon.type === 'percent') {
+           couponAmount = (originalAmount * (b.appliedCoupon.discount || 0)) / 100;
+        } else {
+           couponAmount = b.appliedCoupon.discount || 0;
+        }
       }
-      return sum + income;
-    }, 0);
-    
+      totalCouponAmount += couponAmount;
+
+      const postCouponAmount = Math.max(0, originalAmount - couponAmount);
+      
+      let commissionAmount = 0;
+      if (b.bookingSource === 'partner') {
+        if (b.partnerCommissionType === 'percent') {
+           commissionAmount = (postCouponAmount * (b.partnerCommission || 0)) / 100;
+        } else {
+           commissionAmount = b.partnerCommission || 0;
+        }
+      }
+      totalCommissionAmount += commissionAmount;
+    });
+
     // Booking-specific expenses
     const bookingExpenses = filteredBookings.reduce((sum, b) => {
       const expSum = (b.expenses || []).reduce((s: number, e: any) => s + (e.amount || 0), 0);
@@ -4090,7 +4110,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
     });
 
     const totalGlobalExp = filteredGlobalExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-    const totalExpenses = bookingExpenses + totalGlobalExp;
+    const totalExpenses = bookingExpenses + totalGlobalExp + totalCouponAmount + totalCommissionAmount;
 
     // Other Incomes (filtered by from/to dates)
     const filteredOtherIncomes = otherIncomes.filter(i => {
@@ -4113,7 +4133,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
     const netProfit = totalIncome - totalExpenses;
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : '0.0';
     
-    return { totalIncome, totalExpenses, totalBookings, netProfit, profitMargin, bookingExpenses, totalGlobalExp, filteredGlobalExpenses, filteredOtherIncomes, totalOtherIncome };
+    return { totalIncome, totalExpenses, totalBookings, netProfit, profitMargin, bookingExpenses, totalGlobalExp, filteredGlobalExpenses, filteredOtherIncomes, totalOtherIncome, totalCouponAmount, totalCommissionAmount };
   }, [filteredBookings, globalExpenses, otherIncomes, fromDate, toDate]);
 
   const expenseByCategory = useMemo(() => {
@@ -4335,6 +4355,59 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
                 </tr>
               )}
             </tbody>
+            {filteredBookings.length > 0 && (
+              <tfoot className="border-t-2 border-luxury-dark/10 bg-luxury-cream/30">
+                {(() => {
+                  const totals = filteredBookings.reduce((acc, booking) => {
+                    const totalExp = (booking.expenses || []).reduce((sum: number, e: any) => sum + e.amount, 0);
+                    const originalAmount = booking.originalBookingAmount || booking.bookingAmount || 0;
+                    
+                    let couponAmount = 0;
+                    if (booking.appliedCoupon) {
+                      if (booking.appliedCoupon.type === 'percent') {
+                         couponAmount = (originalAmount * (booking.appliedCoupon.discount || 0)) / 100;
+                      } else {
+                         couponAmount = booking.appliedCoupon.discount || 0;
+                      }
+                    }
+                    
+                    const postCouponAmount = Math.max(0, originalAmount - couponAmount);
+                    
+                    let commissionAmount = 0;
+                    if (booking.bookingSource === 'partner') {
+                      if (booking.partnerCommissionType === 'percent') {
+                         commissionAmount = (postCouponAmount * (booking.partnerCommission || 0)) / 100;
+                      } else {
+                         commissionAmount = booking.partnerCommission || 0;
+                      }
+                    }
+
+                    const netIncome = Math.max(0, postCouponAmount - commissionAmount);
+                    const netAmount = netIncome - totalExp;
+
+                    return {
+                      originalAmount: acc.originalAmount + originalAmount,
+                      couponAmount: acc.couponAmount + couponAmount,
+                      commissionAmount: acc.commissionAmount + commissionAmount,
+                      totalExp: acc.totalExp + totalExp,
+                      netAmount: acc.netAmount + netAmount
+                    };
+                  }, { originalAmount: 0, couponAmount: 0, commissionAmount: 0, totalExp: 0, netAmount: 0 });
+
+                  return (
+                    <tr>
+                      <td colSpan={2} className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-luxury-dark text-right">Total</td>
+                      <td className="px-4 py-4 text-xs font-black text-luxury-dark">₹{totals.originalAmount.toLocaleString()}</td>
+                      <td className="px-4 py-4 text-xs font-black text-rose-500">{totals.couponAmount > 0 ? `-₹${totals.couponAmount.toLocaleString()}` : '-'}</td>
+                      <td className="px-4 py-4 text-xs font-black text-orange-500">{totals.commissionAmount > 0 ? `-₹${totals.commissionAmount.toLocaleString()}` : '-'}</td>
+                      <td className="px-4 py-4 text-xs font-black text-red-500">{totals.totalExp > 0 ? `-₹${totals.totalExp.toLocaleString()}` : '-'}</td>
+                      <td className="px-4 py-4 text-xs font-black text-emerald-600">₹{totals.netAmount.toLocaleString()}</td>
+                      <td className="px-4 py-4"></td>
+                    </tr>
+                  );
+                })()}
+              </tfoot>
+            )}
           </table>
               </div>
             </motion.div>
