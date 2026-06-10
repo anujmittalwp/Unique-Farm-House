@@ -88,6 +88,7 @@ interface Lead {
   assignedAgent?: string;
   assignedAgentName?: string;
   history?: ActivityLog[];
+  isDuplicate?: boolean;
 }
 
 interface ActivityLog {
@@ -208,11 +209,14 @@ const LeadRow = React.memo(({
           </div>
           <div className="flex items-center gap-1.5">
             <h4 className="text-xs font-serif font-black text-luxury-dark truncate max-w-[80px] lg:max-w-[100px]">{lead.name}</h4>
+            {lead.isDuplicate && (
+              <span className="px-1.5 py-0.5 bg-red-100 text-red-600 rounded text-[7px] font-black uppercase tracking-widest border border-red-200 shrink-0" title="Duplicate Email or Phone">DUPLICATE</span>
+            )}
             {lead.followUpDate && isPast(new Date(lead.followUpDate)) && !isToday(new Date(lead.followUpDate)) && lead.status !== 'converted' && lead.status !== 'lost' && (
               <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" title="Follow-up Overdue!"></span>
             )}
             {differenceInHours(new Date(), getSafeDate(lead.createdAt)) < 24 && lead.status === 'new' && (
-              <span className="flex h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+              <span className="flex h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></span>
             )}
           </div>
         </div>

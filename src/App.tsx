@@ -2282,11 +2282,37 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     
     setIsAddingLead(true);
     try {
+      const leadsSnapshot = await getDocs(collection(db, 'leads'));
+      const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      
+      const email = manualLead.email?.trim();
+      const phone = manualLead.phone?.trim();
+      
+      let isDuplicate = false;
+      const matchedExistingLeads = currentLeads.filter((l: any) => 
+        (email && l.email === email) || (phone && l.phone === phone)
+      );
+
+      if (matchedExistingLeads.length > 0) {
+        isDuplicate = true;
+        const batchToUpdate = writeBatch(db);
+        let updatesCount = 0;
+        
+        matchedExistingLeads.forEach((l: any) => {
+          if (!l.isDuplicate) {
+            batchToUpdate.update(doc(db, 'leads', l.id), { isDuplicate: true });
+            updatesCount++;
+          }
+        });
+        
+        if (updatesCount > 0) await batchToUpdate.commit();
+      }
+
       const sourceTag = manualLead.source.charAt(0).toUpperCase() + manualLead.source.slice(1);
       const leadData = {
         name: manualLead.name,
-        email: manualLead.email,
-        phone: manualLead.phone,
+        email: email || '',
+        phone: phone || '',
         source: manualLead.source,
         remarks: manualLead.remarks,
         status: manualLead.status,
@@ -2296,7 +2322,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         bookingDate: manualLead.bookingDate || '',
         bookingTime: manualLead.bookingTime || '',
         createdAt: serverTimestamp(),
-        tags: manualLead.tag ? [sourceTag, manualLead.tag] : [sourceTag]
+        tags: manualLead.tag ? [sourceTag, manualLead.tag] : [sourceTag],
+        isDuplicate
       };
       
       await addDoc(collection(db, 'leads'), leadData);
@@ -2518,7 +2545,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       
       // Fetch existing leads directly from Firestore to ensure we have the latest data
       const leadsSnapshot = await getDocs(collection(db, 'leads'));
-      const currentLeads = leadsSnapshot.docs.map(doc => doc.data());
+      const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       const existingMetaIds = new Set(currentLeads.map(l => l.metaLeadId).filter(Boolean));
 
@@ -2552,6 +2579,27 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           }
         }
 
+        let isDuplicate = false;
+        const matchedExistingLeads = currentLeads.filter((l: any) => 
+          (email && l.email === email) || (phone && l.phone === phone)
+        );
+
+        if (matchedExistingLeads.length > 0) {
+          isDuplicate = true;
+          const batchToUpdate = writeBatch(db);
+          let updatesCount = 0;
+          
+          matchedExistingLeads.forEach((l: any) => {
+            if (!l.isDuplicate) {
+              batchToUpdate.update(doc(db, 'leads', l.id), { isDuplicate: true });
+              l.isDuplicate = true;
+              updatesCount++;
+            }
+          });
+          
+          if (updatesCount > 0) await batchToUpdate.commit();
+        }
+
         await addDoc(collection(db, 'leads'), {
           name,
           email,
@@ -2563,9 +2611,11 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           status: 'new',
           createdAt: fbLead.created_time ? new Date(fbLead.created_time) : serverTimestamp(),
           source: 'meta',
-          metaLeadId
+          metaLeadId,
+          isDuplicate
         });
         existingMetaIds.add(metaLeadId);
+        currentLeads.push({ id: metaLeadId, email, phone, isDuplicate } as any);
         addedCount++;
       }
 
@@ -2693,10 +2743,16 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           
           // Fetch existing leads directly from Firestore to ensure we have the latest data
           const leadsSnapshot = await getDocs(collection(db, 'leads'));
-          const currentLeads = leadsSnapshot.docs.map(doc => doc.data());
+          const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
           
-          const existingEmails = new Set(currentLeads.map(l => l.email).filter(Boolean));
-          const existingPhones = new Set(currentLeads.map(l => l.phone).filter(Boolean));
+          const syncDocRef = doc(db, 'settings', 'leadSync');
+          const syncDocSnap = await getDoc(syncDocRef);
+          const syncData = syncDocSnap.exists() ? syncDocSnap.data() : {};
+          
+          const isFirstRun = !Array.isArray(syncData.processedHashes);
+          const processedHashesList = syncData.processedHashes || [];
+          const processedCsvHashes = new Set(processedHashesList);
+          const newProcessedHashes = new Set(processedHashesList);
           
           for (const row of newLeads) {
             const email = String(row.email || row['email address'] || '').trim();
@@ -2717,11 +2773,48 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
               }
             }
             
-            // Basic deduplication: check if lead with same email or phone already exists
+            const rowHash = `${email}-${phone}-${name}-${bookingDate}-${createdTimeStr}`;
+
+            if (processedCsvHashes.has(rowHash)) continue;
+
+            const existingEmails = new Set(currentLeads.map((l: any) => l.email).filter(Boolean));
+            const existingPhones = new Set(currentLeads.map((l: any) => l.phone).filter(Boolean));
+            
             const emailExists = email && existingEmails.has(email);
             const phoneExists = phone && existingPhones.has(phone);
             
-            if (!emailExists && !phoneExists && (email || phone || name !== 'Unknown')) {
+            if (isFirstRun) {
+              // On first run, we just seed the processedHashes. We don't want to create duplicates for historical CSV rows
+              // that were safely ignored by the system in the past.
+              if (emailExists || phoneExists) {
+                newProcessedHashes.add(rowHash);
+                continue; // Skip historical duplicates without inserting
+              }
+            }
+
+            if (email || phone || name !== 'Unknown') {
+              let isDuplicate = false;
+              
+              if (emailExists || phoneExists) {
+                isDuplicate = true;
+                const batchToUpdate = writeBatch(db);
+                let updatesCount = 0;
+                
+                const matchedExistingLeads = currentLeads.filter((l: any) => 
+                  (email && l.email === email) || (phone && l.phone === phone)
+                );
+
+                matchedExistingLeads.forEach((l: any) => {
+                  if (!l.isDuplicate) {
+                    batchToUpdate.update(doc(db, 'leads', l.id), { isDuplicate: true });
+                    l.isDuplicate = true;
+                    updatesCount++;
+                  }
+                });
+                
+                if (updatesCount > 0) await batchToUpdate.commit();
+              }
+
               await addDoc(collection(db, 'leads'), {
                 name,
                 email,
@@ -2733,13 +2826,19 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                 bookingTime,
                 status: 'new',
                 createdAt,
-                source: 'google_sheets'
+                source: 'google_sheets',
+                isDuplicate
               });
-              if (email) existingEmails.add(email);
-              if (phone) existingPhones.add(phone);
+              
+              currentLeads.push({ id: 'temp', email, phone, isDuplicate } as any);
+              newProcessedHashes.add(rowHash);
               addedCount++;
             }
           }
+
+          // Save processed hashes, keeping the last 15000 to avoid hitting Firestore document size limits
+          const hashArrayToSave = Array.from(newProcessedHashes).slice(-15000);
+          await setDoc(syncDocRef, { ...syncData, csvUrl, processedHashes: hashArrayToSave });
           
           setIsSyncing(false);
           if (!silent || addedCount > 0) {
@@ -12808,6 +12907,65 @@ export default function App() {
   const isPropertySubSite = location.pathname.startsWith('/property/');
   const isShantiAdmin = location.pathname === '/shanti-farm-admin';
   const hideMainLayout = isPropertySubSite || isShantiAdmin;
+
+  useEffect(() => {
+    // Temporary Cleanup for Corrupted Leads Data
+    const fixCorruptedLeads = async () => {
+      if (localStorage.getItem('leads_fixed_v2_1')) return;
+      
+      try {
+        const { getDocs, collection, deleteDoc, doc, updateDoc, writeBatch } = await import('firebase/firestore');
+        const { db } = await import('./firebase');
+        console.log("Starting temporary leads cleanup...");
+        const leadsSnapshot = await getDocs(collection(db, 'leads'));
+        const leads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+        
+        let deletedCount = 0;
+        let updatedCount = 0;
+        
+        for (const lead of leads) {
+          if (lead.syncHash) {
+             console.log(`Deleting duplicate lead: ${lead.id}`);
+             await deleteDoc(doc(db, 'leads', lead.id));
+             deletedCount++;
+          } else if (lead.isDuplicate !== undefined) {
+             console.log(`Fixing older lead: ${lead.id}`);
+             // using FieldValue.delete() from client sdk usually requires importing it.
+             // We can just set it to false or null to remove the DUPLICATE flag quickly if we cant import deleteField.
+             await updateDoc(doc(db, 'leads', lead.id), { isDuplicate: false });
+             updatedCount++;
+          }
+        }
+
+        const metaGroups: any = {};
+        leads.filter(l => l.metaLeadId && !l.syncHash).forEach(l => {
+           if (!metaGroups[l.metaLeadId]) metaGroups[l.metaLeadId] = [];
+           metaGroups[l.metaLeadId].push(l);
+        });
+
+        for (const metaId in metaGroups) {
+           const group = metaGroups[metaId];
+           if (group.length > 1) {
+               group.sort((a: any, b: any) => {
+                  const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+                  const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+                  return dateA - dateB;
+               });
+               for (let i = 1; i < group.length; i++) {
+                   await deleteDoc(doc(db, 'leads', group[i].id));
+                   deletedCount++;
+               }
+           }
+        }
+        
+        console.log(`Cleanup complete! Deleted ${deletedCount}, Fixed ${updatedCount}`);
+        localStorage.setItem('leads_fixed_v2_1', 'true');
+      } catch (e) {
+        console.error("Cleanup failed:", e);
+      }
+    };
+    fixCorruptedLeads();
+  }, []);
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [currentTheme, setCurrentTheme] = useState(() => {
