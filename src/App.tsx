@@ -2642,8 +2642,15 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     }
   };
 
+  const syncLock = useRef(false);
+
   const performSync = async (url: string, silent: boolean = false) => {
     if (!url) return;
+    if (syncLock.current) {
+       console.log("Sync already in progress, skipping concurrent call");
+       return;
+    }
+    syncLock.current = true;
     setIsSyncing(true);
     try {
       let fetchUrl = url.trim();
@@ -2775,7 +2782,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
             
             const rowHash = `${email}-${phone}-${name}-${bookingDate}-${createdTimeStr}`;
 
-            if (processedCsvHashes.has(rowHash)) continue;
+            if (newProcessedHashes.has(rowHash)) continue;
 
             const existingEmails = new Set(currentLeads.map((l: any) => l.email).filter(Boolean));
             const existingPhones = new Set(currentLeads.map((l: any) => l.phone).filter(Boolean));
@@ -2841,6 +2848,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           await setDoc(syncDocRef, { ...syncData, csvUrl, processedHashes: hashArrayToSave });
           
           setIsSyncing(false);
+          syncLock.current = false;
           if (!silent || addedCount > 0) {
             showToast(`Synced ${addedCount} new leads from Google Sheets`, 'success');
           }
@@ -2850,12 +2858,14 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           console.error("CSV Parse Error:", error);
           if (!silent) showToast('Failed to parse CSV', 'error');
           setIsSyncing(false);
+          syncLock.current = false;
         }
       });
     } catch (err: any) {
       console.error("Sync Error:", err);
       if (!silent) showToast(err.message || 'Failed to fetch Google Sheet', 'error');
       setIsSyncing(false);
+      syncLock.current = false;
     }
   };
 
@@ -12907,65 +12917,6 @@ export default function App() {
   const isPropertySubSite = location.pathname.startsWith('/property/');
   const isShantiAdmin = location.pathname === '/shanti-farm-admin';
   const hideMainLayout = isPropertySubSite || isShantiAdmin;
-
-  useEffect(() => {
-    // Temporary Cleanup for Corrupted Leads Data
-    const fixCorruptedLeads = async () => {
-      if (localStorage.getItem('leads_fixed_v2_1')) return;
-      
-      try {
-        const { getDocs, collection, deleteDoc, doc, updateDoc, writeBatch } = await import('firebase/firestore');
-        const { db } = await import('./firebase');
-        console.log("Starting temporary leads cleanup...");
-        const leadsSnapshot = await getDocs(collection(db, 'leads'));
-        const leads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-        
-        let deletedCount = 0;
-        let updatedCount = 0;
-        
-        for (const lead of leads) {
-          if (lead.syncHash) {
-             console.log(`Deleting duplicate lead: ${lead.id}`);
-             await deleteDoc(doc(db, 'leads', lead.id));
-             deletedCount++;
-          } else if (lead.isDuplicate !== undefined) {
-             console.log(`Fixing older lead: ${lead.id}`);
-             // using FieldValue.delete() from client sdk usually requires importing it.
-             // We can just set it to false or null to remove the DUPLICATE flag quickly if we cant import deleteField.
-             await updateDoc(doc(db, 'leads', lead.id), { isDuplicate: false });
-             updatedCount++;
-          }
-        }
-
-        const metaGroups: any = {};
-        leads.filter(l => l.metaLeadId && !l.syncHash).forEach(l => {
-           if (!metaGroups[l.metaLeadId]) metaGroups[l.metaLeadId] = [];
-           metaGroups[l.metaLeadId].push(l);
-        });
-
-        for (const metaId in metaGroups) {
-           const group = metaGroups[metaId];
-           if (group.length > 1) {
-               group.sort((a: any, b: any) => {
-                  const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
-                  const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
-                  return dateA - dateB;
-               });
-               for (let i = 1; i < group.length; i++) {
-                   await deleteDoc(doc(db, 'leads', group[i].id));
-                   deletedCount++;
-               }
-           }
-        }
-        
-        console.log(`Cleanup complete! Deleted ${deletedCount}, Fixed ${updatedCount}`);
-        localStorage.setItem('leads_fixed_v2_1', 'true');
-      } catch (e) {
-        console.error("Cleanup failed:", e);
-      }
-    };
-    fixCorruptedLeads();
-  }, []);
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [currentTheme, setCurrentTheme] = useState(() => {
