@@ -2288,26 +2288,6 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       const email = manualLead.email?.trim();
       const phone = manualLead.phone?.trim();
       
-      let isDuplicate = false;
-      const matchedExistingLeads = currentLeads.filter((l: any) => 
-        (email && l.email === email) || (phone && l.phone === phone)
-      );
-
-      if (matchedExistingLeads.length > 0) {
-        isDuplicate = true;
-        const batchToUpdate = writeBatch(db);
-        let updatesCount = 0;
-        
-        matchedExistingLeads.forEach((l: any) => {
-          if (!l.isDuplicate) {
-            batchToUpdate.update(doc(db, 'leads', l.id), { isDuplicate: true });
-            updatesCount++;
-          }
-        });
-        
-        if (updatesCount > 0) await batchToUpdate.commit();
-      }
-
       const sourceTag = manualLead.source.charAt(0).toUpperCase() + manualLead.source.slice(1);
       const leadData = {
         name: manualLead.name,
@@ -2322,8 +2302,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         bookingDate: manualLead.bookingDate || '',
         bookingTime: manualLead.bookingTime || '',
         createdAt: serverTimestamp(),
-        tags: manualLead.tag ? [sourceTag, manualLead.tag] : [sourceTag],
-        isDuplicate
+        tags: manualLead.tag ? [sourceTag, manualLead.tag] : [sourceTag]
       };
       
       await addDoc(collection(db, 'leads'), leadData);
@@ -2492,7 +2471,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           await performSync(url, true);
         } else {
           // Auto-set the user's requested sheet as default if not found
-          const defaultUrl = 'https://docs.google.com/spreadsheets/d/1LCCoy0A8YkI3wcKBeEYOxkDxEEkRtfnfXGOvuepFSC0/export?format=csv';
+          const defaultUrl = 'https://docs.google.com/spreadsheets/d/1LCCoy0A8YkI3wcKBeEYOxkDxEEkRtfnfXGOvuepFSC0/export?format=csv&gid=1757141989';
           setCsvUrl(defaultUrl);
           await performSync(defaultUrl, true);
         }
@@ -2545,7 +2524,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       
       // Fetch existing leads directly from Firestore to ensure we have the latest data
       const leadsSnapshot = await getDocs(collection(db, 'leads'));
-      const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
       
       const existingMetaIds = new Set(currentLeads.map(l => l.metaLeadId).filter(Boolean));
 
@@ -2579,27 +2558,6 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           }
         }
 
-        let isDuplicate = false;
-        const matchedExistingLeads = currentLeads.filter((l: any) => 
-          (email && l.email === email) || (phone && l.phone === phone)
-        );
-
-        if (matchedExistingLeads.length > 0) {
-          isDuplicate = true;
-          const batchToUpdate = writeBatch(db);
-          let updatesCount = 0;
-          
-          matchedExistingLeads.forEach((l: any) => {
-            if (!l.isDuplicate) {
-              batchToUpdate.update(doc(db, 'leads', l.id), { isDuplicate: true });
-              l.isDuplicate = true;
-              updatesCount++;
-            }
-          });
-          
-          if (updatesCount > 0) await batchToUpdate.commit();
-        }
-
         await addDoc(collection(db, 'leads'), {
           name,
           email,
@@ -2611,11 +2569,10 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
           status: 'new',
           createdAt: fbLead.created_time ? new Date(fbLead.created_time) : serverTimestamp(),
           source: 'meta',
-          metaLeadId,
-          isDuplicate
+          metaLeadId
         });
         existingMetaIds.add(metaLeadId);
-        currentLeads.push({ id: metaLeadId, email, phone, isDuplicate } as any);
+        currentLeads.push({ id: metaLeadId, email, phone } as any);
         addedCount++;
       }
 
@@ -2677,14 +2634,31 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         }
 
         if (sheetId) {
+          // Extract GID if present in the original URL (either as query param or hash fragment)
+          const gidMatch = url.match(/[#&?]gid=([0-9]+)/);
+          let gidParam = gidMatch ? `&gid=${gidMatch[1]}` : "";
+          
+          // Self-healing: Aggressive replacement of the wrong GID with the correct one for the user's sheet.
+          if (sheetId === '1LCCoy0A8YkI3wcKBeEYOxkDxEEkRtfnfXGOvuepFSC0') {
+             if (!gidParam || gidParam.includes('131529049')) {
+                gidParam = '&gid=1757141989'; // Force it to point to the correct tab.
+             }
+          }
+
           // If it's not already a CSV link, convert it to the clean export format
           const hasCsvParam = fetchUrl.includes('format=csv') || fetchUrl.includes('output=csv');
           
           if (!hasCsvParam) {
             if (isPublished) {
-              fetchUrl = `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`;
+              fetchUrl = `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv${gidParam}`;
             } else {
-              fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+              fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv${gidParam}`;
+            }
+          } else {
+            if (gidParam && !fetchUrl.includes('gid=')) {
+              fetchUrl = fetchUrl + gidParam;
+            } else if (fetchUrl.includes('gid=131529049') && gidParam === '&gid=1757141989') {
+              fetchUrl = fetchUrl.replace('gid=131529049', 'gid=1757141989');
             }
           }
         }
@@ -2739,143 +2713,137 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         skipEmptyLines: true,
         transformHeader: (h) => h.trim().toLowerCase(),
         complete: async (results) => {
-          const newLeads = results.data as any[];
-          let addedCount = 0;
-          
-          if (newLeads.length === 0) {
-            if (!silent) showToast('No data found in the CSV', 'info');
-            setIsSyncing(false);
-            return;
-          }
-          
-          // Fetch existing leads directly from Firestore to ensure we have the latest data
-          const leadsSnapshot = await getDocs(collection(db, 'leads'));
-          const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-          
-          const syncDocRef = doc(db, 'settings', 'leadSync');
-          const syncDocSnap = await getDoc(syncDocRef);
-          const syncData = syncDocSnap.exists() ? syncDocSnap.data() : {};
-          
-          const isFirstRun = !Array.isArray(syncData.processedHashes);
-          const processedHashesList = syncData.processedHashes || [];
-          const processedCsvHashes = new Set(processedHashesList);
-          const newProcessedHashes = new Set(processedHashesList);
-          
-          for (const row of newLeads) {
-            const email = String(row.email || row['email address'] || '').trim();
-            const phone = String(row.phone_number || row['phone number'] || row.phone || row['contact number'] || '').trim();
-            const name = String(row.full_name || row['full name'] || row.form_name || row['form name'] || row.name || 'Unknown').trim();
-            const budget = String(row.budget || row.est_budget || row['est budget'] || row.max_budget || row['max budget'] || '').trim();
-            const guests = String(row.guests || row.no_of_guests || row['no. of guests'] || row['no._of_guests'] || row['number of guests'] || row.number_of_guests || row.guest_count || row['guest count'] || '').trim();
-            const city = String(row.city || row.location || row.area || '').trim();
-            const bookingDate = String(row.booking_date || row['booking date'] || row.event_date || row['event date'] || row.date || '').trim();
-            const bookingTime = String(row.booking_time || row['booking time'] || row.event_time || row['event time'] || row.time || '').trim();
-            const createdTimeStr = String(row.created_time || row['created time'] || row.timestamp || '').trim();
+          try {
+            const newLeads = results.data as any[];
+            let addedCount = 0;
             
-            let createdAt: any = serverTimestamp();
-            if (createdTimeStr) {
-              const parsedDate = new Date(createdTimeStr);
-              if (!isNaN(parsedDate.getTime())) {
-                createdAt = parsedDate;
-              }
+            if (newLeads.length === 0) {
+              if (!silent) showToast('No data found in the CSV', 'info');
+              setIsSyncing(false);
+              syncLock.current = false;
+              return;
             }
             
-            const rowHash = `${email}-${phone}-${name}-${bookingDate}-${createdTimeStr}`;
-
-            if (newProcessedHashes.has(rowHash)) continue;
+            // Fetch existing leads directly from Firestore to ensure we have the latest data
+            const leadsSnapshot = await getDocs(collection(db, 'leads'));
+            const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
             
+            const syncDocRef = doc(db, 'settings', 'leadSync');
+            const syncDocSnap = await getDoc(syncDocRef);
+            const syncData = syncDocSnap.exists() ? syncDocSnap.data() : {};
+            
+            const isFirstRun = !Array.isArray(syncData.processedHashes);
+            const processedHashesList = syncData.processedHashes || [];
+            const processedCsvHashes = new Set(processedHashesList);
+            const newProcessedHashes = new Set(processedHashesList);
+            
+            // Generate list of existing sync hashes once outside the loop for high efficiency
             const existingSyncHashes = new Set(currentLeads.map((l: any) => l.syncHash).filter(Boolean));
-            if (existingSyncHashes.has(rowHash)) {
-              newProcessedHashes.add(rowHash);
-              continue;
-            }
+            
+            for (const row of newLeads) {
+              const email = String(row.email || row['email address'] || '').trim();
+              const phone = String(row.phone_number || row['phone number'] || row.phone || row['contact number'] || '').trim();
+              const name = String(row.full_name || row['full name'] || row.form_name || row['form name'] || row.name || 'Unknown').trim();
+              const budget = String(row.budget || row.est_budget || row['est budget'] || row.max_budget || row['max budget'] || '').trim();
+              const guests = String(row.guests || row.no_of_guests || row['no. of guests'] || row['no._of_guests'] || row['number of guests'] || row.number_of_guests || row.guest_count || row['guest count'] || '').trim();
+              const city = String(row.city || row.location || row.area || '').trim();
+              const bookingDate = String(row.booking_date || row['booking date'] || row.event_date || row['event date'] || row.date || '').trim();
+              const bookingTime = String(row.booking_time || row['booking time'] || row.event_time || row['event time'] || row.time || '').trim();
+              const createdTimeStr = String(row.created_time || row['created time'] || row.timestamp || '').trim();
+              
+              let createdAt: any = serverTimestamp();
+              let parsedDate: Date | null = null;
+              if (createdTimeStr) {
+                parsedDate = new Date(createdTimeStr);
+                if (!isNaN(parsedDate.getTime())) {
+                  createdAt = parsedDate;
+                }
+              }
+              
+              const rowHash = `${email}-${phone}-${name}-${bookingDate}-${createdTimeStr}`;
 
-            if (email || phone || name !== 'Unknown') {
-              // Deduplicate historical row matching
-              const isSubstantive = email || phone;
-              if (isSubstantive) {
-                const historicalMatch = currentLeads.find((l: any) => 
-                  !l.syncHash && l.email === email && l.phone === phone && l.name === name
-                );
-                
+              if (newProcessedHashes.has(rowHash)) continue;
+              
+              if (existingSyncHashes.has(rowHash)) {
+                newProcessedHashes.add(rowHash);
+                continue;
+              }
+
+              if (email || phone || name !== 'Unknown') {
+                // Strict deduplication to prevent old leads appearing as New
+                const historicalMatch = currentLeads.find((l: any) => {
+                  const matchPhone = phone && phone.length > 5 && l.phone === phone;
+                  const matchEmail = email && l.email === email;
+                  const matchName = name && name !== 'Unknown' && l.name === name;
+                  
+                  // Strong identical match: At least 2 primary fields match perfectly
+                  if ((matchPhone && matchName) || (matchEmail && matchName) || (matchPhone && matchEmail)) {
+                    return true;
+                  }
+                  
+                  // Fallback match: If phone or email match, check if creation timestamps perfectly align
+                  // to prevent single-field hash mismatches from duplicating old DB entries.
+                  if (matchPhone || matchEmail) {
+                    if (parsedDate && !isNaN(parsedDate.getTime()) && l.createdAt && typeof l.createdAt.toMillis === 'function') {
+                       const dbTime = l.createdAt.toMillis();
+                       const diffHours = Math.abs(dbTime - parsedDate.getTime()) / 3600000;
+                       if (diffHours < 48) return true;
+                    } else {
+                       return true; // Better safe than spamming duplicates if no date parseable
+                    }
+                  }
+                  
+                  return false;
+                });
+
                 if (historicalMatch) {
-                   try {
-                     await updateDoc(doc(db, 'leads', historicalMatch.id), { syncHash: rowHash });
-                   } catch (e) {
-                     console.warn("Failed to mark historical lead:", e);
-                   }
-                   historicalMatch.syncHash = rowHash;
                    newProcessedHashes.add(rowHash);
+                   existingSyncHashes.add(rowHash);
                    continue; // Skip creating a new one
                 }
-              }
 
-              let isDuplicate = false;
-              
-              const matchedExistingLeads = currentLeads.filter((l: any) => 
-                (email && l.email === email) || (phone && l.phone === phone)
-              );
-
-              if (matchedExistingLeads.length > 0) {
-                isDuplicate = true;
-                const batchToUpdate = writeBatch(db);
-                let updatesCount = 0;
-                
-                matchedExistingLeads.forEach((l: any) => {
-                  if (!l.isDuplicate) {
-                    if (l.id && l.id !== 'temp') {
-                      batchToUpdate.update(doc(db, 'leads', l.id), { isDuplicate: true });
-                    }
-                    l.isDuplicate = true;
-                    updatesCount++;
-                  }
+                await addDoc(collection(db, 'leads'), {
+                  name,
+                  email,
+                  phone,
+                  budget,
+                  guests,
+                  city,
+                  bookingDate,
+                  bookingTime,
+                  status: 'new',
+                  createdAt,
+                  source: 'google_sheets',
+                  syncHash: rowHash
                 });
                 
-                if (updatesCount > 0) {
-                  try {
-                    await batchToUpdate.commit();
-                  } catch (e) {
-                    console.warn("Batch update for duplicates failed:", e);
-                  }
-                }
+                currentLeads.push({ id: 'temp', email, phone, name, syncHash: rowHash } as any);
+                newProcessedHashes.add(rowHash);
+                existingSyncHashes.add(rowHash);
+                addedCount++;
               }
-
-              await addDoc(collection(db, 'leads'), {
-                name,
-                email,
-                phone,
-                budget,
-                guests,
-                city,
-                bookingDate,
-                bookingTime,
-                status: 'new',
-                createdAt,
-                source: 'google_sheets',
-                isDuplicate,
-                syncHash: rowHash
-              });
-              
-              currentLeads.push({ id: 'temp', email, phone, name, isDuplicate, syncHash: rowHash } as any);
-              newProcessedHashes.add(rowHash);
-              addedCount++;
             }
-          }
 
-          // Save processed hashes, keeping the last 15000 to avoid hitting Firestore document size limits
-          const hashArrayToSave = Array.from(newProcessedHashes).slice(-15000);
-          try {
-            await setDoc(syncDocRef, { ...syncData, csvUrl, processedHashes: hashArrayToSave });
-          } catch (e) {
-            console.warn("Failed to save sync settings tracking due to permissions. (Deduplication will still fall back to document syncHashes)");
+            // Save processed hashes, keeping the last 15000 to avoid hitting Firestore document size limits
+            const hashArrayToSave = Array.from(newProcessedHashes).slice(-15000);
+            try {
+              await setDoc(syncDocRef, { ...syncData, csvUrl, processedHashes: hashArrayToSave });
+            } catch (e) {
+              console.warn("Failed to save sync settings tracking due to permissions. (Deduplication will still fall back to document syncHashes)");
+            }
+            
+            setIsSyncing(false);
+            syncLock.current = false;
+            if (!silent || addedCount > 0) {
+              showToast(`Synced ${addedCount} new leads from Google Sheets`, 'success');
+            }
+            if (!silent) setSyncModalOpen(false);
+          } catch (err: any) {
+            console.error("Error in PapaParse complete callback:", err);
+            if (!silent) showToast(err.message || 'Error occurred during Leads Sync', 'error');
+            setIsSyncing(false);
+            syncLock.current = false;
           }
-          
-          setIsSyncing(false);
-          syncLock.current = false;
-          if (!silent || addedCount > 0) {
-            showToast(`Synced ${addedCount} new leads from Google Sheets`, 'success');
-          }
-          if (!silent) setSyncModalOpen(false);
         },
         error: (error: any) => {
           console.error("CSV Parse Error:", error);
@@ -2903,12 +2871,12 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     }
   };
 
-  // Auto-sync Google Sheets leads every 30 minutes
+  // Auto-sync Google Sheets leads every 5 minutes
   useEffect(() => {
     if (!csvUrl) return;
     const intervalId = setInterval(() => {
       performSync(csvUrl, true);
-    }, 30 * 60 * 1000); // 30 minutes
+    }, 5 * 60 * 1000); // 5 minutes
     
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
