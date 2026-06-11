@@ -542,6 +542,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
   const [followUpDateState, setFollowUpDateState] = useState('');
   const [followUpTimeState, setFollowUpTimeState] = useState('');
   const [notifiedLeads, setNotifiedLeads] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   // Search Debouncing
   useEffect(() => {
@@ -801,11 +802,16 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
     }
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (selectedLeadIds.length === 0) return;
-    if (!window.confirm(`Are you sure you want to delete ${selectedLeadIds.length} leads?`)) return;
+    setShowBulkDeleteConfirm(true);
+  };
+
+  const executeBulkDelete = async () => {
+    if (selectedLeadIds.length === 0) return;
     
     setIsBulkProcessing(true);
+    setShowBulkDeleteConfirm(false);
     try {
       const batch = writeBatch(db);
       selectedLeadIds.forEach(id => {
@@ -1590,6 +1596,44 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                   className="px-8 py-2.5 bg-luxury-dark text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-luxury-dark/20 hover:bg-luxury-gold hover:text-luxury-dark transition-all"
                 >
                   Close History
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showBulkDeleteConfirm && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-2">Delete {selectedLeadIds.length} Leads?</h3>
+              <p className="text-sm text-luxury-dark/40 mb-8 px-4">
+                Are you sure you want to delete the selected leads? This action cannot be undone.
+              </p>
+              
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="flex-1 px-6 py-4 font-bold rounded-2xl transition-all duration-300 bg-gray-50 text-luxury-dark hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={executeBulkDelete}
+                  disabled={isBulkProcessing}
+                  className="flex-1 px-6 py-4 font-bold rounded-2xl transition-all duration-300 shadow-lg hover:shadow-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 flex justify-center items-center gap-2"
+                >
+                  {isBulkProcessing ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={20} />}
+                  <span>Delete Leads</span>
                 </button>
               </div>
             </motion.div>

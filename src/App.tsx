@@ -2489,12 +2489,12 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
         if (url) {
           setCsvUrl(url);
-          performSync(url, true);
+          await performSync(url, true);
         } else {
           // Auto-set the user's requested sheet as default if not found
           const defaultUrl = 'https://docs.google.com/spreadsheets/d/1LCCoy0A8YkI3wcKBeEYOxkDxEEkRtfnfXGOvuepFSC0/export?format=csv';
           setCsvUrl(defaultUrl);
-          performSync(defaultUrl, true);
+          await performSync(defaultUrl, true);
         }
 
         // Try getting metaSync
@@ -2508,7 +2508,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
             setMetaPageId(data.pageId || '');
             setMetaToken(data.accessToken || '');
             if (data.pageId && data.accessToken) {
-              performMetaSync(data.pageId, data.accessToken, true);
+              await performMetaSync(data.pageId, data.accessToken, true);
             }
           }
         } catch (e) {
@@ -2783,43 +2783,61 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
             const rowHash = `${email}-${phone}-${name}-${bookingDate}-${createdTimeStr}`;
 
             if (newProcessedHashes.has(rowHash)) continue;
-
-            const existingEmails = new Set(currentLeads.map((l: any) => l.email).filter(Boolean));
-            const existingPhones = new Set(currentLeads.map((l: any) => l.phone).filter(Boolean));
             
-            const emailExists = email && existingEmails.has(email);
-            const phoneExists = phone && existingPhones.has(phone);
-            
-            if (isFirstRun) {
-              // On first run, we just seed the processedHashes. We don't want to create duplicates for historical CSV rows
-              // that were safely ignored by the system in the past.
-              if (emailExists || phoneExists) {
-                newProcessedHashes.add(rowHash);
-                continue; // Skip historical duplicates without inserting
-              }
+            const existingSyncHashes = new Set(currentLeads.map((l: any) => l.syncHash).filter(Boolean));
+            if (existingSyncHashes.has(rowHash)) {
+              newProcessedHashes.add(rowHash);
+              continue;
             }
 
             if (email || phone || name !== 'Unknown') {
+              // Deduplicate historical row matching
+              const isSubstantive = email || phone;
+              if (isSubstantive) {
+                const historicalMatch = currentLeads.find((l: any) => 
+                  !l.syncHash && l.email === email && l.phone === phone && l.name === name
+                );
+                
+                if (historicalMatch) {
+                   try {
+                     await updateDoc(doc(db, 'leads', historicalMatch.id), { syncHash: rowHash });
+                   } catch (e) {
+                     console.warn("Failed to mark historical lead:", e);
+                   }
+                   historicalMatch.syncHash = rowHash;
+                   newProcessedHashes.add(rowHash);
+                   continue; // Skip creating a new one
+                }
+              }
+
               let isDuplicate = false;
               
-              if (emailExists || phoneExists) {
+              const matchedExistingLeads = currentLeads.filter((l: any) => 
+                (email && l.email === email) || (phone && l.phone === phone)
+              );
+
+              if (matchedExistingLeads.length > 0) {
                 isDuplicate = true;
                 const batchToUpdate = writeBatch(db);
                 let updatesCount = 0;
                 
-                const matchedExistingLeads = currentLeads.filter((l: any) => 
-                  (email && l.email === email) || (phone && l.phone === phone)
-                );
-
                 matchedExistingLeads.forEach((l: any) => {
                   if (!l.isDuplicate) {
-                    batchToUpdate.update(doc(db, 'leads', l.id), { isDuplicate: true });
+                    if (l.id && l.id !== 'temp') {
+                      batchToUpdate.update(doc(db, 'leads', l.id), { isDuplicate: true });
+                    }
                     l.isDuplicate = true;
                     updatesCount++;
                   }
                 });
                 
-                if (updatesCount > 0) await batchToUpdate.commit();
+                if (updatesCount > 0) {
+                  try {
+                    await batchToUpdate.commit();
+                  } catch (e) {
+                    console.warn("Batch update for duplicates failed:", e);
+                  }
+                }
               }
 
               await addDoc(collection(db, 'leads'), {
@@ -2834,10 +2852,11 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                 status: 'new',
                 createdAt,
                 source: 'google_sheets',
-                isDuplicate
+                isDuplicate,
+                syncHash: rowHash
               });
               
-              currentLeads.push({ id: 'temp', email, phone, isDuplicate } as any);
+              currentLeads.push({ id: 'temp', email, phone, name, isDuplicate, syncHash: rowHash } as any);
               newProcessedHashes.add(rowHash);
               addedCount++;
             }
@@ -2845,7 +2864,11 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
           // Save processed hashes, keeping the last 15000 to avoid hitting Firestore document size limits
           const hashArrayToSave = Array.from(newProcessedHashes).slice(-15000);
-          await setDoc(syncDocRef, { ...syncData, csvUrl, processedHashes: hashArrayToSave });
+          try {
+            await setDoc(syncDocRef, { ...syncData, csvUrl, processedHashes: hashArrayToSave });
+          } catch (e) {
+            console.warn("Failed to save sync settings tracking due to permissions. (Deduplication will still fall back to document syncHashes)");
+          }
           
           setIsSyncing(false);
           syncLock.current = false;
