@@ -12,6 +12,7 @@ import {
   Trash2, 
   CheckCircle2, 
   XCircle, 
+  X,
   Clock, 
   Zap,
   ChevronRight,
@@ -523,6 +524,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [bookingDateFilter, setBookingDateFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'contacted' | 'followup' | 'converted' | 'lost'>('new');
   const [scoreFilter, setScoreFilter] = useState<'ALL' | 'HOT' | 'WARM' | 'COLD'>('ALL');
   const [followUpFilter, setFollowUpFilter] = useState<'all' | 'overdue' | 'today' | 'upcoming'>('all');
@@ -705,7 +707,11 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
       
       const matchesScore = scoreFilter === 'ALL' || lead.score === scoreFilter || (scoreFilter === 'WARM' && (!lead.score || lead.score === 'WARM'));
       
-      return matchesSearch && matchesTab && matchesScore;
+      const matchesBookingDate = bookingDateFilter 
+        ? lead.bookingDate === bookingDateFilter
+        : true;
+      
+      return matchesSearch && matchesTab && matchesScore && matchesBookingDate;
     }).sort((a, b) => {
       if (activeTab === 'followup') {
         // Sort by follow-up date and time (closest/overdue first)
@@ -718,12 +724,12 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
       const timeB = getSafeDate(b.createdAt).getTime();
       return timeB - timeA;
     });
-  }, [leads, debouncedSearch, activeTab, followUpFilter, scoreFilter]);
+  }, [leads, debouncedSearch, activeTab, followUpFilter, scoreFilter, bookingDateFilter]);
 
   // Reset pagination when filters change
   useEffect(() => {
     setVisibleLeadsCount(50);
-  }, [activeTab, debouncedSearch, followUpFilter, scoreFilter]);
+  }, [activeTab, debouncedSearch, followUpFilter, scoreFilter, bookingDateFilter]);
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -1037,32 +1043,55 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
           )}
 
             {/* Row 2: Search & Actions */}
-            <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
-              <div className="relative w-full md:w-auto md:flex-grow max-w-md">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
-                <input 
-                  type="text"
-                  placeholder="Search name, phone..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-12 pr-6 py-3 bg-white border border-luxury-dark/10 rounded-2xl text-sm w-full focus:ring-2 focus:ring-luxury-gold/20 focus:border-luxury-gold outline-none transition-all shadow-sm"
-                />
-              </div>
+            <div className="flex flex-col xl:flex-row gap-4 justify-between xl:items-center w-full">
+              <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto flex-1">
+                <div className="relative w-full flex-1 md:max-w-sm lg:max-w-md">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={18} />
+                  <input 
+                    type="text"
+                    placeholder="Search name, phone..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-12 pr-6 py-3 bg-white border border-luxury-dark/10 rounded-2xl text-sm w-full focus:ring-2 focus:ring-luxury-gold/20 focus:border-luxury-gold outline-none transition-all shadow-sm"
+                  />
+                </div>
 
-              <div className="relative w-full md:w-auto">
-                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
-                <select
-                  value={scoreFilter}
-                  onChange={(e) => setScoreFilter(e.target.value as any)}
-                  className="pl-10 pr-8 py-3 bg-white border border-luxury-dark/10 rounded-2xl text-sm font-bold text-luxury-dark focus:border-luxury-gold outline-none transition-all shadow-sm appearance-none cursor-pointer w-full"
-                >
-                  <option value="ALL">All Scores</option>
-                  <option value="HOT">Hot Leads</option>
-                  <option value="WARM">Warm Leads</option>
-                  <option value="COLD">Cold Leads</option>
-                </select>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <div className="w-2 h-2 border-b-2 border-r-2 border-luxury-dark/30 transform rotate-45"></div>
+                <div className="relative w-full md:w-auto">
+                  <div className="relative flex items-center">
+                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+                    <input
+                      type="date"
+                      value={bookingDateFilter}
+                      onChange={(e) => setBookingDateFilter(e.target.value)}
+                      className="pl-10 pr-4 py-3 bg-white border border-luxury-dark/10 rounded-2xl text-sm font-bold text-luxury-dark focus:border-luxury-gold outline-none transition-all shadow-sm w-full"
+                      title="Filter by Booking Date"
+                    />
+                    {bookingDateFilter && (
+                      <button 
+                        onClick={() => setBookingDateFilter('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-luxury-dark/40 hover:text-red-500"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="relative w-full md:w-auto">
+                  <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-luxury-dark/20" size={16} />
+                  <select
+                    value={scoreFilter}
+                    onChange={(e) => setScoreFilter(e.target.value as any)}
+                    className="pl-10 pr-8 py-3 bg-white border border-luxury-dark/10 rounded-2xl text-sm font-bold text-luxury-dark focus:border-luxury-gold outline-none transition-all shadow-sm appearance-none cursor-pointer w-full"
+                  >
+                    <option value="ALL">All Scores</option>
+                    <option value="HOT">Hot Leads</option>
+                    <option value="WARM">Warm Leads</option>
+                    <option value="COLD">Cold Leads</option>
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <div className="w-2 h-2 border-b-2 border-r-2 border-luxury-dark/30 transform rotate-45"></div>
+                  </div>
                 </div>
               </div>
               
