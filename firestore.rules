@@ -141,7 +141,9 @@ service cloud.firestore {
              (!('partnerCommission' in data) || data.partnerCommission is number) &&
              (!('partnerCommissionType' in data) || data.partnerCommissionType is string) &&
              (!('advanceByPartner' in data) || data.advanceByPartner is number) &&
-             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments', 'originalBookingAmount', 'appliedCoupon', 'addons', 'bookingSource', 'partnerName', 'partnerCommission', 'partnerCommissionType', 'advanceByPartner']);
+             (!('creditNoteIssued' in data) || data.creditNoteIssued is bool) &&
+             (!('creditNoteCode' in data) || data.creditNoteCode is string) &&
+             data.keys().hasOnly(['uid', 'checkIn', 'checkOut', 'dayGuestAdults', 'dayGuestChildren', 'nightGuestAdults', 'nightGuestChildren', 'status', 'totalAmount', 'paymentStatus', 'createdAt', 'name', 'mobile', 'email', 'occasion', 'amountPaid', 'securityDeposit', 'bookingAmount', 'bookedBy', 'paymentMethod', 'expenses', 'payments', 'originalBookingAmount', 'appliedCoupon', 'addons', 'bookingSource', 'partnerName', 'partnerCommission', 'partnerCommissionType', 'advanceByPartner', 'creditNoteIssued', 'creditNoteCode']);
     }
 
     function isValidReview(data) {
@@ -240,8 +242,8 @@ service cloud.firestore {
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
         // Admin or Agent with permissions can update anything
         (isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true)) ||
-        // Agent with viewFinance can assign expenses
-        (isAgent() && getPermissions().get('viewFinance', false) == true && isValidBooking(request.resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expenses']))
+        // Agent with viewFinance can assign expenses and record payments
+        (isAgent() && getPermissions().get('viewFinance', false) == true && isValidBooking(request.resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expenses', 'payments', 'amountPaid']))
       );
       allow delete: if isAdmin() || (isAgent() && getPermissions().get('deleteBookings', false) == true);
     }
@@ -278,7 +280,7 @@ service cloud.firestore {
       allow read: if true; // Publicly readable for "Sold Out" dates
       allow create: if (isAuthenticated() || request.resource.data.status == 'pending') && isValidAvailability(request.resource.data);
       allow update: if (isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true) || (isAuthenticated() && exists(/databases/$(database)/documents/bookings/$(bookingId)) && get(/databases/$(database)/documents/bookings/$(bookingId)).data.uid == request.auth.uid)) && isValidAvailability(request.resource.data);
-      allow delete: if isAdmin() || (isAgent() && getPermissions().get('deleteBookings', false) == true);
+      allow delete: if isAdmin() || (isAgent() && (getPermissions().get('deleteBookings', false) == true || getPermissions().get('editBookings', false) == true));
     }
 
     match /settings/calendar_sync {
@@ -364,6 +366,11 @@ service cloud.firestore {
     match /partners/{partnerId} {
       allow read: if isAuthenticated() && (isAdmin() || isAgent());
       allow write: if isAuthenticated() && (isAdmin() || isAgent());
+    }
+
+    match /credit_notes/{cnId} {
+      allow read: if isAuthenticated() && (isAdmin() || isAgent());
+      allow write: if isAuthenticated() && (isAdmin() || (isAgent() && (getPermissions().get('editBookings', false) == true || getPermissions().get('viewFinance', false) == true)));
     }
 
     match /shanti_farm_bookings/{bookingId} {

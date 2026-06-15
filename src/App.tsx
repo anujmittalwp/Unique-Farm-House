@@ -151,7 +151,9 @@ import {
 } from 'recharts';
 import "react-datepicker/dist/react-datepicker.css";
 import { OtherPropertiesPage, PropertySubSite } from './PropertySubSite';
+import { CreditNotesDashboard } from './CreditNotesDashboard';
 import { ShantiFarmAdmin } from './ShantiFarmAdmin';
+import { UpcomingSummaryPage } from './UpcomingSummaryPage';
 import { auth, db } from './firebase';
 
 export const AVAILABLE_THEMES = [
@@ -1372,6 +1374,25 @@ const ICalSyncSettings = ({ showToast, canEditSettingsAdmin }: { showToast: (msg
   const [syncInterval, setSyncInterval] = React.useState<number | ''>('');
   const [savingInterval, setSavingInterval] = React.useState(false);
 
+  const [isClearing, setIsClearing] = React.useState(false);
+
+  const handleClearExternal = async () => {
+    if (!window.confirm('Delete all external blocked dates?')) return;
+    setIsClearing(true);
+    try {
+      const qBlocked = query(collection(db, 'blocked_dates'), where('type', '==', 'external'));
+      const blockedSnap = await getDocs(qBlocked);
+      const batch = writeBatch(db);
+      blockedSnap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      showToast('All external blocked dates cleared', 'success');
+    } catch (e: any) {
+      showToast('Failed to clear dates: ' + e.message, 'error');
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   React.useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -1590,14 +1611,24 @@ const ICalSyncSettings = ({ showToast, canEditSettingsAdmin }: { showToast: (msg
               <h4 className="font-bold text-luxury-dark uppercase tracking-widest text-xs flex items-center gap-2">
                 <Download size={14} className="text-luxury-gold" /> Import iCal URLs
               </h4>
-              <button
-                disabled={syncing || urls.length === 0}
-                onClick={handleManualSync}
-                className="flex items-center gap-2 px-4 py-2 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold transition-colors disabled:opacity-50"
-              >
-                {syncing ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                {syncing ? 'Syncing...' : 'Sync Now'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={isClearing}
+                  onClick={handleClearExternal}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-red-100 transition-colors disabled:opacity-50"
+                  title="Clear all currently synced dates from the calendar"
+                >
+                  <X size={14} /> Clear Calendar
+                </button>
+                <button
+                  disabled={syncing || urls.length === 0}
+                  onClick={handleManualSync}
+                  className="flex items-center gap-2 px-4 py-2 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold transition-colors disabled:opacity-50"
+                >
+                  {syncing ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  {syncing ? 'Syncing...' : 'Sync Now'}
+                </button>
+              </div>
             </div>
             
             <p className="text-sm text-luxury-dark/60 mb-2">
@@ -5039,7 +5070,7 @@ const MyBookings = ({
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical' | 'credit_notes'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
   const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'migration' | 'chatbot_settings' | 'users' | 'ical'>('general');
 
@@ -5048,6 +5079,10 @@ const MyBookings = ({
   const [reviewFilter, setReviewFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [adminLogs, setAdminLogs] = useState<any[]>([]);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isIssueCreditNoteOpen, setIsIssueCreditNoteOpen] = useState(false);
+  const [creditNoteBooking, setCreditNoteBooking] = useState<any>(null);
+  const [creditNoteAmount, setCreditNoteAmount] = useState<number>(0);
+  const [creditNotes, setCreditNotes] = useState<any[]>([]);
   const [bookingToDelete, setBookingToDelete] = useState<any | null>(null);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
@@ -5663,7 +5698,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       }, (error) => handleFirestoreError(error, OperationType.GET, 'logs'));
       return () => unsubscribe();
     }
-    if (activeFilter === 'finance' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewFinance))) {
+    if ((activeFilter === 'finance' || activeFilter === 'credit_notes') && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewFinance))) {
       const qExp = query(collection(db, 'global_expenses'), orderBy('createdAt', 'desc'));
       const unExp = onSnapshot(qExp, (snapshot) => {
         setGlobalExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -5673,8 +5708,13 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       const unInc = onSnapshot(qInc, (snapshot) => {
         setOtherIncomes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'other_incomes'));
+      
+      const qCN = query(collection(db, 'credit_notes'), orderBy('createdAt', 'desc'));
+      const unCN = onSnapshot(qCN, (snapshot) => {
+        setCreditNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'credit_notes'));
 
-      return () => { unExp(); unInc(); };
+      return () => { unExp(); unInc(); unCN(); };
     }
     if (activeFilter === 'leads' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewLeads))) {
       const q = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
@@ -5698,7 +5738,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       }, (error) => handleFirestoreError(error, OperationType.GET, 'coupons'));
       return () => unsubscribe();
     }
-  }, [userRole, activeFilter, user?.uid]);
+  }, [userRole, activeFilter, user?.uid, userPermissions]);
 
   const filteredReviews = useMemo(() => {
     if (reviewFilter === 'all') return reviews;
@@ -6343,6 +6383,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                   { id: 'bookings', label: 'Bookings', icon: Calendar, colorClass: 'bg-blue-600 shadow-blue-500/20', hoverIconClass: 'text-blue-500 group-hover:text-blue-600', permission: 'viewBookings' },
                   { id: 'leads', label: 'Leads', icon: Users, colorClass: 'bg-purple-600 shadow-purple-500/20', hoverIconClass: 'text-purple-500 group-hover:text-purple-600', permission: 'viewLeads' },
                   { id: 'finance', label: 'Finance', icon: BarChart3, colorClass: 'bg-emerald-600 shadow-emerald-500/20', hoverIconClass: 'text-emerald-500 group-hover:text-emerald-600', permission: 'viewFinance' },
+                  { id: 'credit_notes', label: 'Credit Notes', icon: Gift, colorClass: 'bg-orange-500 shadow-orange-500/20', hoverIconClass: 'text-orange-500 group-hover:text-orange-600', permission: 'viewFinance' },
                   { id: 'blogs', label: 'Blogs', icon: BookOpen, colorClass: 'bg-rose-500 shadow-rose-500/20', hoverIconClass: 'text-rose-500 group-hover:text-rose-600', permission: 'viewBlogs' },
                   { id: 'settings', label: 'Settings', icon: Settings, colorClass: 'bg-luxury-gold shadow-luxury-gold/20', hoverIconClass: 'text-luxury-gold group-hover:text-luxury-dark', permission: 'viewSettings' }
                 ].filter(tab => {
@@ -6556,6 +6597,8 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             showToast={showToast}
             userRole={userRole}
           />
+        ) : activeFilter === 'credit_notes' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewFinance)) ? (
+          <CreditNotesDashboard creditNotes={creditNotes} showToast={showToast} />
         ) : activeFilter === 'coupons' && (userRole === 'admin' || userRole === 'agent') ? (
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
@@ -7382,6 +7425,9 @@ export default {
                             <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest ${getStatusColor(booking.status)}`}>
                               {getStatusIcon(booking.status)}
                               {booking.status}
+                              {booking.status === 'cancelled' && booking.creditNoteIssued && (
+                                <span className="ml-1 tracking-widest opacity-80">- CN No: {booking.creditNoteCode}</span>
+                              )}
                             </span>
                             <div className="mt-4 p-4 bg-luxury-dark/5 rounded-2xl border border-luxury-dark/5">
                               <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold mb-3">Guest Details</p>
@@ -7594,8 +7640,8 @@ export default {
                                         handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
                                       }
                                     }}
-                                    disabled={booking.status === 'confirmed'}
-                                    className="flex-1 px-3 py-2 bg-emerald-600 text-white text-[10px] font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50 uppercase tracking-widest"
+                                    disabled={booking.status === 'confirmed' || (userRole === 'agent' && !userPermissions?.editBookings)}
+                                    className="flex-1 px-3 py-2 bg-emerald-600 text-white text-[10px] font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest"
                                   >
                                     Confirm
                                   </button>
@@ -7609,11 +7655,24 @@ export default {
                                         handleFirestoreError(error, OperationType.UPDATE, `bookings/${booking.id}`);
                                       }
                                     }}
-                                    disabled={booking.status === 'cancelled'}
-                                    className="flex-1 px-3 py-2 bg-red-600 text-white text-[10px] font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 uppercase tracking-widest"
+                                    disabled={booking.status === 'cancelled' || (userRole === 'agent' && !userPermissions?.editBookings)}
+                                    className="flex-1 px-3 py-2 bg-red-600 text-white text-[10px] font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest"
                                   >
                                     Cancel
                                   </button>
+                                  {(booking.amountPaid || 0) > 0 && booking.status !== 'cancelled' && (
+                                    <button 
+                                      onClick={() => {
+                                        setCreditNoteBooking(booking);
+                                        setCreditNoteAmount(booking.amountPaid || 0);
+                                        setIsIssueCreditNoteOpen(true);
+                                      }}
+                                      disabled={userRole === 'agent' && !userPermissions?.editBookings}
+                                      className="flex-1 px-3 py-2 bg-orange-500 text-white text-[10px] font-bold rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest"
+                                    >
+                                      Issue CN & Cancel
+                                    </button>
+                                  )}
                                 </div>
                                 <button 
                                   onClick={() => {
@@ -7751,6 +7810,9 @@ export default {
                       <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest ${getStatusColor(booking.status)}`}>
                         {getStatusIcon(booking.status)}
                         {booking.status}
+                        {booking.status === 'cancelled' && booking.creditNoteIssued && (
+                          <span className="ml-1 tracking-widest opacity-80">- CN No: {booking.creditNoteCode}</span>
+                        )}
                       </span>
                       <div className="mt-4 p-4 bg-luxury-dark/5 rounded-2xl border border-luxury-dark/5">
                         <p className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold mb-3">Guest Details</p>
@@ -8024,6 +8086,45 @@ export default {
           title="Delete Booking"
           message={`Are you sure you want to delete the booking for ${bookingToDelete?.name}? This action cannot be undone.`}
           confirmText="Delete"
+          type="danger"
+        />
+      )}
+
+      {isIssueCreditNoteOpen && creditNoteBooking && (
+        <ConfirmationModal 
+          isOpen={isIssueCreditNoteOpen}
+          onClose={() => { setIsIssueCreditNoteOpen(false); setCreditNoteBooking(null); }}
+          onConfirm={async () => {
+            try {
+              const code = 'CN-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+              await addDoc(collection(db, 'credit_notes'), {
+                code,
+                originalBookingId: creditNoteBooking.id,
+                customerName: creditNoteBooking.name || 'Unknown',
+                customerMobile: creditNoteBooking.mobile || '',
+                customerEmail: creditNoteBooking.email || '',
+                amount: creditNoteAmount,
+                balance: creditNoteAmount,
+                status: 'active',
+                createdAt: serverTimestamp(),
+                history: []
+              });
+              
+              await setDoc(doc(db, 'bookings', creditNoteBooking.id), { status: 'cancelled', creditNoteIssued: true, creditNoteCode: code }, { merge: true });
+              await deleteDoc(doc(db, 'availability', creditNoteBooking.id));
+              await logAdminAction('issue_credit_note', creditNoteBooking.id, `Issued CN ${code} for ₹${creditNoteAmount} and cancelled booking`);
+              
+              showToast(`Credit note ${code} issued successfully`, 'success');
+              setIsIssueCreditNoteOpen(false);
+              setCreditNoteBooking(null);
+            } catch (error: any) {
+              console.error("CN Issue Error:", error);
+              showToast(`Failed to issue credit note: ${error.message || 'Unknown error'}`, 'error');
+            }
+          }}
+          title="Issue Credit Note & Cancel"
+          message={`You are cancelling ${creditNoteBooking.name}'s booking. They paid an advance of ₹${creditNoteBooking.amountPaid?.toLocaleString()}. Confirm issuance of a Credit Note for ₹${creditNoteAmount}?`}
+          confirmText="Issue CN & Cancel"
           type="danger"
         />
       )}
@@ -9684,12 +9785,12 @@ export const CustomInteractiveCalendar = ({
             const tEnd = end.getTime();
 
             if (tDate > tStart && tDate < tEnd) {
-              morningStatus = b.status;
-              afternoonStatus = b.status;
+              morningStatus = b.status || 'blocked';
+              afternoonStatus = b.status || 'blocked';
             } else if (tDate === tStart) {
-              afternoonStatus = b.status;
+              afternoonStatus = b.status || 'blocked';
             } else if (tDate === tEnd) {
-              morningStatus = b.status;
+              morningStatus = b.status || 'blocked';
             }
           });
 
@@ -12907,7 +13008,8 @@ export default function App() {
   const location = useLocation();
   const isPropertySubSite = location.pathname.startsWith('/property/');
   const isShantiAdmin = location.pathname === '/shanti-farm-admin';
-  const hideMainLayout = isPropertySubSite || isShantiAdmin;
+  const isUpcomingSummary = location.pathname === '/upcoming-summary';
+  const hideMainLayout = isPropertySubSite || isShantiAdmin || isUpcomingSummary;
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [currentTheme, setCurrentTheme] = useState(() => {
@@ -13284,6 +13386,42 @@ export default function App() {
     };
   }, []);
 
+  // Admin cleanup for stale availability docs
+  useEffect(() => {
+    if (userRole !== 'admin') return;
+    const cleanupStaleAvailability = async () => {
+      try {
+        const batch = writeBatch(db);
+        let count = 0;
+        
+        // Clean up orphaned or cancelled availability docs
+        const availSnapshot = await getDocs(collection(db, 'availability'));
+        for (const availDoc of availSnapshot.docs) {
+           const bookingRef = doc(db, 'bookings', availDoc.id);
+           const bookingSnap = await getDoc(bookingRef);
+           if (!bookingSnap.exists()) {
+               batch.delete(doc(db, 'availability', availDoc.id));
+               count++;
+           } else {
+               const bData = bookingSnap.data();
+               if (bData && (bData.status === 'cancelled' || bData.status === 'abandoned')) {
+                   batch.delete(doc(db, 'availability', availDoc.id));
+                   count++;
+               }
+           }
+        }
+        
+        if (count > 0) {
+          await batch.commit();
+          console.log(`Cleaned up ${count} stale availability records.`);
+        }
+      } catch (err) {
+        console.error('Failed to cleanup stale availability:', err);
+      }
+    };
+    cleanupStaleAvailability();
+  }, [userRole]);
+
   useEffect(() => {
     const qGallery = query(collection(db, 'gallery'));
     const unsubscribeGallery = onSnapshot(qGallery, (snapshot) => {
@@ -13568,6 +13706,7 @@ export default function App() {
             <Route path="/other-properties" element={<OtherPropertiesPage />} />
             <Route path="/property/:propertyId" element={<PropertySubSite allBookings={allBookings} pricingSettings={pricingSettings} onBookNow={openBookingModal} />} />
             <Route path="/shanti-farm-admin" element={<ShantiFarmAdmin />} />
+            <Route path="/upcoming-summary" element={<UpcomingSummaryPage />} />
           </Routes>
         </React.Suspense>
       </main>
