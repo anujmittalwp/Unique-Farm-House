@@ -13,7 +13,8 @@ export const UpcomingSummaryPage = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'uniquefarms123' || password === 'Uniquefarms123') { // Simple default password mechanism
+    const expectedPassword = import.meta.env.VITE_UPCOMING_SUMMARY_PASSWORD || '123456789';
+    if (password === expectedPassword) { // Verify against environment secret or fallback
       setIsAuthenticated(true);
       fetchBookings();
     } else {
