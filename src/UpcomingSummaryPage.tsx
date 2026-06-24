@@ -69,7 +69,7 @@ export const UpcomingSummaryPage = () => {
         }
       });
 
-      fetched.sort((a, b) => {
+      fetched.sort((a: any, b: any) => {
         try {
           if (!a.checkIn || !b.checkIn) return 0;
           const dA = parse(a.checkIn, 'dd/MM/yyyy', new Date());
@@ -124,7 +124,7 @@ export const UpcomingSummaryPage = () => {
         <div className="flex items-center justify-between mb-8 cursor-default">
           <h1 className="text-3xl font-serif font-bold text-[#1A1A1A]">Upcoming Bookings (Payments)</h1>
           <button 
-             onClick={fetchBookings} 
+             onClick={() => fetchBookings(password)} 
              disabled={loading}
              className="px-6 py-2 bg-white rounded-full border border-luxury-dark/10 text-xs font-bold uppercase tracking-widest text-luxury-dark hover:bg-luxury-cream transition-colors disabled:opacity-50"
           >

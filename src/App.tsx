@@ -49,6 +49,7 @@ import {
   Images,
   Edit2,
   Trash2,
+  Printer,
   CreditCard,
   LogOut,
   History,
@@ -154,6 +155,7 @@ import { OtherPropertiesPage, PropertySubSite } from './PropertySubSite';
 import { CreditNotesDashboard } from './CreditNotesDashboard';
 import { ShantiFarmAdmin } from './ShantiFarmAdmin';
 import { UpcomingSummaryPage } from './UpcomingSummaryPage';
+import { VoucherPage } from './VoucherPage';
 import { auth, db } from './firebase';
 
 export const AVAILABLE_THEMES = [
@@ -7674,16 +7676,24 @@ export default {
                                     </button>
                                   )}
                                 </div>
-                                <button 
-                                  onClick={() => {
-                                    setBookingToDelete(booking);
-                                    setIsConfirmModalOpen(true);
-                                  }}
-                                  disabled={userRole === 'agent' && !userPermissions?.deleteBookings}
-                                  className="w-full px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest"
-                                >
-                                  <Trash2 size={12} /> Delete Booking
-                                </button>
+                                <div className="flex gap-2">
+                                  <button 
+                                    onClick={() => window.open(`/voucher/${booking.id}`, '_blank')}
+                                    className="flex-1 px-3 py-2 border border-luxury-dark/20 text-luxury-dark text-[10px] font-bold rounded-xl hover:bg-luxury-dark/5 transition-colors flex items-center justify-center gap-2 uppercase tracking-widest"
+                                  >
+                                    <Printer size={12} /> Voucher
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setBookingToDelete(booking);
+                                      setIsConfirmModalOpen(true);
+                                    }}
+                                    disabled={userRole === 'agent' && !userPermissions?.deleteBookings}
+                                    className="flex-1 px-3 py-2 border border-red-200 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest"
+                                  >
+                                    <Trash2 size={12} /> Delete Booking
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -9930,6 +9940,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   }, [prefilledCheckOut, editBooking]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
   const [isAdminBooking, setIsAdminBooking] = useState((userRole === 'admin' || userRole === 'agent') && !editBooking);
   const [hasSetDefaultBookingMode, setHasSetDefaultBookingMode] = useState(false);
   const [bookingAmount, setBookingAmount] = useState<number>(editBooking?.bookingAmount || (editBooking ? (editBooking.totalAmount - (editBooking.securityDeposit || pricingSettings?.security || 5000)) : 0));
@@ -9977,6 +9988,35 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     }
   }, [userRole, isAdminBooking]);
 
+  const getCalculatedTotalNights = useCallback(() => {
+    if (!checkIn || !checkOut) return 1;
+    const start = new Date(checkIn);
+    const end = new Date(checkOut);
+    let totalNights = 0;
+    let current = new Date(start);
+    while (current < end) {
+      totalNights++;
+      current.setDate(current.getDate() + 1);
+    }
+    return totalNights === 0 ? 1 : totalNights;
+  }, [checkIn, checkOut]);
+
+  const calculateAddonPrice = useCallback((addon: any) => {
+    const price = Number(addon.price) || 0;
+    const qty = addon.quantity || 1;
+    const type = addon.type || 'flat';
+    const totalNights = getCalculatedTotalNights();
+    
+    if (type === 'flat') return price;
+    if (type === 'per_night') return price * totalNights;
+    if (type === 'per_unit') return price * qty;
+    if (type === 'per_unit_per_night') return price * qty * totalNights;
+    return price;
+  }, [getCalculatedTotalNights]);
+
+  // We store the previous totalNights so we can calculate addon diffs if dates change
+  const [prevNights, setPrevNights] = useState<number>(1);
+
   useEffect(() => {
     if (!editBooking && checkIn && checkOut) {
       const start = new Date(checkIn);
@@ -9997,21 +10037,30 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       }
       if (totalNights === 0) totalNights = 1;
       
-      const addonsTotal = selectedAddons.reduce((sum, addon) => {
-        const price = Number(addon.price) || 0;
-        const qty = addon.quantity || 1;
-        const type = addon.type || 'flat';
-        
-        if (type === 'flat') return sum + price;
-        if (type === 'per_night') return sum + (price * totalNights);
-        if (type === 'per_unit') return sum + (price * qty);
-        if (type === 'per_unit_per_night') return sum + (price * qty * totalNights);
-        return sum + price;
-      }, 0);
+      // Calculate diff for addons based on old vs new nights (if any per_night addons exist)
+      let addonDiff = 0;
+      if (totalNights !== prevNights) {
+        selectedAddons.forEach(addon => {
+          const price = Number(addon.price) || 0;
+          const qty = addon.quantity || 1;
+          if (addon.type === 'per_night') {
+            addonDiff += (price * totalNights) - (price * prevNights);
+          } else if (addon.type === 'per_unit_per_night') {
+            addonDiff += (price * qty * totalNights) - (price * qty * prevNights);
+          }
+        });
+        setPrevNights(totalNights);
+      }
       
-      setBookingAmount(total + addonsTotal);
+      // We only want to set base booking amount if the user hasn't heavily modified it
+      setBookingAmount(prev => {
+         if (prev === 0 || !prev) {
+            return total;
+         }
+         return total;
+      });
     }
-  }, [checkIn, checkOut, editBooking, pricingSettings, selectedAddons]);
+  }, [checkIn, checkOut, editBooking, pricingSettings]);
 
   useEffect(() => {
     if (checkIn && checkOut) {
@@ -10131,7 +10180,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
     return amt;
   }, [bookingAmount, appliedCoupon]);
 
-  const totalAmount = discountedBookingAmount + securityAmount;
+  const addonsTotalAmount = useMemo(() => {
+    return selectedAddons.reduce((sum, addon) => sum + calculateAddonPrice(addon), 0);
+  }, [selectedAddons, calculateAddonPrice]);
+
+  const totalAmount = discountedBookingAmount + addonsTotalAmount + securityAmount;
 
   const handleBookNow = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -10396,13 +10449,13 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         status: editBooking ? editBooking.status : (isAdminBooking ? 'confirmed' : 'pending'),
         originalBookingAmount: Number(bookingAmount) || 0,
         bookingAmount: Number(discountedBookingAmount) || 0,
-        totalAmount: Number(discountedBookingAmount + securityAmount) || 0,
+        totalAmount: Number(discountedBookingAmount + addonsTotalAmount + securityAmount) || 0,
         appliedCoupon: appliedCoupon ? { code: appliedCoupon.code, discount: appliedCoupon.discount, type: appliedCoupon.type } : null,
         addons: selectedAddons,
         amountPaid: Number(totalPaidAmount) || 0,
         securityDeposit: Number(securityAmount) || 0,
         expenses: expenses || [],
-        paymentStatus: (totalPaidAmount + (bookingSource === 'partner' ? advanceByPartner : 0)) >= (discountedBookingAmount + securityAmount) ? 'paid' : ((totalPaidAmount + (bookingSource === 'partner' ? advanceByPartner : 0)) > 0 ? 'part-paid' : 'unpaid'),
+        paymentStatus: (totalPaidAmount + (bookingSource === 'partner' ? advanceByPartner : 0)) >= (discountedBookingAmount + addonsTotalAmount + securityAmount) ? 'paid' : ((totalPaidAmount + (bookingSource === 'partner' ? advanceByPartner : 0)) > 0 ? 'part-paid' : 'unpaid'),
         createdAt: editBooking ? editBooking.createdAt : serverTimestamp(),
         name: name || '',
         mobile: mobile || '',
@@ -10423,6 +10476,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       console.log('Submitting booking data:', bookingData);
 
       if (editBooking) {
+        setCreatedBookingId(editBooking.id);
         await setDoc(doc(db, 'bookings', editBooking.id), bookingData);
         await setDoc(doc(db, 'availability', editBooking.id), {
           checkIn: bookingData.checkIn,
@@ -10437,6 +10491,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         }
       } else {
         const docRef = await addDoc(collection(db, 'bookings'), bookingData);
+        setCreatedBookingId(docRef.id);
         console.log('Booking created with ID:', docRef.id);
         
         await setDoc(doc(db, 'availability', docRef.id), {
@@ -10489,8 +10544,6 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   };
 
   if (success) {
-    const totalAmount = bookingAmount + securityAmount;
-
     return (
       <div className="py-8 text-center">
         <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -10593,8 +10646,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                   <div className="space-y-1.5">
                     {selectedAddons.map((addon, idx) => (
                       <div key={idx} className="flex justify-between items-center">
-                        <p className="text-sm text-luxury-dark/70">{addon.name}</p>
-                        <p className="font-bold text-luxury-dark text-sm">₹{Number(addon.price).toLocaleString()}</p>
+                        <p className="text-sm text-luxury-dark/70">{addon.name} {addon.quantity && addon.quantity > 1 ? `(x${addon.quantity})` : ''}</p>
+                        <p className="font-bold text-luxury-dark text-sm">₹{calculateAddonPrice(addon).toLocaleString()}</p>
                       </div>
                     ))}
                   </div>
@@ -10626,13 +10679,25 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row gap-3">
           <button 
             onClick={onClose}
             className="luxury-button flex-1"
           >
             Close & Return
           </button>
+          {createdBookingId && (
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                window.open(`/voucher/${createdBookingId}`, '_blank');
+              }}
+              className="px-6 py-3 bg-luxury-dark text-white rounded-xl font-bold uppercase tracking-widest text-[10px] hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 flex-1"
+            >
+              <Printer size={16} /> Voucher
+            </button>
+          )}
           <a 
             href={`https://wa.me/919313501001?text=${encodeURIComponent(`*Booking Request Summary for Unique Farmhouse*\n\n*Name:* ${name}\n*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}\n*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}\n*Guests:* ${dayGuestAdults + dayGuestChildren.length} Day (${dayGuestAdults}A, ${dayGuestChildren.length}C) / ${nightGuestAdults + nightGuestChildren.length} Night (${nightGuestAdults}A, ${nightGuestChildren.length}C)\n*Total Amount:* ₹${totalAmount.toLocaleString()}`)}`}
             target="_blank"
@@ -10640,7 +10705,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
             className="luxury-button-outline flex-1 flex items-center justify-center gap-2"
           >
             <MessageSquare size={18} />
-            Share on WhatsApp
+            WhatsApp
           </a>
         </div>
         <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mt-6">You can track this booking in "My Bookings" section</p>
@@ -11217,15 +11282,20 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
             {pricingSettings.addons.map((addon, idx) => {
               const selectedItem = selectedAddons.find(a => a.name === addon.name);
               const isSelected = !!selectedItem;
+              
+              const handleUpdateAddons = (newAddons: any[]) => {
+                setSelectedAddons(newAddons);
+              };
+              
               return (
                 <div 
                   key={idx}
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest && (e.target as HTMLElement).closest('.addon-qty-btn')) return;
                     if (isSelected) {
-                      setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
+                      handleUpdateAddons(selectedAddons.filter(a => a.name !== addon.name));
                     } else {
-                      setSelectedAddons([...selectedAddons, { ...addon, quantity: 1 }]);
+                      handleUpdateAddons([...selectedAddons, { ...addon, quantity: 1 }]);
                     }
                   }}
                   className={`flex justify-between items-center p-3 rounded-xl border transition-all cursor-pointer select-none ${
@@ -11249,9 +11319,9 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                           onClick={(e) => {
                             e.stopPropagation();
                             if (selectedItem && selectedItem.quantity > 1) {
-                              setSelectedAddons(selectedAddons.map(a => a.name === addon.name ? { ...a, quantity: a.quantity - 1 } : a));
+                              handleUpdateAddons(selectedAddons.map(a => a.name === addon.name ? { ...a, quantity: a.quantity - 1 } : a));
                             } else {
-                              setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
+                              handleUpdateAddons(selectedAddons.filter(a => a.name !== addon.name));
                             }
                           }}
                         >-</button>
@@ -11261,7 +11331,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
                           className="addon-qty-btn w-5 h-5 rounded border border-luxury-dark/10 flex items-center justify-center text-luxury-dark hover:bg-luxury-gold hover:text-white hover:border-luxury-gold transition-colors text-xs"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedAddons(selectedAddons.map(a => a.name === addon.name ? { ...a, quantity: (a.quantity || 1) + 1 } : a));
+                            handleUpdateAddons(selectedAddons.map(a => a.name === addon.name ? { ...a, quantity: (a.quantity || 1) + 1 } : a));
                           }}
                         >+</button>
                       </div>
@@ -11599,11 +11669,11 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
       
       {selectedAddons.length > 0 && (
         <div className="space-y-1.5 px-1 pb-2 border-b border-black/5">
-          <span className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Add-ons Included</span>
+          <span className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Add-on Charges</span>
           {selectedAddons.map((addon, idx) => (
             <div key={idx} className="flex justify-between items-center text-[10px] text-luxury-dark/60">
-              <span>{addon.name}</span>
-              <span>₹{Number(addon.price).toLocaleString()}</span>
+              <span>{addon.name} {addon.quantity && addon.quantity > 1 ? `(x${addon.quantity})` : ''}</span>
+              <span>₹{calculateAddonPrice(addon).toLocaleString()}</span>
             </div>
           ))}
         </div>
@@ -13009,7 +13079,8 @@ export default function App() {
   const isPropertySubSite = location.pathname.startsWith('/property/');
   const isShantiAdmin = location.pathname === '/shanti-farm-admin';
   const isUpcomingSummary = location.pathname === '/upcoming-summary';
-  const hideMainLayout = isPropertySubSite || isShantiAdmin || isUpcomingSummary;
+  const isVoucher = location.pathname.startsWith('/voucher/');
+  const hideMainLayout = isPropertySubSite || isShantiAdmin || isUpcomingSummary || isVoucher;
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [currentTheme, setCurrentTheme] = useState(() => {
@@ -13331,6 +13402,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (hideMainLayout) return;
     const hasVisited = localStorage.getItem('has_visited_unique_farmhouse');
     if (!hasVisited) {
       const timer = setTimeout(() => {
@@ -13339,7 +13411,7 @@ export default function App() {
       }, 2000); // Show after 2 seconds
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [hideMainLayout]);
 
   useEffect(() => {
     const qAvailability = query(collection(db, 'availability'), where('status', 'in', ['confirmed', 'pending']));
@@ -13707,6 +13779,7 @@ export default function App() {
             <Route path="/property/:propertyId" element={<PropertySubSite allBookings={allBookings} pricingSettings={pricingSettings} onBookNow={openBookingModal} />} />
             <Route path="/shanti-farm-admin" element={<ShantiFarmAdmin />} />
             <Route path="/upcoming-summary" element={<UpcomingSummaryPage />} />
+            <Route path="/voucher/:id" element={<VoucherPage />} />
           </Routes>
         </React.Suspense>
       </main>
