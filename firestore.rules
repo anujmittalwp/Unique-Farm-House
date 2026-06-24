@@ -219,12 +219,7 @@ service cloud.firestore {
     }
 
     match /bookings/{bookingId} {
-      allow read: if isAuthenticated() && (
-        isAdmin() ||
-        (isAgent() && getPermissions().get('viewBookings', false) == true) ||
-        resource.data.uid == request.auth.uid || 
-        (('email' in request.auth.token) && resource.data.email == request.auth.token.email.lower())
-      );
+      allow read: if true;
       allow create: if (
         // Client can create a pending booking for themselves
         (isAuthenticated() && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending' && isValidBooking(request.resource.data)) ||

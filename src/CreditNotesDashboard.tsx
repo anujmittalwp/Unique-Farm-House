@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Gift, Plus, X, Search, FileText } from 'lucide-react';
-import { collection, query, orderBy, onSnapshot, getFirestore, doc, setDoc, getDoc, arrayUnion } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, getFirestore, doc, setDoc, getDoc, arrayUnion, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 
 export const CreditNotesDashboard = ({ creditNotes, showToast }: { creditNotes: any[], showToast: any }) => {
@@ -11,6 +11,21 @@ export const CreditNotesDashboard = ({ creditNotes, showToast }: { creditNotes: 
   const [bookingId, setBookingId] = useState('');
   const [redeemAmount, setRedeemAmount] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showBookingSuggestions, setShowBookingSuggestions] = useState(false);
+  const [localBookings, setLocalBookings] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchBookings = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'bookings'));
+        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setLocalBookings(data);
+      } catch (err) {
+        console.error("Failed to fetch bookings", err);
+      }
+    };
+    fetchBookings();
+  }, []);
 
   const filteredNotes = creditNotes.filter(cn => {
     const codeMatch = cn.code?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -19,6 +34,17 @@ export const CreditNotesDashboard = ({ creditNotes, showToast }: { creditNotes: 
     const mobileMatch = mobileStr.includes(searchTerm);
     return codeMatch || nameMatch || mobileMatch;
   });
+
+  const suggestedBookings = localBookings.filter(b => {
+    if (!bookingId || bookingId.length < 2) return false;
+    if (['cancelled', 'abandoned'].includes(b.status)) return false; 
+    const search = bookingId.toLowerCase();
+    return (
+      (b.id && b.id.toLowerCase().includes(search)) ||
+      (b.name && b.name.toLowerCase().includes(search)) ||
+      (b.phone && String(b.phone).includes(search))
+    );
+  }).slice(0, 5);
 
   const handleRedeem = async () => {
     if (!bookingId || redeemAmount <= 0 || !redeemCN) {
@@ -31,19 +57,36 @@ export const CreditNotesDashboard = ({ creditNotes, showToast }: { creditNotes: 
     }
     setIsProcessing(true);
     try {
-      const bookingRef = doc(db, 'bookings', bookingId);
-      const bookingSnap = await getDoc(bookingRef);
-      if (!bookingSnap.exists()) {
-         showToast('Booking ID not found', 'error');
-         setIsProcessing(false);
-         return;
+      let targetBookingRef;
+      let targetBookingSnap;
+      
+      const cleanBookingId = bookingId.trim();
+      if (cleanBookingId.length < 15) {
+         const bookingsSnap = await getDocs(collection(db, 'bookings'));
+         const foundDoc = bookingsSnap.docs.find(d => d.id.startsWith(cleanBookingId));
+         if (foundDoc) {
+             targetBookingRef = doc(db, 'bookings', foundDoc.id);
+             targetBookingSnap = foundDoc;
+         } else {
+             showToast('Booking ID not found', 'error');
+             setIsProcessing(false);
+             return;
+         }
+      } else {
+         targetBookingRef = doc(db, 'bookings', cleanBookingId);
+         targetBookingSnap = await getDoc(targetBookingRef);
+         if (!targetBookingSnap.exists()) {
+             showToast('Booking ID not found', 'error');
+             setIsProcessing(false);
+             return;
+         }
       }
       
       const cnRef = doc(db, 'credit_notes', redeemCN.id);
       const newBalance = redeemCN.balance - redeemAmount;
       const historyEntry = {
         amount: redeemAmount,
-        bookingId: bookingId,
+        bookingId: targetBookingRef.id,
         date: new Date().toISOString()
       };
       
@@ -53,11 +96,11 @@ export const CreditNotesDashboard = ({ creditNotes, showToast }: { creditNotes: 
         date: new Date().toISOString().split('T')[0]
       };
       
-      const currentPayments = bookingSnap.data().payments || [];
-      const currentPaid = bookingSnap.data().amountPaid || 0;
+      const currentPayments = targetBookingSnap.data().payments || [];
+      const currentPaid = targetBookingSnap.data().amountPaid || 0;
       
       // Update Booking
-      await setDoc(bookingRef, {
+      await setDoc(targetBookingRef, {
         payments: [...currentPayments, paymentEntry],
         amountPaid: currentPaid + redeemAmount
       }, { merge: true });
@@ -184,16 +227,38 @@ export const CreditNotesDashboard = ({ creditNotes, showToast }: { creditNotes: 
                 Applying Credit Note <strong>{redeemCN.code}</strong>. Client <strong>{redeemCN.customerName}</strong> has <strong>₹{redeemCN.balance.toLocaleString()}</strong> available.
               </p>
               <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-luxury-dark/60 uppercase tracking-widest mb-2">Target Booking ID</label>
+                <div className="relative">
+                  <label className="block text-[10px] font-bold text-luxury-dark/60 uppercase tracking-widest mb-2">Target Booking</label>
                   <input 
                     type="text"
                     value={bookingId}
-                    onChange={(e) => setBookingId(e.target.value)}
-                    placeholder="Paste the new booking ID here..."
-                    className="w-full bg-luxury-dark/5 border-none rounded-xl px-4 py-3 text-luxury-dark font-bold font-mono focus:ring-1 focus:ring-luxury-gold"
+                    onChange={(e) => {
+                       setBookingId(e.target.value);
+                       setShowBookingSuggestions(true);
+                    }}
+                    onFocus={() => setShowBookingSuggestions(true)}
+                    placeholder="Search by ID, Name or Phone..."
+                    className="w-full bg-luxury-dark/5 border-none rounded-xl px-4 py-3 text-luxury-dark font-bold focus:ring-1 focus:ring-luxury-gold"
                   />
-                  <p className="text-[10px] text-luxury-dark/40 mt-1 italic">Tip: You can copy the booking ID from the Bookings tab.</p>
+                  
+                  {showBookingSuggestions && suggestedBookings.length > 0 && (
+                     <div className="absolute z-10 w-full mt-2 bg-white rounded-xl shadow-xl border border-luxury-dark/10 overflow-hidden max-h-48 overflow-y-auto">
+                        {suggestedBookings.map((b) => (
+                           <div 
+                             key={b.id} 
+                             className="px-4 py-3 hover:bg-luxury-cream cursor-pointer border-b border-luxury-dark/5 last:border-0"
+                             onClick={() => {
+                               setBookingId(b.id);
+                               setShowBookingSuggestions(false);
+                             }}
+                           >
+                             <div className="font-bold text-sm text-luxury-dark">{b.name} <span className="font-normal text-xs text-luxury-dark/60">({b.phone})</span></div>
+                             <div className="text-[10px] text-luxury-dark/60 font-mono mt-0.5">ID: {b.id} • {b.checkIn} - {b.checkOut} • {b.status?.toUpperCase()}</div>
+                           </div>
+                        ))}
+                     </div>
+                  )}
+                  <p className="text-[10px] text-luxury-dark/40 mt-1 italic">Tip: Search and select a booking from the list.</p>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-luxury-dark/60 uppercase tracking-widest mb-2">Amount to Apply (₹)</label>

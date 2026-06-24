@@ -11,19 +11,21 @@ export const UpcomingSummaryPage = () => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [error, setError] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     const expectedPassword = import.meta.env.VITE_UPCOMING_SUMMARY_PASSWORD || '123456789';
     if (password === expectedPassword) { // Verify against environment secret or fallback
       setIsAuthenticated(true);
-      fetchBookings();
+      await fetchBookings(password);
     } else {
       setError('Incorrect password');
     }
   };
 
-  const fetchBookings = async () => {
+  const fetchBookings = async (pwd?: string) => {
     setLoading(true);
+    setError('');
     try {
       const q = query(
         collection(db, 'bookings'),
@@ -36,16 +38,14 @@ export const UpcomingSummaryPage = () => {
       const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((b: any) => {
         if (b.status === 'cancelled' || b.status === 'abandoned' || b.status === 'pending') return false;
         try {
-          // If no checkout somehow, skip
           if (!b.checkOut) return false;
           const checkOutDate = parse(b.checkOut, 'dd/MM/yyyy', new Date());
           return checkOutDate >= today;
         } catch {
-          return true; // if date unparsable, still try to show it so we don't lose data
+          return true; 
         }
       });
 
-      // Fetch pending bookings too because some might have paid some amount but not confirmed yet
       const qPending = query(
         collection(db, 'bookings'),
         where('status', '==', 'pending')
@@ -53,13 +53,15 @@ export const UpcomingSummaryPage = () => {
       const snapPending = await getDocs(qPending);
       snapPending.docs.forEach(doc => {
         const b = { id: doc.id, ...doc.data() } as any;
-        if (b.amountPaid > 0) {
+        if ((b.amountPaid || 0) > 0) {
           try {
             if (b.checkOut) {
               const outDate = parse(b.checkOut, 'dd/MM/yyyy', new Date());
               if (outDate >= today) {
                 fetched.push(b);
               }
+            } else {
+               fetched.push(b);
             }
           } catch {
              fetched.push(b);
@@ -67,9 +69,9 @@ export const UpcomingSummaryPage = () => {
         }
       });
 
-      // Sort by checkIn date ascending
       fetched.sort((a, b) => {
         try {
+          if (!a.checkIn || !b.checkIn) return 0;
           const dA = parse(a.checkIn, 'dd/MM/yyyy', new Date());
           const dB = parse(b.checkIn, 'dd/MM/yyyy', new Date());
           return dA.getTime() - dB.getTime();
