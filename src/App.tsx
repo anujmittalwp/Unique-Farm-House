@@ -585,7 +585,7 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
   );
 };
 
-const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+const AuthModal = ({ isOpen, onClose, siteSettings }: { isOpen: boolean; onClose: () => void; siteSettings?: any }) => {
   useEscapeKey(onClose, isOpen);
   const [isLogin, setIsLogin] = useState(true);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
@@ -5027,6 +5027,8 @@ const MyBookings = ({
   onLogout, 
   galleryImages, 
   heroSettings, 
+  aboutSettings,
+  siteSettings,
   replyTemplates, 
   pricingSettings,
   onClearCache,
@@ -5052,6 +5054,8 @@ const MyBookings = ({
   onLogout: () => void;
   galleryImages: any[];
   heroSettings: any;
+  aboutSettings: any;
+  siteSettings: any;
   replyTemplates: any;
   pricingSettings: any;
   onClearCache?: () => void;
@@ -5112,38 +5116,84 @@ const MyBookings = ({
   const [isAnalyzeConfirmOpen, setIsAnalyzeConfirmOpen] = useState(false);
   const [galleryImageToDelete, setGalleryImageToDelete] = useState<any | null>(null);
   const [isGalleryDeleteConfirmOpen, setIsGalleryDeleteConfirmOpen] = useState(false);
+  const [isBatchGalleryDeleteConfirmOpen, setIsBatchGalleryDeleteConfirmOpen] = useState(false);
   const [isClearCacheConfirmOpen, setIsClearCacheConfirmOpen] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number } | null>(null);
   const [editingGalleryImage, setEditingGalleryImage] = useState<any | null>(null);
   const [seedProgress, setSeedProgress] = useState<{ current: number; total: number } | null>(null);
+  const [selectedGalleryImages, setSelectedGalleryImages] = useState<string[]>([]);
+  const [isBatchDeletingGallery, setIsBatchDeletingGallery] = useState(false);
   const canAddSettingsAdmin = userRole === 'admin' || (userRole === 'agent' && userPermissions?.addSettings);
   const canEditSettingsAdmin = userRole === 'admin' || (userRole === 'agent' && userPermissions?.editSettings);
   const canDeleteSettingsAdmin = userRole === 'admin' || (userRole === 'agent' && userPermissions?.deleteSettings);
 
   const galleryCategories = ['Villa', 'Pool', 'Interiors', 'Dining', 'Activities', 'Amenities'];
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 800 * 1024) { // Firestore has 1MB limit, keeping it safe at 800KB
-        showToast('Image size should be less than 800KB for direct upload. For larger images, please use a URL.', 'error');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (isEdit && editingGalleryImage) {
-          setEditingGalleryImage({ ...editingGalleryImage, src: reader.result as string });
-        } else {
-          setNewGalleryImage(prev => ({ ...prev, src: reader.result as string }));
+      if (cloudinarySettings.cloudName && cloudinarySettings.uploadPreset) {
+        // Upload to Cloudinary
+        showToast('Uploading to Cloudinary...', 'info');
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', cloudinarySettings.uploadPreset);
+        
+        try {
+          const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudinarySettings.cloudName}/image/upload`, {
+            method: 'POST',
+            body: formData
+          });
+          const data = await res.json();
+          if (data.secure_url) {
+            if (isEdit && editingGalleryImage) {
+              setEditingGalleryImage({ ...editingGalleryImage, src: data.secure_url });
+            } else {
+              setNewGalleryImage(prev => ({ ...prev, src: data.secure_url }));
+            }
+            showToast('Image uploaded successfully', 'success');
+          } else {
+            showToast('Failed to upload image', 'error');
+          }
+        } catch (error) {
+          console.error("Cloudinary upload error:", error);
+          showToast('Failed to upload to Cloudinary', 'error');
         }
-      };
-      reader.readAsDataURL(file);
+      } else {
+        // Fallback to base64
+        if (file.size > 800 * 1024) { // Firestore has 1MB limit, keeping it safe at 800KB
+          showToast('Image size should be less than 800KB for direct upload. For larger images, please use a URL or setup Cloudinary.', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (isEdit && editingGalleryImage) {
+            setEditingGalleryImage({ ...editingGalleryImage, src: reader.result as string });
+          } else {
+            setNewGalleryImage(prev => ({ ...prev, src: reader.result as string }));
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
   // Hero Settings State
   const [editingHero, setEditingHero] = useState<any>(null);
   const [isSavingHero, setIsSavingHero] = useState(false);
+
+  // About Settings State
+  const [editingAbout, setEditingAbout] = useState<any>(null);
+  const [isSavingAbout, setIsSavingAbout] = useState(false);
+
+  // Site Settings State
+  const [editingSite, setEditingSite] = useState<any>(null);
+  const [isSavingSite, setIsSavingSite] = useState(false);
+
+  // Cloudinary Settings State
+  const [cloudinarySettings, setCloudinarySettings] = useState({ cloudName: '', uploadPreset: '', apiKey: '', apiSecret: '' });
+  const [isSavingCloudinary, setIsSavingCloudinary] = useState(false);
+  const [isSyncingCloudinary, setIsSyncingCloudinary] = useState(false);
 
   // Pricing Settings State
   const [editingPricing, setEditingPricing] = useState<any>(null);
@@ -5152,6 +5202,15 @@ const MyBookings = ({
   // Reply Templates State
   const [editingReplyTemplates, setEditingReplyTemplates] = useState<any>(null);
   const [isSavingReplyTemplates, setIsSavingReplyTemplates] = useState(false);
+
+  useEffect(() => {
+    const unsubscribeCloudinary = onSnapshot(doc(db, 'settings', 'cloudinary'), (docSnap) => {
+      if (docSnap.exists()) {
+        setCloudinarySettings(docSnap.data() as any);
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/cloudinary'));
+    return () => unsubscribeCloudinary();
+  }, []);
 
   useEffect(() => {
     if (replyTemplates) {
@@ -5175,6 +5234,27 @@ const MyBookings = ({
       });
     }
   }, [pricingSettings]);
+
+  useEffect(() => {
+    if (aboutSettings) {
+      setEditingAbout(aboutSettings);
+    } else {
+      setEditingAbout({
+        image1: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720358/1_w50zwj.jpg",
+        image2: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg"
+      });
+    }
+  }, [aboutSettings]);
+
+  useEffect(() => {
+    if (siteSettings) {
+      setEditingSite(siteSettings);
+    } else {
+      setEditingSite({
+        logoUrl: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"
+      });
+    }
+  }, [siteSettings]);
 
   useEffect(() => {
     if (heroSettings) {
@@ -5238,6 +5318,25 @@ const MyBookings = ({
   const handleDeleteGalleryImage = (image: any) => {
     setGalleryImageToDelete(image);
     setIsGalleryDeleteConfirmOpen(true);
+  };
+
+  const toggleGalleryImageSelection = (id: string) => {
+    setSelectedGalleryImages(prev => 
+      prev.includes(id) ? prev.filter(imgId => imgId !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllGalleryImages = () => {
+    if (selectedGalleryImages.length === galleryImages.length) {
+      setSelectedGalleryImages([]);
+    } else {
+      setSelectedGalleryImages(galleryImages.map(img => img.id));
+    }
+  };
+
+  const handleBatchDeleteGalleryImages = () => {
+    if (selectedGalleryImages.length === 0) return;
+    setIsBatchGalleryDeleteConfirmOpen(true);
   };
 
   const handleRemoveDuplicates = async () => {
@@ -5421,7 +5520,19 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
     setIsFetchingCloudinary(true);
     try {
       const response = await fetch(BACKEND_URL + '/api/cloudinary/images');
-      if (!response.ok) throw new Error('Failed to fetch images');
+      if (!response.ok) {
+        let errorMsg = 'Failed to fetch images';
+        try {
+          const errData = await response.json();
+          errorMsg = errData.details?.message || errData.error || errorMsg;
+          if (errorMsg === 'disabled customer' || errorMsg.includes('Must supply api_key')) {
+            errorMsg = 'Cloudinary Account Issue: Please enter your NEW Cloudinary details in the "Cloudinary Auto-Setup" section on this page.';
+          }
+        } catch (e) {
+          // Ignore JSON parse error
+        }
+        throw new Error(errorMsg);
+      }
       const images = await response.json();
       
       const batch = writeBatch(db);
@@ -5436,9 +5547,9 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       }
       await batch.commit();
       showToast('Images imported from Cloudinary', 'success');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('Failed to import images', 'error');
+      showToast(err.message || 'Failed to import images', 'error');
     } finally {
       setIsFetchingCloudinary(false);
     }
@@ -5525,6 +5636,57 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
       showToast('Failed to save settings', 'error');
     } finally {
       setIsSavingHero(false);
+    }
+  };
+
+  const handleSaveAboutSettings = async () => {
+    setIsSavingAbout(true);
+    try {
+      await setDoc(doc(db, 'settings', 'about'), {
+        ...editingAbout,
+        updatedAt: serverTimestamp()
+      });
+      await logAdminAction('update_about_settings', 'about', 'Updated about section settings');
+      showToast('About settings saved successfully', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/about');
+      showToast('Failed to save settings', 'error');
+    } finally {
+      setIsSavingAbout(false);
+    }
+  };
+
+  const handleSaveSiteSettings = async () => {
+    setIsSavingSite(true);
+    try {
+      await setDoc(doc(db, 'settings', 'site'), {
+        ...editingSite,
+        updatedAt: serverTimestamp()
+      });
+      await logAdminAction('update_site_settings', 'site', 'Updated site settings');
+      showToast('Site settings saved successfully', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/site');
+      showToast('Failed to save settings', 'error');
+    } finally {
+      setIsSavingSite(false);
+    }
+  };
+
+  const handleSaveCloudinarySettings = async () => {
+    setIsSavingCloudinary(true);
+    try {
+      await setDoc(doc(db, 'settings', 'cloudinary'), {
+        ...cloudinarySettings,
+        updatedAt: serverTimestamp()
+      });
+      await logAdminAction('update_cloudinary_settings', 'cloudinary', 'Updated Cloudinary settings');
+      showToast('Cloudinary settings saved successfully', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/cloudinary');
+      showToast('Failed to save Cloudinary settings', 'error');
+    } finally {
+      setIsSavingCloudinary(false);
     }
   };
 
@@ -6248,7 +6410,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} />
+              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} siteSettings={siteSettings} />
             </div>
           </div>
         ) : reviewingBooking ? (
@@ -6275,7 +6437,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{(userRole === 'admin' || userRole === 'agent') ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
             <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} />
+              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} siteSettings={siteSettings} />
             </div>
           </div>
         ) : (
@@ -6676,6 +6838,66 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         ) : (activeFilter === 'gallery' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            
+            {canEditSettingsAdmin && (
+              <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-serif font-bold text-luxury-dark">Cloudinary Auto-Setup (API & Credentials)</h3>
+                  <button 
+                    onClick={handleSaveCloudinarySettings}
+                    disabled={isSavingCloudinary}
+                    className="px-6 py-2 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
+                  >
+                    {isSavingCloudinary ? 'Saving...' : 'Save Config'}
+                  </button>
+                </div>
+                <p className="text-xs text-luxury-dark/60 mb-6">Setup your Cloudinary account details to automatically fetch your gallery images from Cloudinary and upload directly to it.</p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Cloud Name</label>
+                    <input 
+                      type="text" 
+                      value={cloudinarySettings.cloudName}
+                      onChange={(e) => setCloudinarySettings({...cloudinarySettings, cloudName: e.target.value})}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      placeholder="e.g. dxyz12345"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Upload Preset</label>
+                    <input 
+                      type="text" 
+                      value={cloudinarySettings.uploadPreset}
+                      onChange={(e) => setCloudinarySettings({...cloudinarySettings, uploadPreset: e.target.value})}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      placeholder="e.g. ml_default"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">API Key</label>
+                    <input 
+                      type="text" 
+                      value={cloudinarySettings.apiKey}
+                      onChange={(e) => setCloudinarySettings({...cloudinarySettings, apiKey: e.target.value})}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      placeholder="e.g. 123456789012345"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">API Secret</label>
+                    <input 
+                      type="password" 
+                      value={cloudinarySettings.apiSecret}
+                      onChange={(e) => setCloudinarySettings({...cloudinarySettings, apiSecret: e.target.value})}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+                      placeholder="e.g. aBcD_eFgHiJkLmNoP"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <h3 className="text-xl font-serif font-bold text-luxury-dark mb-6">Add New Image to Gallery</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -6871,10 +7093,46 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
               </div>
             </div>
           </div>
+          
+          {canDeleteSettingsAdmin && galleryImages.length > 0 && (
+            <div className="flex justify-between items-center bg-white/60 backdrop-blur-3xl p-4 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handleSelectAllGalleryImages}
+                  className="px-4 py-2 bg-luxury-dark/5 text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all"
+                >
+                  {selectedGalleryImages.length === galleryImages.length ? 'Deselect All' : 'Select All'}
+                </button>
+                <span className="text-xs font-bold text-luxury-dark">
+                  {selectedGalleryImages.length} image(s) selected
+                </span>
+              </div>
+              
+              {selectedGalleryImages.length > 0 && (
+                <button
+                  onClick={handleBatchDeleteGalleryImages}
+                  disabled={isBatchDeletingGallery}
+                  className="px-6 py-2 bg-red-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-700 transition-all disabled:opacity-50"
+                >
+                  {isBatchDeletingGallery ? 'Deleting...' : `Delete Selected (${selectedGalleryImages.length})`}
+                </button>
+              )}
+            </div>
+          )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {galleryImages.map((img) => (
                 <div key={img.id} className="group relative bg-white rounded-2xl overflow-hidden border border-luxury-dark/5 shadow-sm">
+                  {canDeleteSettingsAdmin && (
+                    <div className="absolute top-3 left-3 z-10">
+                      <input 
+                        type="checkbox"
+                        checked={selectedGalleryImages.includes(img.id)}
+                        onChange={() => toggleGalleryImageSelection(img.id)}
+                        className="w-5 h-5 rounded border-gray-300 text-luxury-gold focus:ring-luxury-gold cursor-pointer"
+                      />
+                    </div>
+                  )}
                   <img src={img.src} alt={img.title} className="w-full h-48 object-cover" referrerPolicy="no-referrer" />
                   <div className="p-4">
                     {editingGalleryImage?.id === img.id ? (
@@ -7087,6 +7345,40 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
 
             <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
               <div className="flex justify-between items-center mb-8">
+                <h3 className="text-2xl font-serif font-bold text-luxury-dark">Site Settings</h3>
+                {canEditSettingsAdmin && (
+                  <button 
+                    onClick={handleSaveSiteSettings}
+                    disabled={isSavingSite}
+                    className="px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20"
+                  >
+                    {isSavingSite ? 'Saving...' : 'Save Settings'}
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-6 opacity-100">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Main Logo URL</label>
+                  <input 
+                    type="text" 
+                    value={editingSite?.logoUrl || ''}
+                    onChange={(e) => setEditingSite({...editingSite, logoUrl: e.target.value})}
+                    disabled={!canEditSettingsAdmin}
+                    className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                    placeholder="Enter main logo URL"
+                  />
+                  {editingSite?.logoUrl && (
+                    <div className="mt-2 relative w-full h-32 rounded-lg overflow-hidden border border-luxury-dark/10 bg-gray-100 flex items-center justify-center p-4">
+                      <img src={editingSite.logoUrl} alt="Logo Preview" className="max-h-full max-w-full object-contain" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-serif font-bold text-luxury-dark">Hero Section Settings</h3>
                 {canEditSettingsAdmin && (
                   <button 
@@ -7154,6 +7446,58 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                     rows={4}
                     className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all resize-none disabled:opacity-70 disabled:cursor-not-allowed"
                   />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+              <div className="flex justify-between items-center mb-8">
+                <h3 className="text-2xl font-serif font-bold text-luxury-dark">About Section Settings</h3>
+                {canEditSettingsAdmin && (
+                  <button 
+                    onClick={handleSaveAboutSettings}
+                    disabled={isSavingAbout}
+                    className="px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50 shadow-lg shadow-luxury-gold/20"
+                  >
+                    {isSavingAbout ? 'Saving...' : 'Save Settings'}
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-6 opacity-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">About Image 1 URL</label>
+                    <input 
+                      type="text" 
+                      value={editingAbout?.image1 || ''}
+                      onChange={(e) => setEditingAbout({...editingAbout, image1: e.target.value})}
+                      disabled={!canEditSettingsAdmin}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                      placeholder="Enter primary image URL"
+                    />
+                    {editingAbout?.image1 && (
+                      <div className="mt-2 relative w-full h-32 rounded-lg overflow-hidden border border-luxury-dark/10">
+                        <img src={editingAbout.image1} alt="Preview 1" className="w-full h-full object-cover" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">About Image 2 URL (Secondary)</label>
+                    <input 
+                      type="text" 
+                      value={editingAbout?.image2 || ''}
+                      onChange={(e) => setEditingAbout({...editingAbout, image2: e.target.value})}
+                      disabled={!canEditSettingsAdmin}
+                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                      placeholder="Enter secondary image URL"
+                    />
+                    {editingAbout?.image2 && (
+                      <div className="mt-2 relative w-full h-32 rounded-lg overflow-hidden border border-luxury-dark/10">
+                        <img src={editingAbout.image2} alt="Preview 2" className="w-full h-full object-cover" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -8193,6 +8537,38 @@ export default {
     </AnimatePresence>
 
     <AnimatePresence>
+      {isBatchGalleryDeleteConfirmOpen && (
+        <ConfirmationModal 
+          isOpen={isBatchGalleryDeleteConfirmOpen}
+          onClose={() => setIsBatchGalleryDeleteConfirmOpen(false)}
+          onConfirm={async () => {
+            setIsBatchDeletingGallery(true);
+            try {
+              const batch = writeBatch(db);
+              selectedGalleryImages.forEach(id => {
+                batch.delete(doc(db, 'gallery', id));
+              });
+              await batch.commit();
+              await logAdminAction('batch_delete_gallery_images', 'gallery', `Deleted ${selectedGalleryImages.length} gallery images`);
+              setSelectedGalleryImages([]);
+              showToast('Selected images deleted successfully', 'success');
+            } catch (error) {
+              console.error(error);
+              showToast('Failed to delete selected images', 'error');
+            } finally {
+              setIsBatchDeletingGallery(false);
+              setIsBatchGalleryDeleteConfirmOpen(false);
+            }
+          }}
+          title="Delete Selected Images"
+          message={`Are you sure you want to delete ${selectedGalleryImages.length} selected image(s)? This action cannot be undone.`}
+          confirmText={isBatchDeletingGallery ? "Deleting..." : "Delete"}
+          type="danger"
+        />
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
       {isClearCacheConfirmOpen && (
         <ConfirmationModal 
           isOpen={isClearCacheConfirmOpen}
@@ -8268,6 +8644,7 @@ const Navbar = ({
   onToggleSound,
   allBookings = [],
   pricingSettings,
+  siteSettings,
   prefilledCheckIn,
   setPrefilledCheckIn,
   prefilledCheckOut,
@@ -8285,6 +8662,7 @@ const Navbar = ({
   onToggleSound: () => void;
   allBookings?: any[];
   pricingSettings?: any;
+  siteSettings?: any;
   prefilledCheckIn?: Date | null;
   setPrefilledCheckIn: (date: Date | null) => void;
   prefilledCheckOut?: Date | null;
@@ -8327,7 +8705,7 @@ const Navbar = ({
       <div className="max-w-7xl mx-auto px-6 flex justify-between items-center w-full">
         <Link to="/" className="flex items-center gap-2 sm:gap-3 shrink-0">
           <img 
-            src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
+            src={siteSettings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"} 
             alt="Unique Farmhouse Logo" 
             className="h-10 sm:h-12 w-auto object-contain"
             referrerPolicy="no-referrer"
@@ -8810,7 +9188,10 @@ const Hero = ({ onBookNow, settings }: { onBookNow: () => void; settings?: any }
   );
 };
 
-const About = () => {
+const About = ({ settings }: { settings?: any }) => {
+  const image1 = getOptimizedUrl(settings?.image1 || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720358/1_w50zwj.jpg", 800);
+  const image2 = getOptimizedUrl(settings?.image2 || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg", 600);
+
   return (
     <section id="about" className="py-16 sm:py-24 px-6 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto">
@@ -8823,7 +9204,7 @@ const About = () => {
           >
             <div className="aspect-[4/5] overflow-hidden rounded-2xl shadow-2xl">
               <img 
-                src={getOptimizedUrl("https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720358/1_w50zwj.jpg", 800)} 
+                src={image1} 
                 alt="Luxury Interior" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -8831,7 +9212,7 @@ const About = () => {
             </div>
             <div className="absolute -bottom-10 -right-10 w-2/3 aspect-square overflow-hidden rounded-2xl shadow-2xl border-8 border-white hidden lg:block">
               <img 
-                src={getOptimizedUrl("https://res.cloudinary.com/dxxd8os4d/image/upload/v1772720360/8_ldyqz4.jpg", 600)} 
+                src={image2} 
                 alt="Private Pool" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -9891,7 +10272,7 @@ export const CustomInteractiveCalendar = ({
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut, siteSettings }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
@@ -9905,7 +10286,8 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   pricingSettings?: any,
   partners?: any[],
   prefilledCheckIn?: Date | null,
-  prefilledCheckOut?: Date | null
+  prefilledCheckOut?: Date | null,
+  siteSettings?: any
 }) => {
   const [name, setName] = useState(editBooking?.name || ((userRole === 'admin' || userRole === 'agent') && !editBooking ? '' : user?.displayName || ''));
   const [mobile, setMobile] = useState(editBooking?.mobile || '');
@@ -10330,7 +10712,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
           currency: order.currency,
           name: "Unique Farmhouse",
           description: `Stay from ${format(checkIn!, 'dd-MM-yyyy')} to ${format(checkOut!, 'dd-MM-yyyy')}`,
-          image: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif",
+          image: siteSettings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif",
           order_id: order.id,
           handler: async function (response: any) {
             console.log('Razorpay payment response:', response);
@@ -11761,7 +12143,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut }: { 
+const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut, siteSettings }: { 
   isOpen: boolean, 
   onClose: () => void, 
   user: FirebaseUser | null, 
@@ -11774,7 +12156,8 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
   pricingSettings?: any,
   partners?: any[],
   prefilledCheckIn?: Date | null,
-  prefilledCheckOut?: Date | null
+  prefilledCheckOut?: Date | null,
+  siteSettings?: any
 }) => {
   useEscapeKey(onClose, isOpen);
   return (
@@ -12123,7 +12506,7 @@ const VisitorCounter = () => {
   );
 };
 
-const Footer = () => {
+const Footer = ({ settings }: { settings?: any }) => {
   return (
     <footer className="bg-luxury-dark text-white py-12 sm:py-16 px-6 border-t border-white/5">
       <div className="max-w-7xl mx-auto">
@@ -12131,7 +12514,7 @@ const Footer = () => {
           <div className="space-y-6">
             <Link to="/" className="flex items-center gap-3">
               <img 
-                src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
+                src={settings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"} 
                 alt="Unique Farmhouse Logo" 
                 className="h-12 sm:h-16 w-auto object-contain"
                 referrerPolicy="no-referrer"
@@ -12340,7 +12723,7 @@ const WelcomeModal = ({ isOpen, onClose, onBookNow }: { isOpen: boolean; onClose
   );
 };
 
-const InstallPrompt = ({ onInstall, onClose, isIOS }: { onInstall: () => void; onClose: () => void; isIOS: boolean }) => {
+const InstallPrompt = ({ onInstall, onClose, isIOS, siteSettings }: { onInstall: () => void; onClose: () => void; isIOS: boolean; siteSettings?: any }) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 100 }}
@@ -12350,7 +12733,7 @@ const InstallPrompt = ({ onInstall, onClose, isIOS }: { onInstall: () => void; o
     >
       <div className="w-16 h-16 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg">
         <img 
-          src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
+          src={siteSettings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"} 
           alt="App Icon" 
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"
@@ -13249,6 +13632,8 @@ export default function App() {
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [galleryImages, setGalleryImages] = useState<any[]>([]);
   const [heroSettings, setHeroSettings] = useState<any>(null);
+  const [aboutSettings, setAboutSettings] = useState<any>(null);
+  const [siteSettings, setSiteSettings] = useState<any>(null);
   const [pricingSettings, setPricingSettings] = useState<any>(null);
   const [partners, setPartners] = useState<any[]>([]);
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
@@ -13506,6 +13891,18 @@ export default function App() {
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/hero'));
 
+    const unsubscribeAboutSettings = onSnapshot(doc(db, 'settings', 'about'), (docSnap) => {
+      if (docSnap.exists()) {
+        setAboutSettings(docSnap.data());
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/about'));
+
+    const unsubscribeSiteSettings = onSnapshot(doc(db, 'settings', 'site'), (docSnap) => {
+      if (docSnap.exists()) {
+        setSiteSettings(docSnap.data());
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/site'));
+
     const unsubscribePricingSettings = onSnapshot(doc(db, 'settings', 'pricing'), (docSnap) => {
       if (docSnap.exists()) {
         setPricingSettings(docSnap.data());
@@ -13521,6 +13918,8 @@ export default function App() {
     return () => {
       unsubscribeGallery();
       unsubscribeSettings();
+      unsubscribeAboutSettings();
+      unsubscribeSiteSettings();
       unsubscribePricingSettings();
       unsubscribeReplyTemplates();
     };
@@ -13688,7 +14087,7 @@ export default function App() {
       <div className="h-screen w-full flex items-center justify-center bg-luxury-dark">
         <div className="flex flex-col items-center gap-6 px-6 text-center">
           <img 
-            src="https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif" 
+            src={siteSettings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"} 
             alt="Logo" 
             className="h-24 w-auto animate-pulse"
             referrerPolicy="no-referrer"
@@ -13747,6 +14146,7 @@ export default function App() {
           onToggleSound={() => setSoundEnabled(!soundEnabled)}
           allBookings={allBookings}
           pricingSettings={pricingSettings}
+          siteSettings={siteSettings}
           prefilledCheckIn={prefilledCheckIn}
           setPrefilledCheckIn={setPrefilledCheckIn}
           prefilledCheckOut={prefilledCheckOut}
@@ -13767,7 +14167,7 @@ export default function App() {
                 <SEOContent />
               </>
             } />
-            <Route path="/about" element={<div className="pt-24"><About /></div>} />
+            <Route path="/about" element={<div className="pt-24"><About settings={aboutSettings} /></div>} />
             <Route path="/amenities" element={<div className="pt-24"><Amenities onAmenityClick={setGalleryCategory} /></div>} />
             <Route path="/gallery" element={<div className="pt-24"><Gallery onImageClick={setSelectedImage} images={galleryImages} activeCategory={galleryCategory} onCategoryChange={setGalleryCategory} /></div>} />
             <Route path="/reviews" element={<div className="pt-24"><Reviews /></div>} />
@@ -13783,7 +14183,7 @@ export default function App() {
           </Routes>
         </React.Suspense>
       </main>
-      {!hideMainLayout && <Footer />}
+      {!hideMainLayout && <Footer settings={siteSettings} />}
       
       <BookingModal 
         isOpen={isBookingModalOpen} 
@@ -13799,8 +14199,9 @@ export default function App() {
         partners={partners}
         prefilledCheckIn={prefilledCheckIn}
         prefilledCheckOut={prefilledCheckOut}
+        siteSettings={siteSettings}
       />
-      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} siteSettings={siteSettings} />
       <GalleryModal 
         image={selectedImage} 
         onClose={() => setSelectedImage(null)} 
@@ -13829,6 +14230,8 @@ export default function App() {
             onLogout={handleSignOut}
             galleryImages={galleryImages}
             heroSettings={heroSettings}
+            aboutSettings={aboutSettings}
+            siteSettings={siteSettings}
             replyTemplates={replyTemplates}
             pricingSettings={pricingSettings}
             onClearCache={handleClearCache}
@@ -13905,6 +14308,7 @@ export default function App() {
             onInstall={handleInstallClick} 
             onClose={handleCloseInstallPrompt} 
             isIOS={isIOS}
+            siteSettings={siteSettings}
           />
         )}
         {showPushReminder && (

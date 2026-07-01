@@ -911,9 +911,46 @@ async function startServer() {
   // Cloudinary API
   app.get("/api/cloudinary/images", async (req, res) => {
     try {
-      if (!process.env.CLOUDINARY_CLOUD_NAME) {
-        return res.status(500).json({ error: 'Cloudinary not configured' });
+      let cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      let apiKey = process.env.CLOUDINARY_API_KEY;
+      let apiSecret = process.env.CLOUDINARY_API_SECRET;
+      
+      try {
+        const aDb = getAdminDb();
+        if (aDb) {
+           const cloudinaryDoc = await aDb.collection('settings').doc('cloudinary').get();
+           if (cloudinaryDoc.exists) {
+             const data = cloudinaryDoc.data();
+             if (data?.cloudName && data?.apiKey && data?.apiSecret) {
+                cloudName = data.cloudName;
+                apiKey = data.apiKey;
+                apiSecret = data.apiSecret;
+             }
+           }
+        } else {
+           const cloudinaryDoc = await getDoc(doc(db, 'settings', 'cloudinary'));
+           if (cloudinaryDoc.exists()) {
+             const data = cloudinaryDoc.data();
+             if (data?.cloudName && data?.apiKey && data?.apiSecret) {
+                cloudName = data.cloudName;
+                apiKey = data.apiKey;
+                apiSecret = data.apiSecret;
+             }
+           }
+        }
+      } catch(e) {
+        console.warn("Failed to fetch cloudinary settings from firestore", e);
       }
+      
+      if (!cloudName || !apiKey || !apiSecret) {
+        return res.status(500).json({ error: 'Cloudinary credentials not configured' });
+      }
+
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
+      });
       
       const resources = await cloudinary.api.resources({
         type: 'upload',
@@ -924,7 +961,7 @@ async function startServer() {
       res.json(resources.resources);
     } catch (error) {
       console.error('Cloudinary fetch error:', error);
-      res.status(500).json({ error: 'Failed to fetch images from Cloudinary' });
+      res.status(500).json({ error: 'Failed to fetch images from Cloudinary', details: error.message || error });
     }
   });
 
