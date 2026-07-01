@@ -13885,43 +13885,32 @@ export default function App() {
       setGalleryImages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'gallery'));
 
-    const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'hero'), (docSnap) => {
-      if (docSnap.exists()) {
-        setHeroSettings(docSnap.data());
-      }
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/hero'));
-
-    const unsubscribeAboutSettings = onSnapshot(doc(db, 'settings', 'about'), (docSnap) => {
-      if (docSnap.exists()) {
-        setAboutSettings(docSnap.data());
-      }
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/about'));
-
-    const unsubscribeSiteSettings = onSnapshot(doc(db, 'settings', 'site'), (docSnap) => {
-      if (docSnap.exists()) {
-        setSiteSettings(docSnap.data());
-      }
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/site'));
-
-    const unsubscribePricingSettings = onSnapshot(doc(db, 'settings', 'pricing'), (docSnap) => {
-      if (docSnap.exists()) {
-        setPricingSettings(docSnap.data());
-      }
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/pricing'));
-
-    const unsubscribeReplyTemplates = onSnapshot(doc(db, 'settings', 'replyTemplates'), (docSnap) => {
-      if (docSnap.exists()) {
-        setReplyTemplates(docSnap.data());
-      }
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/replyTemplates'));
+    const unsubscribeSettings = onSnapshot(collection(db, 'settings'), (snapshot) => {
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        switch (docSnap.id) {
+          case 'hero':
+            setHeroSettings(data);
+            break;
+          case 'about':
+            setAboutSettings(data);
+            break;
+          case 'site':
+            setSiteSettings(data);
+            break;
+          case 'pricing':
+            setPricingSettings(data);
+            break;
+          case 'replyTemplates':
+            setReplyTemplates(data);
+            break;
+        }
+      });
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings'));
 
     return () => {
       unsubscribeGallery();
       unsubscribeSettings();
-      unsubscribeAboutSettings();
-      unsubscribeSiteSettings();
-      unsubscribePricingSettings();
-      unsubscribeReplyTemplates();
     };
   }, []);
 

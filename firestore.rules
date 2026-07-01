@@ -333,8 +333,7 @@ service cloud.firestore {
 
     match /leads/{leadId} {
       allow get: if isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('viewLeads', false) == true));
-      allow list: if (isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('viewLeads', false) == true))) ||
-                    (!isAuthenticated() && resource.data.status in ['new', 'contacted']);
+      allow list: if isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('viewLeads', false) == true));
       allow create: if isValidLead(request.resource.data); // Public can submit leads
       allow update: if (isAuthenticated() && (isAdmin() || (isAgent() && getPermissions().get('editLeads', false) == true)) && isValidLead(request.resource.data)) ||
                     (!isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasAny(['score', 'status', 'automated', 'remarks'])); 
