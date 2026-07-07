@@ -151,6 +151,7 @@ import {
   Area
 } from 'recharts';
 import "react-datepicker/dist/react-datepicker.css";
+import * as XLSX from 'xlsx';
 import { OtherPropertiesPage, PropertySubSite } from './PropertySubSite';
 import { CreditNotesDashboard } from './CreditNotesDashboard';
 import { ShantiFarmAdmin } from './ShantiFarmAdmin';
@@ -5076,7 +5077,7 @@ const MyBookings = ({
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical' | 'credit_notes'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical' | 'credit_notes' | 'backup'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
   const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'migration' | 'chatbot_settings' | 'users' | 'ical'>('general');
 
@@ -5880,7 +5881,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
 
       return () => { unExp(); unInc(); unCN(); };
     }
-    if (activeFilter === 'leads' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewLeads))) {
+    if ((activeFilter === 'leads' || activeFilter === 'backup') && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewLeads))) {
       const q = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setLeads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -6549,10 +6550,12 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                   { id: 'finance', label: 'Finance', icon: BarChart3, colorClass: 'bg-emerald-600 shadow-emerald-500/20', hoverIconClass: 'text-emerald-500 group-hover:text-emerald-600', permission: 'viewFinance' },
                   { id: 'credit_notes', label: 'Credit Notes', icon: Gift, colorClass: 'bg-orange-500 shadow-orange-500/20', hoverIconClass: 'text-orange-500 group-hover:text-orange-600', permission: 'viewFinance' },
                   { id: 'blogs', label: 'Blogs', icon: BookOpen, colorClass: 'bg-rose-500 shadow-rose-500/20', hoverIconClass: 'text-rose-500 group-hover:text-rose-600', permission: 'viewBlogs' },
+                  { id: 'backup', label: 'Backup', icon: Download, colorClass: 'bg-indigo-600 shadow-indigo-500/20', hoverIconClass: 'text-indigo-500 group-hover:text-indigo-600', permission: 'admin' },
                   { id: 'settings', label: 'Settings', icon: Settings, colorClass: 'bg-luxury-gold shadow-luxury-gold/20', hoverIconClass: 'text-luxury-gold group-hover:text-luxury-dark', permission: 'viewSettings' }
                 ].filter(tab => {
                   if (userRole === 'admin') return true;
                   if (userRole === 'agent') {
+                    if (tab.permission === 'admin') return false;
                     if (!tab.permission) return true;
                     return userPermissions?.[tab.permission] === true;
                   }
@@ -6782,6 +6785,8 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
           </div>
         ) : activeFilter === 'loyalty' ? (
           <LoyaltyDashboard user={user} loyalty={userLoyalty} referrals={referrals} appUsers={userRole === 'admin' ? appUsers : []} isAdmin={userRole === 'admin'} showToast={showToast} />
+        ) : activeFilter === 'backup' && userRole === 'admin' ? (
+          <BackupDashboard allBookings={bookings} leads={leads} showToast={showToast} />
         ) : (activeFilter === 'logs' && (userRole === 'admin' || userRole === 'agent')) ? (
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
@@ -13457,6 +13462,261 @@ const LoyaltyDashboard = ({ user, loyalty, referrals, appUsers, isAdmin, showToa
   );
 };
 
+export const BackupDashboard = ({ allBookings, leads, showToast }: { allBookings: any[], leads: any[], showToast: any }) => {
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+
+  const parseCustomDate = (val: any) => {
+    if (!val) return null;
+    if (val.seconds) return new Date(val.seconds * 1000);
+    if (val instanceof Date) return val;
+    if (typeof val === 'string') {
+      try {
+        const [datePart, timePart] = val.split(', ');
+        const parts = datePart.split(/[-/]/);
+        if (parts.length === 3) {
+           let day, month, year;
+           if (parts[0].length === 4) {
+             // yyyy-MM-dd
+             year = parts[0];
+             month = parts[1];
+             day = parts[2];
+           } else {
+             // dd/MM/yyyy
+             day = parts[0];
+             month = parts[1];
+             year = parts[2];
+           }
+           const [hour, minute, second] = timePart ? timePart.split(':') : ['00', '00', '00'];
+           return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+        }
+      } catch (e) {
+        // Fallback
+      }
+      return new Date(val); // Fallback
+    }
+    return null;
+  };
+
+  const safeFormatDate = (val: any) => {
+    const d = parseCustomDate(val);
+    if (d && isValid(d)) return format(d, 'dd MMM yyyy');
+    return val || '';
+  };
+
+  const handleDownloadBookings = () => {
+    if (!startDate || !endDate) {
+      showToast('Please select a date range first', 'error');
+      return;
+    }
+
+    const filteredBookings = allBookings.filter(b => {
+      if (!b.checkIn) return false;
+      const checkInDate = parseCustomDate(b.checkIn);
+      if (!checkInDate || !isValid(checkInDate)) return false;
+      return checkInDate >= startDate && checkInDate <= endDate;
+    });
+
+    const now = new Date();
+    now.setHours(0,0,0,0);
+    const upcomingBookings = filteredBookings.filter(b => {
+        const checkIn = parseCustomDate(b.checkIn);
+        if (!checkIn || !isValid(checkIn)) return false;
+        checkIn.setHours(0,0,0,0);
+        return checkIn >= now && b.status !== 'cancelled' && b.status !== 'failed' && b.status !== 'blocked';
+    });
+    const completedBookings = filteredBookings.filter(b => {
+        const checkIn = parseCustomDate(b.checkIn);
+        if (!checkIn || !isValid(checkIn)) return false;
+        checkIn.setHours(0,0,0,0);
+        return checkIn < now && b.status !== 'cancelled' && b.status !== 'failed' && b.status !== 'blocked';
+    });
+
+    const formatData = (bookings: any[]) => bookings.map(b => ({
+      'Booking ID': b.id,
+      'Name': b.name,
+      'Mobile': b.mobile,
+      'Email': b.email,
+      'Check In': safeFormatDate(b.checkIn),
+      'Check Out': safeFormatDate(b.checkOut),
+      'Guests': b.guests,
+      'Total Amount': b.totalAmount,
+      'Status': b.status,
+      'Created At': safeFormatDate(b.createdAt)
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const wsUpcoming = XLSX.utils.json_to_sheet(formatData(upcomingBookings));
+    const wsCompleted = XLSX.utils.json_to_sheet(formatData(completedBookings));
+
+    XLSX.utils.book_append_sheet(wb, wsUpcoming, "Upcoming Bookings");
+    XLSX.utils.book_append_sheet(wb, wsCompleted, "Completed Bookings");
+
+    XLSX.writeFile(wb, `Bookings_Backup_${format(startDate, 'ddMMMyyyy')}_to_${format(endDate, 'ddMMMyyyy')}.xlsx`);
+    showToast('Bookings backup downloaded successfully', 'success');
+  };
+
+  const handleDownloadLeads = () => {
+    if (!startDate || !endDate) {
+      showToast('Please select a date range first', 'error');
+      return;
+    }
+
+    const filteredLeads = leads.filter(l => {
+      if (!l.createdAt) return false;
+      const createdAtDate = parseCustomDate(l.createdAt);
+      if (!createdAtDate || !isValid(createdAtDate)) return false;
+      return createdAtDate >= startDate && createdAtDate <= endDate;
+    });
+
+    const formatData = filteredLeads.map(l => ({
+      'Lead ID': l.id,
+      'Name': l.name,
+      'Phone': l.phone,
+      'Email': l.email,
+      'Event Date': safeFormatDate(l.date),
+      'Status': l.status,
+      'Score': l.score,
+      'Automated': l.automated ? 'Yes' : 'No',
+      'Created At': safeFormatDate(l.createdAt)
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(formatData);
+    XLSX.utils.book_append_sheet(wb, ws, "Leads");
+
+    XLSX.writeFile(wb, `Leads_Backup_${format(startDate, 'ddMMMyyyy')}_to_${format(endDate, 'ddMMMyyyy')}.xlsx`);
+    showToast('Leads backup downloaded successfully', 'success');
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
+        <h3 className="text-2xl font-serif font-bold text-luxury-dark mb-6 flex items-center gap-3">
+          <Download className="text-luxury-gold" />
+          Data Backup
+        </h3>
+        <p className="text-luxury-dark/60 mb-8">Select a date range to download your bookings and leads data in Excel format.</p>
+
+        <div className="flex flex-wrap gap-2 mb-6">
+          <button
+            onClick={() => {
+              const today = new Date();
+              today.setHours(0,0,0,0);
+              const end = new Date(today);
+              end.setHours(23,59,59,999);
+              setStartDate(today);
+              setEndDate(end);
+            }}
+            className="px-4 py-2 bg-luxury-dark/5 hover:bg-luxury-gold hover:text-white text-luxury-dark text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
+          >
+            Today
+          </button>
+          <button
+            onClick={() => {
+              const today = new Date();
+              today.setHours(0,0,0,0);
+              const yesterday = new Date(today);
+              yesterday.setDate(yesterday.getDate() - 1);
+              const end = new Date(yesterday);
+              end.setHours(23,59,59,999);
+              setStartDate(yesterday);
+              setEndDate(end);
+            }}
+            className="px-4 py-2 bg-luxury-dark/5 hover:bg-luxury-gold hover:text-white text-luxury-dark text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
+          >
+            Yesterday
+          </button>
+          <button
+            onClick={() => {
+              const today = new Date();
+              today.setHours(0,0,0,0);
+              const start = new Date(today);
+              const day = start.getDay();
+              const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+              start.setDate(diff);
+              const end = new Date(start);
+              end.setDate(end.getDate() + 6);
+              end.setHours(23,59,59,999);
+              setStartDate(start);
+              setEndDate(end);
+            }}
+            className="px-4 py-2 bg-luxury-dark/5 hover:bg-luxury-gold hover:text-white text-luxury-dark text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
+          >
+            This Week
+          </button>
+          <button
+            onClick={() => {
+              const today = new Date();
+              const start = new Date(today.getFullYear(), today.getMonth(), 1);
+              const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+              end.setHours(23,59,59,999);
+              setStartDate(start);
+              setEndDate(end);
+            }}
+            className="px-4 py-2 bg-luxury-dark/5 hover:bg-luxury-gold hover:text-white text-luxury-dark text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
+          >
+            This Month
+          </button>
+          <button
+            onClick={() => {
+              const today = new Date();
+              const start = new Date(today.getFullYear(), 0, 1);
+              const end = new Date(today.getFullYear(), 11, 31);
+              end.setHours(23,59,59,999);
+              setStartDate(start);
+              setEndDate(end);
+            }}
+            className="px-4 py-2 bg-luxury-dark/5 hover:bg-luxury-gold hover:text-white text-luxury-dark text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
+          >
+            This Year
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Start Date</label>
+            <DatePicker
+              selected={startDate}
+              onChange={(date: Date | null) => setStartDate(date)}
+              className="w-full px-4 py-3 bg-white/50 border border-luxury-dark/10 rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+              placeholderText="Select Start Date"
+              dateFormat="dd MMM yyyy"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">End Date</label>
+            <DatePicker
+              selected={endDate}
+              onChange={(date: Date | null) => setEndDate(date)}
+              minDate={startDate || undefined}
+              className="w-full px-4 py-3 bg-white/50 border border-luxury-dark/10 rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
+              placeholderText="Select End Date"
+              dateFormat="dd MMM yyyy"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-4">
+          <button
+            onClick={handleDownloadBookings}
+            className="flex-1 py-4 bg-luxury-dark text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-gold hover:text-luxury-dark transition-all flex items-center justify-center gap-2 shadow-lg shadow-luxury-dark/10"
+          >
+            <Download size={16} />
+            Download Bookings
+          </button>
+          <button
+            onClick={handleDownloadLeads}
+            className="flex-1 py-4 bg-white border-2 border-luxury-dark text-luxury-dark rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-luxury-dark/5"
+          >
+            <Download size={16} />
+            Download Leads
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 export default function App() {
   const location = useLocation();
   const isPropertySubSite = location.pathname.startsWith('/property/');
