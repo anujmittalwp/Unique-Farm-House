@@ -918,6 +918,7 @@ const UserManagement = ({
     { id: 'viewBookings', label: 'View Bookings' },
     { id: 'editBookings', label: 'Edit Bookings' },
     { id: 'deleteBookings', label: 'Delete Bookings' },
+    { id: 'bookedViaPartner', label: 'Use Booked Via Partner' },
     { id: 'addLeads', label: 'Add Leads' },
     { id: 'viewLeads', label: 'View Leads' },
     { id: 'editLeads', label: 'Edit Leads (Status, Tags, Remarks)' },
@@ -935,7 +936,7 @@ const UserManagement = ({
   ];
 
   const permissionMatrix = [
-    { module: 'Bookings', add: 'addBookings', view: 'viewBookings', edit: 'editBookings', delete: 'deleteBookings', setting: null },
+    { module: 'Bookings', add: 'addBookings', view: 'viewBookings', edit: 'editBookings', delete: 'deleteBookings', setting: 'bookedViaPartner' },
     { module: 'Leads', add: 'addLeads', view: 'viewLeads', edit: 'editLeads', delete: 'deleteLeads', setting: 'leadsSettings' },
     { module: 'Finance', add: null, view: 'viewFinance', edit: null, delete: null, setting: null },
     { module: 'Blogs', add: 'addBlogs', view: 'viewBlogs', edit: 'editBlogs', delete: 'deleteBlogs', setting: null },
@@ -6411,7 +6412,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">Modify Booking</h2>
             <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} siteSettings={siteSettings} />
+              <BookingForm user={user} userRole={userRole} userPermissions={userPermissions} editBooking={editingBooking} onClose={() => setEditingBooking(null)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} siteSettings={siteSettings} />
             </div>
           </div>
         ) : reviewingBooking ? (
@@ -6438,7 +6439,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             </button>
             <h2 className="text-3xl font-serif font-bold text-luxury-dark mb-8">{(userRole === 'admin' || userRole === 'agent') ? 'Create Manual Booking' : 'Book Your Stay'}</h2>
             <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-xl">
-              <BookingForm user={user} userRole={userRole} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} siteSettings={siteSettings} />
+              <BookingForm user={user} userRole={userRole} userPermissions={userPermissions} onClose={() => setIsAdminCreating(false)} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} siteSettings={siteSettings} />
             </div>
           </div>
         ) : (
@@ -10277,12 +10278,13 @@ export const CustomInteractiveCalendar = ({
   );
 };
 
-const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut, siteSettings }: { 
+const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, userPermissions, onLogin, allBookings = [], showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut, siteSettings }: { 
   isModal?: boolean, 
   onClose?: () => void,
   user: FirebaseUser | null,
   editBooking?: any,
   userRole?: string | null,
+  userPermissions?: any,
   onLogin?: () => void,
   allBookings?: any[],
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
@@ -10359,6 +10361,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
   const [partnerCommissionType, setPartnerCommissionType] = useState<'percent' | 'flat'>(editBooking?.partnerCommissionType || 'percent');
   const [advanceByPartner, setAdvanceByPartner] = useState<number>(editBooking?.advanceByPartner || 0);
   const isPowerUser = userRole === 'admin' || userRole === 'agent' || isAdminBooking;
+  const canUsePartner = userRole === 'admin' || (userRole === 'agent' && userPermissions?.bookedViaPartner === true);
 
   useEffect(() => {
     if ((userRole === 'admin' || userRole === 'agent') && isAdminBooking) {
@@ -10895,29 +10898,31 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         }
       }
 
-      // Also send WhatsApp message for immediate attention
-      const message = `*${editBooking ? 'Updated' : 'New'} Booking Request for Unique Farmhouse*%0A%0A` +
-        `*Booking ID:* ${editBooking ? editBooking.id.slice(0, 8) : 'New'}%0A` +
-        `*Name:* ${name || 'Not specified'}%0A` +
-        `*Mobile:* ${mobile || 'Not specified'}%0A` +
-        `*Email:* ${email || 'Not specified'}%0A` +
-        `*Guests (Day):* ${dayGuestAdults} Adults, ${dayGuestChildren.length} Children (Ages: ${dayGuestChildren.join(', ')})%0A` +
-        `*Guests (Night):* ${nightGuestAdults} Adults, ${nightGuestChildren.length} Children (Ages: ${nightGuestChildren.join(', ')})%0A` +
-        `*Occasion:* ${occasion || 'Not specified'}%0A` +
-        `*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'Not specified'}%0A` +
-        `*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'Not specified'}%0A` +
-        `*Booking Amount:* ₹${bookingAmount.toLocaleString()}%0A` +
-        `*Security Deposit:* ₹${securityAmount.toLocaleString()}%0A` +
-        `*Total Amount:* ₹${totalAmount.toLocaleString()}%0A` +
-        `*Payment Method:* ${paymentMethod.toUpperCase()}`;
+      if (userRole !== 'admin' && userRole !== 'agent') {
+        // Also send WhatsApp message for immediate attention
+        const message = `*${editBooking ? 'Updated' : 'New'} Booking Request for Unique Farmhouse*%0A%0A` +
+          `*Booking ID:* ${editBooking ? editBooking.id.slice(0, 8) : 'New'}%0A` +
+          `*Name:* ${name || 'Not specified'}%0A` +
+          `*Mobile:* ${mobile || 'Not specified'}%0A` +
+          `*Email:* ${email || 'Not specified'}%0A` +
+          `*Guests (Day):* ${dayGuestAdults} Adults, ${dayGuestChildren.length} Children (Ages: ${dayGuestChildren.join(', ')})%0A` +
+          `*Guests (Night):* ${nightGuestAdults} Adults, ${nightGuestChildren.length} Children (Ages: ${nightGuestChildren.join(', ')})%0A` +
+          `*Occasion:* ${occasion || 'Not specified'}%0A` +
+          `*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'Not specified'}%0A` +
+          `*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'Not specified'}%0A` +
+          `*Booking Amount:* ₹${bookingAmount.toLocaleString()}%0A` +
+          `*Security Deposit:* ₹${securityAmount.toLocaleString()}%0A` +
+          `*Total Amount:* ₹${totalAmount.toLocaleString()}%0A` +
+          `*Payment Method:* ${paymentMethod.toUpperCase()}`;
+        
+        try {
+          window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
+        } catch (popupErr) {
+          console.warn('Popup blocked or failed to open WhatsApp:', popupErr);
+        }
+      }
       
       setSuccess(true);
-      
-      try {
-        window.open(`https://wa.me/919313501001?text=${message}`, '_blank');
-      } catch (popupErr) {
-        console.warn('Popup blocked or failed to open WhatsApp:', popupErr);
-      }
       
       showToast('Booking successful!', 'success');
     } catch (err) {
@@ -11186,7 +11191,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, on
         </div>
       )}
 
-      {(isPowerUser) && (
+      {(canUsePartner) && (
         <div className="p-4 bg-luxury-cream/30 border border-luxury-gold/20 rounded-xl space-y-4 mb-6">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 bg-luxury-gold rounded-full flex items-center justify-center text-luxury-dark">
@@ -12195,7 +12200,7 @@ const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, s
                   <X size={24} />
                 </button>
               </div>
-              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} prefilledCheckIn={prefilledCheckIn} prefilledCheckOut={prefilledCheckOut} />
+              <BookingForm isModal onClose={onClose} user={user} userRole={userRole} userPermissions={userPermissions} onLogin={onLogin} allBookings={allBookings} showToast={showToast} expenseCategories={expenseCategories} onNotify={onNotify} pricingSettings={pricingSettings} partners={partners} prefilledCheckIn={prefilledCheckIn} prefilledCheckOut={prefilledCheckOut} />
             </div>
           </motion.div>
         </div>
