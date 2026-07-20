@@ -168,7 +168,7 @@ export const AVAILABLE_THEMES = [
   { id: 'midnight', name: 'Midnight Spark', gold: '#fbbf24', cream: '#fafafa', dark: '#171717' }
 ];
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || (typeof window !== 'undefined' ? window.location.origin : '');
 
 const getOptimizedUrl = (url: string, width?: number) => {
   if (!url || typeof url !== 'string' || !url.includes('cloudinary.com')) return url;
@@ -375,6 +375,15 @@ interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const isPermissionDenied = error instanceof Error && error.message.includes('Missing or insufficient permissions');
+  const isUnauthenticated = !auth.currentUser;
+  
+  if (isPermissionDenied && isUnauthenticated) {
+    // Suppress this specific error during logout / unauthenticated state
+    // as it's expected when snapshot listeners are cancelled by the SDK
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -11090,15 +11099,17 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
               <Printer size={16} /> Voucher
             </button>
           )}
-          <a 
-            href={`https://wa.me/919313501001?text=${encodeURIComponent(`*Booking Request Summary for Unique Farmhouse*\n\n*Name:* ${name}\n*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}\n*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}\n*Guests:* ${dayGuestAdults + dayGuestChildren.length} Day (${dayGuestAdults}A, ${dayGuestChildren.length}C) / ${nightGuestAdults + nightGuestChildren.length} Night (${nightGuestAdults}A, ${nightGuestChildren.length}C)\n*Total Amount:* ₹${totalAmount.toLocaleString()}`)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="luxury-button-outline flex-1 flex items-center justify-center gap-2"
-          >
-            <MessageSquare size={18} />
-            WhatsApp
-          </a>
+          {userRole !== 'admin' && userRole !== 'agent' && (
+            <a 
+              href={`https://wa.me/919313501001?text=${encodeURIComponent(`*Booking Request Summary for Unique Farmhouse*\n\n*Name:* ${name}\n*Check-In:* ${checkIn && isValid(checkIn) ? format(checkIn, 'dd/MM/yyyy') : 'N/A'}\n*Check-Out:* ${checkOut && isValid(checkOut) ? format(checkOut, 'dd/MM/yyyy') : 'N/A'}\n*Guests:* ${dayGuestAdults + dayGuestChildren.length} Day (${dayGuestAdults}A, ${dayGuestChildren.length}C) / ${nightGuestAdults + nightGuestChildren.length} Night (${nightGuestAdults}A, ${nightGuestChildren.length}C)\n*Total Amount:* ₹${totalAmount.toLocaleString()}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="luxury-button-outline flex-1 flex items-center justify-center gap-2"
+            >
+              <MessageSquare size={18} />
+              WhatsApp
+            </a>
+          )}
         </div>
         <p className="text-[10px] text-luxury-dark/30 uppercase tracking-widest mt-6">You can track this booking in "My Bookings" section</p>
       </div>
@@ -12153,11 +12164,12 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
   );
 };
 
-const BookingModal = ({ isOpen, onClose, user, userRole, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut, siteSettings }: { 
+const BookingModal = ({ isOpen, onClose, user, userRole, userPermissions, onLogin, allBookings, showToast, expenseCategories = [], onNotify, pricingSettings, partners = [], prefilledCheckIn, prefilledCheckOut, siteSettings }: { 
   isOpen: boolean, 
   onClose: () => void, 
   user: FirebaseUser | null, 
   userRole: string | null, 
+  userPermissions?: any,
   onLogin: () => void, 
   allBookings: any[], 
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
@@ -14273,9 +14285,6 @@ export default function App() {
                 }
               }
               
-              setUserRole(role);
-              setUserPermissions(permissions);
-              
               await setDoc(doc(db, 'users', currentUser.uid), {
                 uid: currentUser.uid,
                 email: (currentUser.email || '').toLowerCase(),
@@ -14285,6 +14294,9 @@ export default function App() {
                 isAnonymous: currentUser.isAnonymous,
                 createdAt: format(new Date(), 'dd/MM/yyyy, HH:mm:ss')
               }, { merge: true });
+
+              setUserRole(role);
+              setUserPermissions(permissions);
             }
           } catch (docErr) {
             console.error("Error fetching user profile:", docErr);
@@ -14333,7 +14345,7 @@ export default function App() {
   const handleSignOut = () => {
     setUserRole(null);
     setUser(null);
-    setTimeout(() => signOut(auth).catch(e => console.error(e)), 100);
+    setTimeout(() => signOut(auth).catch(e => console.error(e)), 500);
   };
 
   if (loading || authError) {
@@ -14444,6 +14456,7 @@ export default function App() {
         onClose={closeBookingModal} 
         user={user} 
         userRole={userRole} 
+        userPermissions={userPermissions}
         onLogin={() => setIsAuthModalOpen(true)} 
         allBookings={allBookings}
         showToast={showToast}
