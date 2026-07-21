@@ -140,6 +140,15 @@ const isWeekend = (dateStr?: string) => {
   }
 };
 
+const formatSafeStr = (val: any, fmt: string) => {
+  if (!val) return '';
+  if (val.toDate) return format(val.toDate(), fmt);
+  if (val.seconds) return format(new Date(val.seconds * 1000), fmt);
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return String(val);
+  return format(d, fmt);
+};
+
 const getSafeDate = (d: any) => {
   if (!d) return new Date();
   if (d.toDate) return d.toDate();
@@ -239,7 +248,7 @@ const LeadRow = React.memo(({
             >
               <div className={`flex items-center gap-1.5 text-[10px] font-bold ${isWeekend(lead.bookingDate) ? 'text-red-600 bg-red-50 px-1 rounded' : 'text-luxury-dark/70'} group-hover/dbdate:text-luxury-gold cursor-pointer transition-colors leading-none font-sans`} title="Booking Date">
                 <Calendar size={12} className={isWeekend(lead.bookingDate) ? 'text-red-500 shrink-0' : 'text-luxury-gold shrink-0'} />
-                {lead.bookingDate ? format(new Date(lead.bookingDate), 'MMM dd, yyyy') : <span className="text-luxury-gold/40 italic text-[8px]">No Date</span>}
+                {lead.bookingDate ? formatSafeStr(lead.bookingDate, 'MMM dd, yyyy') : <span className="text-luxury-gold/40 italic text-[8px]">No Date</span>}
               </div>
               {lead.bookingDate && (
                 <span className="text-[9px] font-black ml-5 uppercase tracking-[0.05em] leading-none text-luxury-dark/30">
@@ -392,7 +401,7 @@ const LeadRow = React.memo(({
               <div className="flex items-center justify-between mb-0.5">
                 <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-luxury-dark/40">
                   {log.type === 'followup' ? <Clock size={9} className="text-indigo-500" /> : <MessageSquare size={9} className="text-amber-500" />}
-                  <span>{format(new Date(log.timestamp), 'dd MMM, HH:mm')}</span>
+                  <span>{formatSafeStr(log.timestamp, 'dd MMM, HH:mm')}</span>
                 </div>
                 <span className="text-[8px] font-black text-luxury-gold uppercase tracking-tighter">Latest Remark</span>
               </div>
@@ -413,7 +422,7 @@ const LeadRow = React.memo(({
           {lead.followUpDate && (
             <div className="mt-2 flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg border border-orange-100/50">
               <Calendar size={10} className="text-orange-500" />
-              <span className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Next: {format(new Date(lead.followUpDate), 'dd MMM')} at {lead.followUpTime || '10:00'}</span>
+              <span className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Next: {formatSafeStr(lead.followUpDate, 'dd MMM')} at {lead.followUpTime || '10:00'}</span>
             </div>
           )}
         </div>
@@ -1529,7 +1538,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                       <div className="flex flex-col">
                         <span className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Next Follow-up</span>
                         <span className="text-[10px] font-black text-luxury-dark whitespace-nowrap">
-                          {format(new Date(selectedLeadForLog.followUpDate), 'dd MMM, yyyy')} at {selectedLeadForLog.followUpTime || '10:00'}
+                          {formatSafeStr(selectedLeadForLog.followUpDate, 'dd MMM, yyyy')} at {selectedLeadForLog.followUpTime || '10:00'}
                         </span>
                       </div>
                     </div>
@@ -1555,8 +1564,8 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                         <tr key={log.id} className="hover:bg-gray-50/30 transition-colors group">
                           <td className="px-8 py-6">
                             <div className="flex flex-col">
-                              <span className="text-xs font-black text-luxury-dark group-hover:text-luxury-gold transition-colors">{format(new Date(log.timestamp), 'dd/MM/yyyy')}</span>
-                              <span className="text-[10px] font-bold text-luxury-dark/40">{format(new Date(log.timestamp), 'HH:mm')}</span>
+                              <span className="text-xs font-black text-luxury-dark group-hover:text-luxury-gold transition-colors">{formatSafeStr(log.timestamp, 'dd/MM/yyyy')}</span>
+                              <span className="text-[10px] font-bold text-luxury-dark/40">{formatSafeStr(log.timestamp, 'HH:mm')}</span>
                             </div>
                           </td>
                           <td className="px-8 py-6">
@@ -1580,7 +1589,7 @@ export const ElegantLeadsDashboard: React.FC<ElegantLeadsDashboardProps> = ({
                                   <Calendar size={14} className="text-orange-500" />
                                 </div>
                                 <div className="flex flex-col">
-                                  <span className="text-xs font-black text-orange-600">{format(new Date(log.reminderDate), 'dd MMM')}</span>
+                                  <span className="text-xs font-black text-orange-600">{formatSafeStr(log.reminderDate, 'dd MMM')}</span>
                                   <span className="text-[10px] font-bold text-orange-400">{log.reminderTime || '10:00'}</span>
                                 </div>
                               </div>

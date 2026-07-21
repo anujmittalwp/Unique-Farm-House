@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-07-21T06-03-28-766Z",
+  "projectId": "gen-lang-client-0648775775",
+  "databaseId": "ai-studio-f7380372-aa21-47e5-a700-4543b093cb2e",
+  "collectionsBackedUp": [
+    "users",
+    "coupons",
+    "bookings",
+    "partners",
+    "blocked_dates",
+    "availability",
+    "gallery",
+    "settings",
+    "leads",
+    "expense_categories",
+    "global_expenses",
+    "other_incomes",
+    "logs",
+    "reviews",
+    "credit_notes",
+    "blogs",
+    "notifications"
+  ],
+  "stats": {
+    "users": -1,
+    "coupons": -1,
+    "bookings": -1,
+    "partners": -1,
+    "blocked_dates": -1,
+    "availability": -1,
+    "gallery": -1,
+    "settings": -1,
+    "leads": -1,
+    "expense_categories": -1,
+    "global_expenses": -1,
+    "other_incomes": -1,
+    "logs": -1,
+    "reviews": -1,
+    "credit_notes": -1,
+    "blogs": -1,
+    "notifications": -1
+  }
+}

@@ -159,6 +159,16 @@ import { UpcomingSummaryPage } from './UpcomingSummaryPage';
 import { VoucherPage } from './VoucherPage';
 import { auth, db } from './firebase';
 
+export const formatSafeStr = (val: any, fmt: string) => {
+  if (!val) return '';
+  if (val.toDate) return format(val.toDate(), fmt);
+  if (val.seconds) return format(new Date(val.seconds * 1000), fmt);
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return String(val);
+  return format(d, fmt);
+};
+
+
 export const AVAILABLE_THEMES = [
   { id: 'default', name: 'Classic Gold', gold: '#C5A059', cream: '#FDFBF7', dark: '#1A1A1A' },
   { id: 'ocean', name: 'Ocean Breeze', gold: '#0ea5e9', cream: '#f0f9ff', dark: '#0f172a' },
@@ -512,7 +522,7 @@ const NotificationPanel = ({ notifications, onClose, onClear }: { notifications:
                       <p className="text-[13px] font-bold text-luxury-dark leading-tight">{notif.title}</p>
                       <p className="text-[11px] text-luxury-dark/50 mt-0.5 leading-relaxed">{notif.message}</p>
                       <p className="text-[9px] text-luxury-dark/30 mt-2 font-bold uppercase tracking-wider">
-                        {format(new Date(notif.createdAt), 'HH:mm • MMM dd')}
+                        {formatSafeStr(notif.createdAt, 'HH:mm • MMM dd')}
                       </p>
                     </div>
                   </div>
@@ -2076,7 +2086,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
   
   // Google Sheets Sync State
   const [syncModalOpen, setSyncModalOpen] = useState(false);
-  const [csvUrl, setCsvUrl] = useState('');
+  const [csvUrls, setCsvUrls] = useState<string[]>(['']);
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Meta Sync State
@@ -2496,28 +2506,29 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     const fetchSyncSettings = async () => {
       try {
         // Try getting from leadSync document first
-        let url = '';
+        let url: string[] = [''];
         try {
           const docSnap = await getDoc(doc(db, 'settings', 'leadSync'));
           if (docSnap.exists()) {
-            url = docSnap.data().csvUrl || '';
+            url = docSnap.data().csvUrls || (docSnap.data().csvUrl ? [docSnap.data().csvUrl] : ['']);
           }
         } catch (e) {
           console.warn("Failed to get leadSync from cache, trying server...", e);
           const serverSnap = await getDocFromServer(doc(db, 'settings', 'leadSync')).catch(() => null);
           if (serverSnap?.exists()) {
-            url = serverSnap.data().csvUrl || '';
+            url = serverSnap.data().csvUrls || (serverSnap.data().csvUrl ? [serverSnap.data().csvUrl] : ['']);
           }
         }
 
-        if (url) {
-          setCsvUrl(url);
-          await performSync(url, true);
+        const validUrls = url.filter(u => u && u.trim());
+        if (validUrls.length > 0) {
+          setCsvUrls(validUrls);
+          await performSync(validUrls, true);
         } else {
           // Auto-set the user's requested sheet as default if not found
           const defaultUrl = 'https://docs.google.com/spreadsheets/d/1LCCoy0A8YkI3wcKBeEYOxkDxEEkRtfnfXGOvuepFSC0/export?format=csv&gid=1757141989';
-          setCsvUrl(defaultUrl);
-          await performSync(defaultUrl, true);
+          setCsvUrls([defaultUrl]);
+          await performSync([defaultUrl], true);
         }
 
         // Try getting metaSync
@@ -2645,260 +2656,189 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
   const syncLock = useRef(false);
 
-  const performSync = async (url: string, silent: boolean = false) => {
-    if (!url) return;
+  const performSync = async (urls: string[], silent: boolean = false) => {
+    const validUrls = urls.filter(u => u && u.trim());
+    if (validUrls.length === 0) return;
     if (syncLock.current) {
        console.log("Sync already in progress, skipping concurrent call");
        return;
     }
     syncLock.current = true;
     setIsSyncing(true);
+
     try {
-      let fetchUrl = url.trim();
+      let totalAddedCount = 0;
+      let hasErrors = false;
       
-      // Auto-convert standard Google Sheets URLs to CSV export URLs
-      if (fetchUrl.includes('docs.google.com/spreadsheets')) {
-        let sheetId = "";
-        let isPublished = false;
+      const leadsSnapshot = await getDocs(collection(db, 'leads'));
+      let currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      
+      const syncDocRef = doc(db, 'settings', 'leadSync');
+      const syncDocSnap = await getDoc(syncDocRef);
+      const syncData = syncDocSnap.exists() ? syncDocSnap.data() : {};
+      
+      const processedHashesList = syncData.processedHashes || [];
+      const newProcessedHashes = new Set(processedHashesList);
+      const existingSyncHashes = new Set(currentLeads.map((l: any) => l.syncHash).filter(Boolean));
 
-        // Pattern 1: Published to web links (/d/e/...)
-        if (fetchUrl.includes("/d/e/")) {
-          const eMatch = fetchUrl.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
-          if (eMatch && eMatch[1]) {
-            sheetId = eMatch[1];
-            isPublished = true;
-          }
-        } 
-        // Pattern 2: Standard sharing/editor links (/d/...)
-        else if (fetchUrl.includes("/d/")) {
-          const dMatch = fetchUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-          if (dMatch && dMatch[1]) {
-            sheetId = dMatch[1];
-          }
-        }
-
-        if (sheetId) {
-          // Extract GID if present in the original URL (either as query param or hash fragment)
-          const gidMatch = url.match(/[#&?]gid=([0-9]+)/);
-          let gidParam = gidMatch ? `&gid=${gidMatch[1]}` : "";
-          
-          // Self-healing: Aggressive replacement of the wrong GID with the correct one for the user's sheet.
-          if (sheetId === '1LCCoy0A8YkI3wcKBeEYOxkDxEEkRtfnfXGOvuepFSC0') {
-             if (!gidParam || gidParam.includes('131529049')) {
-                gidParam = '&gid=1757141989'; // Force it to point to the correct tab.
-             }
-          }
-
-          // If it's not already a CSV link, convert it to the clean export format
-          const hasCsvParam = fetchUrl.includes('format=csv') || fetchUrl.includes('output=csv');
-          
-          if (!hasCsvParam) {
-            if (isPublished) {
-              fetchUrl = `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv${gidParam}`;
-            } else {
-              fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv${gidParam}`;
-            }
-          } else {
-            if (gidParam && !fetchUrl.includes('gid=')) {
-              fetchUrl = fetchUrl + gidParam;
-            } else if (fetchUrl.includes('gid=131529049') && gidParam === '&gid=1757141989') {
-              fetchUrl = fetchUrl.replace('gid=131529049', 'gid=1757141989');
-            }
-          }
-        }
-        console.log(`[Sync] Requesting URL: ${fetchUrl}`);
-      }
-
-      let response;
-      try {
-        console.log(`[Sync] Attempting direct fetch: ${fetchUrl}`);
-        // Try direct fetch first (works for most Google Sheets CSV exports due to CORS)
-        response = await fetch(fetchUrl);
-      } catch (directErr) {
-        console.warn("[Sync] Direct fetch failed (likely CORS), falling back to proxy:", directErr);
-        // Fallback to proxy if direct fetch fails (e.g. due to CORS or network issues)
-        response = await fetch(BACKEND_URL + '/api/proxy/fetch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: fetchUrl })
-        });
-      }
-
-      if (!response.ok) {
-        let errorMsg = response.statusText;
+      for (const rawUrl of validUrls) {
+        let fetchUrl = rawUrl.trim();
         try {
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            const errorJson = await response.json();
-            errorMsg = errorJson.error || errorJson.message || errorMsg;
-          } else {
-            const errorText = await response.text();
-            if (errorText.length > 200) {
-              errorMsg = errorText.substring(0, 200) + '...';
-            } else {
-              errorMsg = errorText || errorMsg;
+          // Auto-convert standard Google Sheets URLs to CSV export URLs
+          if (fetchUrl.includes('docs.google.com/spreadsheets')) {
+            let sheetId = "";
+            let isPublished = false;
+            if (fetchUrl.includes("/d/e/")) {
+              const eMatch = fetchUrl.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+              if (eMatch && eMatch[1]) {
+                sheetId = eMatch[1];
+                isPublished = true;
+              }
+            } else if (fetchUrl.includes("/d/")) {
+              const dMatch = fetchUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+              if (dMatch && dMatch[1]) {
+                sheetId = dMatch[1];
+              }
+            }
+            if (sheetId) {
+              const gidMatch = rawUrl.match(/[#&?]gid=([0-9]+)/);
+              let gidParam = gidMatch ? `&gid=${gidMatch[1]}` : "";
+              if (sheetId === '1LCCoy0A8YkI3wcKBeEYOxkDxEEkRtfnfXGOvuepFSC0') { 
+                 if (!gidParam || gidParam.includes('131529049')) {
+                    gidParam = '&gid=1757141989'; 
+                 }
+              }
+              const hasCsvParam = fetchUrl.includes('format=csv') || fetchUrl.includes('output=csv');
+              if (!hasCsvParam) {
+                if (isPublished) {
+                  fetchUrl = `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv${gidParam}`;
+                } else {
+                  fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv${gidParam}`;
+                }
+              } else {
+                if (gidParam && !fetchUrl.includes('gid=')) {
+                  fetchUrl = fetchUrl + gidParam;
+                } else if (fetchUrl.includes('gid=131529049') && gidParam === '&gid=1757141989') {
+                  fetchUrl = fetchUrl.replace('gid=131529049', 'gid=1757141989');
+                }
+              }
             }
           }
-        } catch (e) {
-          console.error("Failed to parse error response:", e);
-        }
-        
-        console.error(`Sync Error (${response.status}):`, errorMsg);
-        throw new Error(`Failed to fetch Sheet (Status ${response.status}). Ensure it is "Published to web" as CSV.`);
-      }
-      const csvText = await response.text();
-      
-      if (csvText.trim().toLowerCase().startsWith('<!doctype') || csvText.trim().toLowerCase().startsWith('<html')) {
-        throw new Error('Invalid Link');
-      }
-      
-      Papa.parse(csvText, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (h) => h.trim().toLowerCase(),
-        complete: async (results) => {
+
+          let response;
           try {
-            const newLeads = results.data as any[];
-            let addedCount = 0;
-            
-            if (newLeads.length === 0) {
-              if (!silent) showToast('No data found in the CSV', 'info');
-              setIsSyncing(false);
-              syncLock.current = false;
-              return;
-            }
-            
-            // Fetch existing leads directly from Firestore to ensure we have the latest data
-            const leadsSnapshot = await getDocs(collection(db, 'leads'));
-            const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-            
-            const syncDocRef = doc(db, 'settings', 'leadSync');
-            const syncDocSnap = await getDoc(syncDocRef);
-            const syncData = syncDocSnap.exists() ? syncDocSnap.data() : {};
-            
-            const isFirstRun = !Array.isArray(syncData.processedHashes);
-            const processedHashesList = syncData.processedHashes || [];
-            const processedCsvHashes = new Set(processedHashesList);
-            const newProcessedHashes = new Set(processedHashesList);
-            
-            // Generate list of existing sync hashes once outside the loop for high efficiency
-            const existingSyncHashes = new Set(currentLeads.map((l: any) => l.syncHash).filter(Boolean));
-            
-            for (const row of newLeads) {
-              const email = String(row.email || row['email address'] || '').trim();
-              const phone = String(row.phone_number || row['phone number'] || row.phone || row['contact number'] || '').trim();
-              const name = String(row.full_name || row['full name'] || row.form_name || row['form name'] || row.name || 'Unknown').trim();
-              const budget = String(row.budget || row.est_budget || row['est budget'] || row.max_budget || row['max budget'] || '').trim();
-              const guests = String(row.guests || row.no_of_guests || row['no. of guests'] || row['no._of_guests'] || row['number of guests'] || row.number_of_guests || row.guest_count || row['guest count'] || '').trim();
-              const city = String(row.city || row.location || row.area || '').trim();
-              const bookingDate = String(row.booking_date || row['booking date'] || row.event_date || row['event date'] || row.date || '').trim();
-              const bookingTime = String(row.booking_time || row['booking time'] || row.event_time || row['event time'] || row.time || '').trim();
-              const createdTimeStr = String(row.created_time || row['created time'] || row.timestamp || '').trim();
-              
-              let createdAt: any = serverTimestamp();
-              let parsedDate: Date | null = null;
-              if (createdTimeStr) {
-                parsedDate = new Date(createdTimeStr);
-                if (!isNaN(parsedDate.getTime())) {
-                  createdAt = parsedDate;
-                }
-              }
-              
-              const rowHash = `${email}-${phone}-${name}-${bookingDate}-${createdTimeStr}`;
-
-              if (newProcessedHashes.has(rowHash)) continue;
-              
-              if (existingSyncHashes.has(rowHash)) {
-                newProcessedHashes.add(rowHash);
-                continue;
-              }
-
-              if (email || phone || name !== 'Unknown') {
-                // Strict deduplication to prevent old leads appearing as New
-                const historicalMatch = currentLeads.find((l: any) => {
-                  const matchPhone = phone && phone.length > 5 && l.phone === phone;
-                  const matchEmail = email && l.email === email;
-                  const matchName = name && name !== 'Unknown' && l.name === name;
-                  
-                  // Strong identical match: At least 2 primary fields match perfectly
-                  if ((matchPhone && matchName) || (matchEmail && matchName) || (matchPhone && matchEmail)) {
-                    return true;
-                  }
-                  
-                  // Fallback match: If phone or email match, check if creation timestamps perfectly align
-                  // to prevent single-field hash mismatches from duplicating old DB entries.
-                  if (matchPhone || matchEmail) {
-                    if (parsedDate && !isNaN(parsedDate.getTime()) && l.createdAt && typeof l.createdAt.toMillis === 'function') {
-                       const dbTime = l.createdAt.toMillis();
-                       const diffHours = Math.abs(dbTime - parsedDate.getTime()) / 3600000;
-                       if (diffHours < 48) return true;
-                    } else {
-                       return true; // Better safe than spamming duplicates if no date parseable
-                    }
-                  }
-                  
-                  return false;
-                });
-
-                if (historicalMatch) {
-                   newProcessedHashes.add(rowHash);
-                   existingSyncHashes.add(rowHash);
-                   continue; // Skip creating a new one
-                }
-
-                await addDoc(collection(db, 'leads'), {
-                  name,
-                  email,
-                  phone,
-                  budget,
-                  guests,
-                  city,
-                  bookingDate,
-                  bookingTime,
-                  status: 'new',
-                  createdAt,
-                  source: 'google_sheets',
-                  syncHash: rowHash
-                });
-                
-                currentLeads.push({ id: 'temp', email, phone, name, syncHash: rowHash } as any);
-                newProcessedHashes.add(rowHash);
-                existingSyncHashes.add(rowHash);
-                addedCount++;
-              }
-            }
-
-            // Save processed hashes, keeping the last 15000 to avoid hitting Firestore document size limits
-            const hashArrayToSave = Array.from(newProcessedHashes).slice(-15000);
-            try {
-              await setDoc(syncDocRef, { ...syncData, csvUrl, processedHashes: hashArrayToSave });
-            } catch (e) {
-              console.warn("Failed to save sync settings tracking due to permissions. (Deduplication will still fall back to document syncHashes)");
-            }
-            
-            setIsSyncing(false);
-            syncLock.current = false;
-            if (!silent || addedCount > 0) {
-              showToast(`Synced ${addedCount} new leads from Google Sheets`, 'success');
-            }
-            if (!silent) setSyncModalOpen(false);
-          } catch (err: any) {
-            console.error("Error in PapaParse complete callback:", err);
-            if (!silent) showToast(err.message || 'Error occurred during Leads Sync', 'error');
-            setIsSyncing(false);
-            syncLock.current = false;
+            response = await fetch(fetchUrl);
+          } catch (directErr) {
+            response = await fetch(BACKEND_URL + '/api/proxy/fetch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: fetchUrl })
+            });
           }
-        },
-        error: (error: any) => {
-          console.error("CSV Parse Error:", error);
-          if (!silent) showToast('Failed to parse CSV', 'error');
-          setIsSyncing(false);
-          syncLock.current = false;
+
+          if (!response.ok) {
+            throw new Error(`Failed to fetch Sheet (Status ${response.status}). Ensure it is "Published to web" as CSV.`);
+          }
+
+          const csvText = await response.text();
+          if (csvText.trim().toLowerCase().startsWith('<!doctype') || csvText.trim().toLowerCase().startsWith('<html')) {
+            throw new Error('Invalid Link');
+          }
+
+          const results = await new Promise<any>((resolve, reject) => {
+            Papa.parse(csvText, {
+              header: true,
+              skipEmptyLines: true,
+              transformHeader: (h) => h.trim().toLowerCase(),
+              complete: (res) => resolve(res),
+              error: (err) => reject(err)
+            });
+          });
+
+          const newLeads = results.data as any[];
+          for (const row of newLeads) {
+            const email = String(row.email || row['email address'] || '').trim();
+            const phone = String(row.phone_number || row['phone number'] || row.phone || row['contact number'] || '').trim();
+            const name = String(row.full_name || row['full name'] || row.form_name || row['form name'] || row.name || 'Unknown').trim();
+            const budget = String(row.budget || row.est_budget || row['est budget'] || row.max_budget || row['max budget'] || '').trim();
+            const guests = String(row.guests || row.no_of_guests || row['no. of guests'] || row['no._of_guests'] || row['number of guests'] || row.number_of_guests || row.guest_count || row['guest count'] || '').trim();
+            const city = String(row.city || row.location || row.area || '').trim();
+            const bookingDate = String(row.booking_date || row['booking date'] || row.event_date || row['event date'] || row.date || '').trim();
+            const bookingTime = String(row.booking_time || row['booking time'] || row.event_time || row['event time'] || row.time || '').trim();
+            const createdTimeStr = String(row.created_time || row['created time'] || row.timestamp || '').trim();
+            
+            let createdAt: any = serverTimestamp();
+            let parsedDate: Date | null = null;
+            if (createdTimeStr) {
+              parsedDate = new Date(createdTimeStr);
+              if (!isNaN(parsedDate.getTime())) {
+                createdAt = parsedDate;
+              }
+            }
+            
+            const rowHash = `${email}-${phone}-${name}-${bookingDate}-${createdTimeStr}`;
+            if (newProcessedHashes.has(rowHash)) continue;
+            if (existingSyncHashes.has(rowHash)) {
+              newProcessedHashes.add(rowHash);
+              continue;
+            }
+            if (email || phone || name !== 'Unknown') {
+              const historicalMatch = currentLeads.find((l: any) => {
+                const matchPhone = phone && phone.length > 5 && l.phone === phone;
+                const matchEmail = email && l.email === email;
+                const matchName = name && name !== 'Unknown' && l.name === name;
+                if ((matchPhone && matchName) || (matchEmail && matchName) || (matchPhone && matchEmail)) return true;
+                if (matchPhone || matchEmail) {
+                  if (parsedDate && !isNaN(parsedDate.getTime()) && l.createdAt && typeof l.createdAt.toMillis === 'function') {
+                     const dbTime = l.createdAt.toMillis();
+                     const diffHours = Math.abs(dbTime - parsedDate.getTime()) / 3600000;
+                     if (diffHours < 48) return true;
+                  } else {
+                     return true; 
+                  }
+                }
+                return false;
+              });
+              
+              if (historicalMatch) {
+                 newProcessedHashes.add(rowHash);
+                 existingSyncHashes.add(rowHash);
+                 continue;
+              }
+              await addDoc(collection(db, 'leads'), {
+                name, email, phone, budget, guests, city, bookingDate, bookingTime,
+                status: 'new', createdAt, source: 'google_sheets', syncHash: rowHash
+              });
+              currentLeads.push({ id: 'temp', email, phone, name, syncHash: rowHash } as any);
+              newProcessedHashes.add(rowHash);
+              existingSyncHashes.add(rowHash);
+              totalAddedCount++;
+            }
+          }
+        } catch (err: any) {
+          console.error("Sync Error for url:", rawUrl, err);
+          hasErrors = true;
+          if (!silent) showToast(`Failed to sync one sheet: ${err.message}`, 'error');
         }
-      });
+      }
+
+      const hashArrayToSave = Array.from(newProcessedHashes).slice(-15000);
+      try {
+        await setDoc(syncDocRef, { ...syncData, csvUrls: validUrls, csvUrl: validUrls[0] || '', processedHashes: hashArrayToSave });
+      } catch (e) {
+        console.warn("Failed to save sync settings tracking due to permissions.");
+      }
+
+      setIsSyncing(false);
+      syncLock.current = false;
+      if (!silent || totalAddedCount > 0) {
+        showToast(`Synced ${totalAddedCount} new leads from Google Sheets`, 'success');
+      }
+      if (!silent && !hasErrors) setSyncModalOpen(false);
+      
     } catch (err: any) {
       console.error("Sync Error:", err);
-      if (!silent) showToast(err.message || 'Failed to fetch Google Sheet', 'error');
+      if (!silent) showToast(err.message || 'Failed to sync Google Sheets', 'error');
       setIsSyncing(false);
       syncLock.current = false;
     }
@@ -2906,9 +2846,10 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
   const handleSaveSyncSettings = async () => {
     try {
-      await setDoc(doc(db, 'settings', 'leadSync'), { csvUrl });
+      const validUrls = csvUrls.filter(u => u.trim());
+      await setDoc(doc(db, 'settings', 'leadSync'), { csvUrls: validUrls });
       showToast('Sync settings saved', 'success');
-      performSync(csvUrl, false);
+      performSync(validUrls, false);
     } catch (err) {
       console.error(err);
       showToast('Failed to save sync settings', 'error');
@@ -2917,14 +2858,15 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
   // Auto-sync Google Sheets leads every 5 minutes
   useEffect(() => {
-    if (!csvUrl) return;
+    const validUrls = csvUrls.filter(u => u.trim());
+    if (validUrls.length === 0) return;
     const intervalId = setInterval(() => {
-      performSync(csvUrl, true);
+      performSync(validUrls, true);
     }, 5 * 60 * 1000); // 5 minutes
     
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [csvUrl]);
+  }, [JSON.stringify(csvUrls)]);
 
   const handleUpdateStatus = async (leadId: string, status: string) => {
     try {
@@ -3497,15 +3439,35 @@ export default {
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">
-                  Published CSV Link
+                  Published CSV Link(s)
                 </label>
-                <input
-                  type="url"
-                  value={csvUrl}
-                  onChange={(e) => setCsvUrl(e.target.value)}
-                  placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"
-                  className="w-full px-4 py-3 bg-white border border-luxury-dark/10 rounded-xl text-sm focus:outline-none focus:border-luxury-gold"
-                />
+                {csvUrls.map((url, idx) => (
+                  <div key={idx} className="flex gap-2 mb-2">
+                    <input
+                      type="url"
+                      value={url}
+                      onChange={(e) => {
+                        const newUrls = [...csvUrls];
+                        newUrls[idx] = e.target.value;
+                        setCsvUrls(newUrls);
+                      }}
+                      placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"
+                      className="flex-1 px-4 py-3 bg-white border border-luxury-dark/10 rounded-xl text-sm focus:outline-none focus:border-luxury-gold"
+                    />
+                    {csvUrls.length > 1 && (
+                      <button type="button" onClick={() => {
+                        const newUrls = [...csvUrls];
+                        newUrls.splice(idx, 1);
+                        setCsvUrls(newUrls);
+                      }} className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-colors">
+                        <X size={20} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={() => setCsvUrls([...csvUrls, ''])} className="text-luxury-gold font-bold text-xs uppercase tracking-widest flex items-center gap-1 mt-2 hover:opacity-80">
+                  <Plus size={14} /> Add another link
+                </button>
               </div>
 
               <div className="flex gap-4 pt-4">
@@ -3517,7 +3479,7 @@ export default {
                 </button>
                 <button 
                   onClick={handleSaveSyncSettings}
-                  disabled={isSyncing || !csvUrl}
+                  disabled={isSyncing || !csvUrls.some(u => u.trim())}
                   className="flex-1 py-4 bg-luxury-dark text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-luxury-dark/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isSyncing ? <RefreshCw size={16} className="animate-spin" /> : <Download size={16} />}
@@ -7212,6 +7174,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
               {galleryImages.length === 0 && (
                 <div className="col-span-full py-24 text-center bg-luxury-dark/5 rounded-3xl border border-dashed border-luxury-dark/10">
                   <p className="text-luxury-dark/40 font-medium italic">No images found in the database. Use the button above to import default images or add a new one.</p>
+
                 </div>
               )}
             </div>
@@ -7939,7 +7902,7 @@ export default {
                                             </div>
                                           </div>
                                           <p className="text-[9px] text-luxury-dark/30 font-mono">
-                                            {format(new Date(p.date), 'dd MMM, HH:mm')}
+                                            {formatSafeStr(p.date, 'dd MMM, HH:mm')}
                                           </p>
                                         </div>
                                       ))}
@@ -8323,7 +8286,7 @@ export default {
                                 </div>
                               </div>
                               <p className="text-[9px] text-luxury-dark/30 font-mono">
-                                {format(new Date(p.date), 'dd MMM, yyyy')}
+                                {formatSafeStr(p.date, 'dd MMM, yyyy')}
                               </p>
                             </div>
                           ))}
@@ -8907,7 +8870,7 @@ const Navbar = ({
                                         <p className="text-xs font-bold text-luxury-dark">{notif.title}</p>
                                         <p className="text-[10px] text-luxury-dark/60 mt-0.5 line-clamp-2">{notif.message}</p>
                                         <p className="text-[9px] text-luxury-dark/30 mt-2 font-medium">
-                                          {format(new Date(notif.createdAt), 'hh:mm a, MMM dd')}
+                                          {formatSafeStr(notif.createdAt, 'hh:mm a, MMM dd')}
                                         </p>
                                       </div>
                                     </div>
