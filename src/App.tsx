@@ -2754,7 +2754,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
           const csvText = await response.text();
           if (csvText.trim().toLowerCase().startsWith('<!doctype') || csvText.trim().toLowerCase().startsWith('<html')) {
-            throw new Error('Invalid Link');
+            throw new Error('This sheet is not "Published to the web" or the link is invalid. Please go to File > Share > Publish to web in Google Sheets.');
           }
 
           const results = await new Promise<any>((resolve, reject) => {
