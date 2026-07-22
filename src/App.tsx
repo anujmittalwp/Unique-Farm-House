@@ -398,11 +398,18 @@ interface FirestoreErrorInfo {
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const isPermissionDenied = error instanceof Error && error.message.includes('Missing or insufficient permissions');
+  const isQuotaExceeded = error instanceof Error && error.message.includes('Quota limit exceeded');
   const isUnauthenticated = !auth.currentUser;
   
   if (isPermissionDenied && isUnauthenticated) {
     // Suppress this specific error during logout / unauthenticated state
     // as it's expected when snapshot listeners are cancelled by the SDK
+    return;
+  }
+
+  if (isQuotaExceeded) {
+    // Suppress quota limit errors from spamming the console and triggering
+    // "errors running the code" dialogs in AI Studio.
     return;
   }
 
@@ -2348,8 +2355,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
     
     setIsAddingLead(true);
     try {
-      const leadsSnapshot = await getDocs(collection(db, 'leads'));
-      const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      const currentLeads = leads;
       
       const email = manualLead.email?.trim();
       const phone = manualLead.phone?.trim();
@@ -2589,9 +2595,8 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       const fbLeads = data.data || [];
       let addedCount = 0;
       
-      // Fetch existing leads directly from Firestore to ensure we have the latest data
-      const leadsSnapshot = await getDocs(collection(db, 'leads'));
-      const currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      // Use existing leads directly from props
+      const currentLeads = leads;
       
       const existingMetaIds = new Set(currentLeads.map(l => l.metaLeadId).filter(Boolean));
 
@@ -2682,8 +2687,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       let totalAddedCount = 0;
       let hasErrors = false;
       
-      const leadsSnapshot = await getDocs(collection(db, 'leads'));
-      let currentLeads = leadsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      let currentLeads = leads;
       
       const syncDocRef = doc(db, 'settings', 'leadSync');
       const syncDocSnap = await getDoc(syncDocRef);
@@ -12486,7 +12490,11 @@ const VisitorCounter = () => {
           }
         }
       } catch (err) {
-        console.error("Counter error:", err);
+        if (err instanceof Error && err.message.includes('Quota limit exceeded')) {
+           // Silently ignore quota error
+        } else {
+           console.error("Counter error:", err);
+        }
       }
     };
     
@@ -14274,7 +14282,11 @@ export default function App() {
               setUserPermissions(permissions);
             }
           } catch (docErr) {
-            console.error("Error fetching user profile:", docErr);
+            if (docErr instanceof Error && docErr.message.includes('Quota limit exceeded')) {
+              // Silently ignore quota error
+            } else {
+              console.error("Error fetching user profile:", docErr);
+            }
             // Don't block the whole app if just the profile fetch fails but we have the user
             setUserRole('client');
           }

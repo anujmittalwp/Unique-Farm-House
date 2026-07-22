@@ -1527,20 +1527,38 @@ async function startServer() {
   }
 
   // --- Auto Sync Calendars Background Task ---
+  let lastSyncSettings: any = null;
+  let lastSyncSettingsFetchTime = 0;
+
   async function runAutoSync() {
     try {
       const aDb = getAdminDb();
-      let syncDoc;
-      if (aDb) {
-        syncDoc = await aDb.collection('settings').doc('calendar_sync').get();
-      } else {
-        syncDoc = await getDoc(doc(db, 'settings', 'calendar_sync'));
-      }
-      
-      const exists = typeof syncDoc.exists === 'function' ? syncDoc.exists() : syncDoc.exists;
-      if (!exists) return;
+      let data = null;
+      const now = Date.now();
 
-      const data = typeof syncDoc.data === 'function' ? syncDoc.data() : null;
+      // Smart Sync Point 1: Use in-memory cache for settings to avoid querying DB every minute
+      // Cache is valid for 15 minutes
+      if (lastSyncSettings && (now - lastSyncSettingsFetchTime < 15 * 60 * 1000)) {
+        data = lastSyncSettings;
+      } else {
+        let syncDoc;
+        if (aDb) {
+          syncDoc = await aDb.collection('settings').doc('calendar_sync').get();
+        } else {
+          syncDoc = await getDoc(doc(db, 'settings', 'calendar_sync'));
+        }
+        
+        const exists = typeof syncDoc.exists === 'function' ? syncDoc.exists() : syncDoc.exists;
+        if (exists) {
+          data = typeof syncDoc.data === 'function' ? syncDoc.data() : null;
+          lastSyncSettings = data;
+          lastSyncSettingsFetchTime = now;
+        } else {
+          lastSyncSettings = null;
+          return;
+        }
+      }
+
       if (!data) return;
 
       const intervalMinutes = data.syncInterval;
@@ -1656,10 +1674,20 @@ async function startServer() {
           
           await setDoc(doc(db, 'settings', 'calendar_sync'), { lastSynced: serverTimestamp() }, { merge: true });
         }
+        
+        // Smart Sync Point 2: Update local cache so we don't trigger sync again in the next minute
+        if (lastSyncSettings) {
+          lastSyncSettings.lastSynced = new Date();
+        }
+
         console.log(`[AutoSync] Background true auto-sync completed! Fetched ${events.length} events.`);
       }
     } catch (err: any) {
-      console.error(`[AutoSync] Background sync failed:`, err.message);
+      if (err?.message?.includes('Quota limit exceeded')) {
+        // Silently ignore quota limit exceeded
+      } else {
+        console.error(`[AutoSync] Background sync failed:`, err.message);
+      }
     }
   }
 
