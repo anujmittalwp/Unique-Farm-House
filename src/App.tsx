@@ -2687,11 +2687,21 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
       let totalAddedCount = 0;
       let hasErrors = false;
       
-      let currentLeads = leads;
-      
       const syncDocRef = doc(db, 'settings', 'leadSync');
       const syncDocSnap = await getDoc(syncDocRef);
       const syncData = syncDocSnap.exists() ? syncDocSnap.data() : {};
+      
+      if (silent) {
+        const lastSyncedAt = syncData.lastSyncedAt?.toMillis ? syncData.lastSyncedAt.toMillis() : 0;
+        if (Date.now() - lastSyncedAt < 4 * 60 * 1000) {
+           // Another admin's browser already synced this recently. Skip to save quota.
+           syncLock.current = false;
+           setIsSyncing(false);
+           return;
+        }
+      }
+      
+      let currentLeads = leads;
       
       const processedHashesList = syncData.processedHashes || [];
       const newProcessedHashes = new Set(processedHashesList);
@@ -2821,14 +2831,21 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                  existingSyncHashes.add(rowHash);
                  continue;
               }
-              await addDoc(collection(db, 'leads'), {
-                name, email, phone, budget, guests, city, bookingDate, bookingTime,
-                status: 'new', createdAt, source: 'google_sheets', syncHash: rowHash
-              });
-              currentLeads.push({ id: 'temp', email, phone, name, syncHash: rowHash } as any);
+              const safeLeadId = "gs_" + btoa(encodeURIComponent(rowHash)).replace(/[^a-zA-Z0-9]/g, '').substring(0, 80);
+              const leadRef = doc(db, 'leads', safeLeadId);
+              
+              // Only insert if it doesn't already exist with this exact ID (prevents multi-tab duplicate inserts)
+              const existingLeadSnap = await getDoc(leadRef);
+              if (!existingLeadSnap.exists()) {
+                await setDoc(leadRef, {
+                  name, email, phone, budget, guests, city, bookingDate, bookingTime,
+                  status: 'new', createdAt, source: 'google_sheets', syncHash: rowHash
+                });
+                currentLeads.push({ id: safeLeadId, email, phone, name, syncHash: rowHash } as any);
+                totalAddedCount++;
+              }
               newProcessedHashes.add(rowHash);
               existingSyncHashes.add(rowHash);
-              totalAddedCount++;
             }
           }
         } catch (err: any) {
@@ -2840,7 +2857,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
       const hashArrayToSave = Array.from(newProcessedHashes).slice(-15000);
       try {
-        await setDoc(syncDocRef, { ...syncData, csvUrls: validUrls, csvUrl: validUrls[0] || '', processedHashes: hashArrayToSave });
+        await setDoc(syncDocRef, { ...syncData, csvUrls: validUrls, csvUrl: validUrls[0] || '', processedHashes: hashArrayToSave, lastSyncedAt: serverTimestamp() });
       } catch (e) {
         console.warn("Failed to save sync settings tracking due to permissions.");
       }
