@@ -1463,7 +1463,7 @@ const ICalSyncSettings = ({ showToast, canEditSettingsAdmin }: { showToast: (msg
       showToast('Please fill in both name and URL', 'error');
       return;
     }
-    const newId = Date.now().toString();
+    const newId = Date.now().toString() + Math.random().toString(36).substring(7);
     const updatedUrls = [...urls, { ...newUrl, id: newId }];
     try {
       await setDoc(doc(db, 'settings', 'calendar_sync'), { urls: updatedUrls }, { merge: true });
@@ -13873,7 +13873,7 @@ export default function App() {
           // Avoid duplicate UI triggers if the user already saw a toast from local capture
           // But usually server push is more reliable for multi-user sync
           setNotifications(prev => [{
-            id: Date.now(),
+            id: Date.now() + Math.random().toString(36).substring(7),
             ...data,
             read: false,
             createdAt: new Date()
@@ -13945,7 +13945,7 @@ export default function App() {
     playNotificationSound();
     
     const newNotif = {
-      id: Date.now(),
+      id: Date.now() + Math.random().toString(36).substring(7),
       title,
       message,
       type,
