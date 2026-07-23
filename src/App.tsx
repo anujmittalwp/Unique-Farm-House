@@ -2377,8 +2377,9 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
         tags: manualLead.tag ? [sourceTag, manualLead.tag] : [sourceTag]
       };
       
-      await addDoc(collection(db, 'leads'), leadData);
-      await logAdminAction('create_manual_lead', 'leads', `Created manual lead for ${manualLead.name} from ${manualLead.source}`);
+      const docRef = await addDoc(collection(db, 'leads'), leadData);
+      console.info(`[LEAD_AUDIT] Manual Lead Created: ${docRef.id}`, { name: manualLead.name, source: manualLead.source, email, phone, timestamp: new Date().toISOString() });
+      await logAdminAction('create_manual_lead', docRef.id, `Created manual lead for ${manualLead.name} from ${manualLead.source}`);
       
       showToast('Manual lead added successfully', 'success');
       setManualModalOpen(false);
@@ -2841,6 +2842,7 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
                   name, email, phone, budget, guests, city, bookingDate, bookingTime,
                   status: 'new', createdAt, source: 'google_sheets', syncHash: rowHash
                 });
+                console.info(`[LEAD_AUDIT] Google Sheets Sync - Lead Created: ${safeLeadId}`, { name, email, phone, syncHash: rowHash, timestamp: new Date().toISOString() });
                 currentLeads.push({ id: safeLeadId, email, phone, name, syncHash: rowHash } as any);
                 totalAddedCount++;
               }
