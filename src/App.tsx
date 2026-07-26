@@ -5206,6 +5206,7 @@ const MyBookings = ({
   // Pricing Settings State
   const [editingPricing, setEditingPricing] = useState<any>(null);
   const [isSavingPricing, setIsSavingPricing] = useState(false);
+  const [newSpecialDate, setNewSpecialDate] = useState({ date: '', type: 'muhurat', label: '' });
 
   // Reply Templates State
   const [editingReplyTemplates, setEditingReplyTemplates] = useState<any>(null);
@@ -7350,6 +7351,112 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                       >
                         + Add New Addon
                       </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 col-span-1 md:col-span-3 mt-8 pt-6 border-t border-luxury-dark/10">
+                    <div>
+                      <h4 className="text-sm font-bold text-luxury-dark uppercase tracking-wider flex items-center gap-2">
+                        <span>👑</span> Special Dates & Shaadi Muhurat Settings
+                      </h4>
+                      <p className="text-[11px] text-luxury-dark/60 mt-0.5">
+                        Highlight Shaadi Muhurat or Heavy Booking dates directly on the Booking Calendar.
+                      </p>
+                    </div>
+
+                    <div className="bg-luxury-dark/5 p-4 rounded-xl space-y-4">
+                      <div className="flex flex-wrap gap-3 items-center bg-white p-3 rounded-xl shadow-sm">
+                        <div className="flex-1 min-w-[140px]">
+                          <label className="block text-[9px] font-bold uppercase tracking-wider text-luxury-dark/40 mb-1">Select Date</label>
+                          <input 
+                            type="date"
+                            value={newSpecialDate.date}
+                            onChange={(e) => setNewSpecialDate({ ...newSpecialDate, date: e.target.value })}
+                            className="w-full px-3 py-2 bg-luxury-dark/5 rounded-lg text-xs outline-none border-none font-bold"
+                          />
+                        </div>
+                        <div className="min-w-[150px]">
+                          <label className="block text-[9px] font-bold uppercase tracking-wider text-luxury-dark/40 mb-1">Category / Type</label>
+                          <select
+                            value={newSpecialDate.type}
+                            onChange={(e) => setNewSpecialDate({ ...newSpecialDate, type: e.target.value })}
+                            className="w-full px-3 py-2 bg-luxury-dark/5 rounded-lg text-xs outline-none border-none font-bold"
+                          >
+                            <option value="muhurat">👑 Shaadi Muhurat</option>
+                            <option value="heavy">🔥 Heavy Booking / High Demand</option>
+                          </select>
+                        </div>
+                        <div className="flex-1 min-w-[150px]">
+                          <label className="block text-[9px] font-bold uppercase tracking-wider text-luxury-dark/40 mb-1">Custom Label (Optional)</label>
+                          <input 
+                            type="text"
+                            placeholder="e.g. Marriage Muhurat / Peak Date"
+                            value={newSpecialDate.label}
+                            onChange={(e) => setNewSpecialDate({ ...newSpecialDate, label: e.target.value })}
+                            className="w-full px-3 py-2 bg-luxury-dark/5 rounded-lg text-xs outline-none border-none"
+                          />
+                        </div>
+                        <div className="self-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!newSpecialDate.date) {
+                                showToast('Please select a valid date', 'error');
+                                return;
+                              }
+                              const existingSpecial = editingPricing?.specialDates || {};
+                              const updatedSpecial = {
+                                ...existingSpecial,
+                                [newSpecialDate.date]: {
+                                  type: newSpecialDate.type,
+                                  label: newSpecialDate.label.trim() || (newSpecialDate.type === 'muhurat' ? 'Shaadi Muhurat' : 'Heavy Booking Date')
+                                }
+                              };
+                              setEditingPricing({ ...editingPricing, specialDates: updatedSpecial });
+                              setNewSpecialDate({ date: '', type: 'muhurat', label: '' });
+                              showToast('Special date added! Click Save Pricing to save.', 'success');
+                            }}
+                            className="px-4 py-2 bg-luxury-gold text-luxury-dark font-bold text-xs rounded-lg hover:bg-luxury-dark hover:text-white transition-colors"
+                          >
+                            + Add Date
+                          </button>
+                        </div>
+                      </div>
+
+                      {editingPricing?.specialDates && Object.keys(editingPricing.specialDates).length > 0 ? (
+                        <div className="space-y-2 mt-3">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-luxury-dark/50">Configured Custom Dates:</span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+                            {Object.entries(editingPricing.specialDates).map(([dateStr, item]: [string, any]) => (
+                              <div key={dateStr} className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-black/5 text-xs shadow-xs">
+                                <div className="flex items-center gap-2 truncate">
+                                  <span>{item.type === 'muhurat' ? '👑' : '🔥'}</span>
+                                  <div>
+                                    <p className="font-bold text-luxury-dark leading-none">{dateStr}</p>
+                                    <p className="text-[10px] text-luxury-dark/60 truncate">{item.label}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const copy = { ...(editingPricing.specialDates || {}) };
+                                    delete copy[dateStr];
+                                    setEditingPricing({ ...editingPricing, specialDates: copy });
+                                  }}
+                                  className="p-1 text-red-500 hover:bg-red-50 rounded"
+                                  title="Remove Special Date"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-luxury-dark/50 italic">
+                          Default 2025/2026 Shaadi Muhurat dates are automatically highlighted on the calendar. You can also add custom dates above.
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -9969,6 +10076,22 @@ const BookingCalendar = ({
   );
 };
 
+const DEFAULT_MUHURAT_DATES = new Set([
+  // 2025
+  '2025-11-16', '2025-11-17', '2025-11-18', '2025-11-22', '2025-11-23', '2025-11-24', '2025-11-25', '2025-11-26', '2025-11-28', '2025-11-29', '2025-11-30',
+  '2025-12-04', '2025-12-05', '2025-12-06', '2025-12-09', '2025-12-10', '2025-12-14', '2025-12-15',
+  // 2026
+  '2026-01-15', '2026-01-16', '2026-01-17', '2026-01-18', '2026-01-21', '2026-01-22', '2026-01-23', '2026-01-24', '2026-01-27', '2026-01-28', '2026-01-30', '2026-01-31',
+  '2026-02-01', '2026-02-02', '2026-02-03', '2026-02-04', '2026-02-08', '2026-02-12', '2026-02-13', '2026-02-14', '2026-02-15', '2026-02-17', '2026-02-22', '2026-02-23', '2026-02-24', '2026-02-25', '2026-02-27', '2026-02-28',
+  '2026-03-01', '2026-03-02', '2026-03-03', '2026-03-04', '2026-03-07', '2026-03-08', '2026-03-09', '2026-03-11', '2026-03-12',
+  '2026-04-15', '2026-04-18', '2026-04-19', '2026-04-20', '2026-04-21', '2026-04-25', '2026-04-26', '2026-04-27',
+  '2026-05-02', '2026-05-03', '2026-05-05', '2026-05-06', '2026-05-07', '2026-05-08', '2026-05-13', '2026-05-14', '2026-05-18', '2026-05-19', '2026-05-24', '2026-05-25', '2026-05-28', '2026-05-29',
+  '2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04', '2026-06-08', '2026-06-09', '2026-06-10', '2026-06-11', '2026-06-12', '2026-06-20', '2026-06-21', '2026-06-22', '2026-06-23', '2026-06-28', '2026-06-29', '2026-06-30',
+  '2026-07-01', '2026-07-02', '2026-07-03', '2026-07-06', '2026-07-07', '2026-07-08', '2026-07-09', '2026-07-10', '2026-07-11', '2026-07-12',
+  '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-21', '2026-11-22', '2026-11-24', '2026-11-25', '2026-11-26',
+  '2026-12-02', '2026-12-03', '2026-12-04', '2026-12-05', '2026-12-08', '2026-12-09', '2026-12-10', '2026-12-12', '2026-12-13', '2026-12-14'
+]);
+
 export const CustomInteractiveCalendar = ({
   checkIn,
   checkOut,
@@ -10175,6 +10298,23 @@ export const CustomInteractiveCalendar = ({
           const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
           const price = isWeekend ? (pricingSettings?.weekend || 25000) : (pricingSettings?.weekday || 22000);
 
+          const yyyy = date.getFullYear();
+          const mm = String(date.getMonth() + 1).padStart(2, '0');
+          const dd = String(date.getDate()).padStart(2, '0');
+          const dateKey = `${yyyy}-${mm}-${dd}`;
+
+          const customSpecialDates = pricingSettings?.specialDates || {};
+          let specialType: 'muhurat' | 'heavy' | null = null;
+          let specialLabel: string | null = null;
+
+          if (customSpecialDates[dateKey]) {
+            specialType = customSpecialDates[dateKey].type;
+            specialLabel = customSpecialDates[dateKey].label || (specialType === 'muhurat' ? 'Shaadi Muhurat' : 'Heavy Booking / High Demand');
+          } else if (DEFAULT_MUHURAT_DATES.has(dateKey)) {
+            specialType = 'muhurat';
+            specialLabel = 'Shaadi Muhurat Date';
+          }
+
           let morningStatus = 'available';
           let afternoonStatus = 'available';
 
@@ -10231,6 +10371,13 @@ export const CustomInteractiveCalendar = ({
             cellClass += " hover:brightness-105 active:scale-95";
           }
 
+          let badgeBorderClass = "";
+          if (specialType === 'muhurat') {
+            badgeBorderClass = "ring-2 ring-amber-400 ring-offset-1";
+          } else if (specialType === 'heavy') {
+            badgeBorderClass = "ring-2 ring-orange-500 ring-offset-1";
+          }
+
           return (
             <div
               key={cell.key}
@@ -10238,8 +10385,14 @@ export const CustomInteractiveCalendar = ({
               onMouseEnter={() => !isPast && checkIn && !checkOut && setHoveredDate(date)}
               onMouseLeave={() => setHoveredDate(null)}
               style={style}
-              className={cellClass}
+              title={specialLabel ? `${specialLabel} (₹${price.toLocaleString()})` : undefined}
+              className={`${cellClass} ${badgeBorderClass}`}
             >
+              {specialType && (
+                <span className="absolute top-0.5 right-0.5 text-[10px] leading-none z-20 drop-shadow-sm select-none" title={specialLabel || ''}>
+                  {specialType === 'muhurat' ? '👑' : '🔥'}
+                </span>
+              )}
               <span className="text-xs sm:text-sm font-bold z-10 leading-none">
                 {day}
               </span>
@@ -10253,28 +10406,36 @@ export const CustomInteractiveCalendar = ({
         })}
       </div>
 
-      <div className="flex flex-wrap gap-4 sm:gap-6 justify-center items-center mt-6 pt-5 border-t border-black/5">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[#439c36] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+      <div className="flex flex-wrap gap-3 sm:gap-5 justify-center items-center mt-6 pt-5 border-t border-black/5">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-lg bg-[#439c36] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
             {availableCount}
           </div>
           <span className="text-[11px] font-bold text-luxury-dark/60">- Available</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[#ce3e3e] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-lg bg-[#ce3e3e] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
             {bookedCount}
           </div>
           <span className="text-[11px] font-bold text-luxury-dark/60">- Booked</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[#e89a3e] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-lg bg-[#e89a3e] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
             {pendingCount}
           </div>
           <span className="text-[11px] font-bold text-luxury-dark/60">- Pending</span>
         </div>
+        <div className="flex items-center gap-1.5 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/80">
+          <span className="text-xs">👑</span>
+          <span className="text-[11px] font-bold text-amber-800">Shaadi Muhurat</span>
+        </div>
+        <div className="flex items-center gap-1.5 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200/80">
+          <span className="text-xs">🔥</span>
+          <span className="text-[11px] font-bold text-orange-800">Heavy Booking</span>
+        </div>
         {(checkIn || checkOut) && (
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#488ac7] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-lg bg-[#488ac7] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
               {checkIn && checkOut ? Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / 86400000)) : 1}
             </div>
             <span className="text-[11px] font-bold text-[#488ac7]">- Selected</span>
