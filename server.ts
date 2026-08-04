@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import nodeIcal from "node-ical";
 import { Resend } from "resend";
+import ImageKit from "imagekit";
 import { v2 as cloudinary } from "cloudinary";
 import webpush from "web-push";
 import nodemailer from "nodemailer";
@@ -908,60 +909,114 @@ async function startServer() {
     }
   });
 
-  // Cloudinary API
-  app.get("/api/cloudinary/images", async (req, res) => {
+  // ImageKit Auth API
+  app.get("/api/imagekit/auth", async (req, res) => {
     try {
-      let cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-      let apiKey = process.env.CLOUDINARY_API_KEY;
-      let apiSecret = process.env.CLOUDINARY_API_SECRET;
+      let urlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT;
+      let publicKey = process.env.IMAGEKIT_PUBLIC_KEY;
+      let privateKey = process.env.IMAGEKIT_PRIVATE_KEY;
       
       try {
         const aDb = getAdminDb();
         if (aDb) {
-           const cloudinaryDoc = await aDb.collection('settings').doc('cloudinary').get();
-           if (cloudinaryDoc.exists) {
-             const data = cloudinaryDoc.data();
-             if (data?.cloudName && data?.apiKey && data?.apiSecret) {
-                cloudName = data.cloudName;
-                apiKey = data.apiKey;
-                apiSecret = data.apiSecret;
+           const imagekitDoc = await aDb.collection('settings').doc('imagekit').get();
+           if (imagekitDoc.exists) {
+             const data = imagekitDoc.data();
+             if (data?.urlEndpoint && data?.publicKey && data?.privateKey) {
+                urlEndpoint = data.urlEndpoint;
+                publicKey = data.publicKey;
+                privateKey = data.privateKey;
              }
            }
         } else {
-           const cloudinaryDoc = await getDoc(doc(db, 'settings', 'cloudinary'));
-           if (cloudinaryDoc.exists()) {
-             const data = cloudinaryDoc.data();
-             if (data?.cloudName && data?.apiKey && data?.apiSecret) {
-                cloudName = data.cloudName;
-                apiKey = data.apiKey;
-                apiSecret = data.apiSecret;
+           const imagekitDoc = await getDoc(doc(db, 'settings', 'imagekit'));
+           if (imagekitDoc.exists()) {
+             const data = imagekitDoc.data();
+             if (data?.urlEndpoint && data?.publicKey && data?.privateKey) {
+                urlEndpoint = data.urlEndpoint;
+                publicKey = data.publicKey;
+                privateKey = data.privateKey;
              }
            }
         }
       } catch(e) {
-        console.warn("Failed to fetch cloudinary settings from firestore", e);
+        console.warn("Failed to fetch imagekit settings from firestore", e);
       }
       
-      if (!cloudName || !apiKey || !apiSecret) {
-        return res.status(500).json({ error: 'Cloudinary credentials not configured' });
+      if (!urlEndpoint || !publicKey || !privateKey) {
+        return res.status(500).json({ error: 'ImageKit credentials not configured' });
       }
 
-      cloudinary.config({
-        cloud_name: cloudName,
-        api_key: apiKey,
-        api_secret: apiSecret,
+      
+      const imagekit = new ImageKit({
+        publicKey,
+        privateKey,
+        urlEndpoint
+      });
+
+      const authenticationParameters = imagekit.getAuthenticationParameters();
+      res.json(authenticationParameters);
+    } catch (error: any) {
+      console.error('ImageKit auth error:', error);
+      res.status(500).json({ error: 'Failed to generate ImageKit auth parameters', details: error.message || error });
+    }
+  });
+
+  // ImageKit Images List API
+  app.get("/api/imagekit/images", async (req, res) => {
+    try {
+      let urlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT;
+      let publicKey = process.env.IMAGEKIT_PUBLIC_KEY;
+      let privateKey = process.env.IMAGEKIT_PRIVATE_KEY;
+      
+      try {
+        const aDb = getAdminDb();
+        if (aDb) {
+           const imagekitDoc = await aDb.collection('settings').doc('imagekit').get();
+           if (imagekitDoc.exists) {
+             const data = imagekitDoc.data();
+             if (data?.urlEndpoint && data?.publicKey && data?.privateKey) {
+                urlEndpoint = data.urlEndpoint;
+                publicKey = data.publicKey;
+                privateKey = data.privateKey;
+             }
+           }
+        } else {
+           const imagekitDoc = await getDoc(doc(db, 'settings', 'imagekit'));
+           if (imagekitDoc.exists()) {
+             const data = imagekitDoc.data();
+             if (data?.urlEndpoint && data?.publicKey && data?.privateKey) {
+                urlEndpoint = data.urlEndpoint;
+                publicKey = data.publicKey;
+                privateKey = data.privateKey;
+             }
+           }
+        }
+      } catch(e) {
+        console.warn("Failed to fetch imagekit settings from firestore", e);
+      }
+      
+      if (!urlEndpoint || !publicKey || !privateKey) {
+        return res.status(500).json({ error: 'ImageKit credentials not configured' });
+      }
+
+      
+      const imagekit = new ImageKit({
+        publicKey,
+        privateKey,
+        urlEndpoint
+      });
+
+      const files = await imagekit.listFiles({
+        skip: 0,
+        limit: 100,
+        searchQuery: req.query.prefix ? `name="${req.query.prefix}*"` : ''
       });
       
-      const resources = await cloudinary.api.resources({
-        type: 'upload',
-        prefix: req.query.prefix as string || '',
-        max_results: 100,
-      });
-      
-      res.json(resources.resources);
-    } catch (error) {
-      console.error('Cloudinary fetch error:', error);
-      res.status(500).json({ error: 'Failed to fetch images from Cloudinary', details: error.message || error });
+      res.json(files);
+    } catch (error: any) {
+      console.error('ImageKit fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch images from ImageKit', details: error.message || error });
     }
   });
 
@@ -1171,6 +1226,105 @@ async function startServer() {
     } catch (error) {
       console.error('Sync error:', error);
       res.status(500).json({ error: 'Sync failed' });
+    }
+  });
+
+  // Google Business Automation API
+  app.post("/api/automation/google/sync-reviews", async (req, res) => {
+    try {
+      const { locationId, credentialsJson, accessToken, prompt } = req.body;
+      
+      if (!locationId) {
+        return res.status(400).json({ success: false, error: "Missing location ID." });
+      }
+      if (!credentialsJson && !accessToken) {
+        return res.status(400).json({ success: false, error: "Missing credentials or access token." });
+      }
+
+      let token = accessToken;
+
+      if (!token && credentialsJson) {
+        let credentials;
+        try {
+          credentials = JSON.parse(credentialsJson);
+        } catch (e) {
+          return res.status(400).json({ success: false, error: "Invalid JSON format for credentials." });
+        }
+
+        // Handle the case where user provides an OAuth Client JSON instead of a Service Account JSON
+        if (credentials.web || credentials.installed || !credentials.client_email) {
+          return res.status(400).json({ 
+            success: false, 
+            error: "It looks like you provided an OAuth Client JSON instead of a Service Account JSON. Please use a Service Account JSON or Login with Google."
+          });
+        }
+
+        const { GoogleAuth } = await import('google-auth-library');
+        const auth = new GoogleAuth({
+          credentials,
+          scopes: ['https://www.googleapis.com/auth/business.manage']
+        });
+
+        const client = await auth.getClient();
+        const accessTokenResponse = await client.getAccessToken();
+        token = accessTokenResponse.token;
+
+        if (!token) {
+          return res.status(500).json({ success: false, error: "Failed to obtain access token from credentials." });
+        }
+      }
+
+      let accounts = [];
+      let accountId = "-";
+      
+      // Attempt to list accounts to find the right account ID if needed
+      try {
+        const accountsRes = await fetch('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (accountsRes.ok) {
+          const accountsData = await accountsRes.json();
+          if (accountsData.accounts && accountsData.accounts.length > 0) {
+            accountId = accountsData.accounts[0].name.split('/')[1];
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch accounts, falling back to '-' account ID", e);
+      }
+
+      // Fetch reviews
+      const locIdClean = locationId.includes('/') ? locationId.split('/').pop() : locationId;
+      const reviewsUrl = `https://mybusiness.googleapis.com/v4/accounts/${accountId}/locations/${locIdClean}/reviews`;
+      
+      const reviewsRes = await fetch(reviewsUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!reviewsRes.ok) {
+        const errText = await reviewsRes.text();
+        console.error("Google API Error:", errText);
+        
+        let niceError = errText;
+        try {
+          const errObj = JSON.parse(errText);
+          if (errObj.error && errObj.error.message) {
+            niceError = errObj.error.message;
+          }
+        } catch (e) {}
+        
+        return res.status(500).json({ success: false, error: `Google API Error: ${niceError}` });
+      }
+
+      const reviewsData = await reviewsRes.json();
+      const reviews = reviewsData.reviews || [];
+      
+      // Filter reviews that don't have a reply yet
+      const unrepliedReviews = reviews.filter((r: any) => !r.reviewReply);
+
+      res.json({ success: true, reviews: unrepliedReviews });
+    } catch (error: any) {
+      console.error('[Google API Error]', error);
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 

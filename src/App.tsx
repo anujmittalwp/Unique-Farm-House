@@ -158,6 +158,7 @@ import { ShantiFarmAdmin } from './ShantiFarmAdmin';
 import { UpcomingSummaryPage } from './UpcomingSummaryPage';
 import { VoucherPage } from './VoucherPage';
 import { auth, db } from './firebase';
+import { GoogleAutomationSettings } from './GoogleAutomationSettings';
 
 export const formatSafeStr = (val: any, fmt: string) => {
   if (!val) return '';
@@ -2047,6 +2048,7 @@ const SettingsSubNav = ({ activeFilter, setActiveFilter, setSettingsFilter, coun
     ...(userRole === 'admin' ? [{ id: 'users', filter: 'users', label: 'User Management', labelShort: 'Users' }] : []),
     { id: 'migration', filter: 'migration', label: 'Import/Export', labelShort: 'Tool', permission: 'leadsSettings' },
     { id: 'ical', filter: 'ical', label: 'iCal Calendar', labelShort: 'iCal', permission: 'editSettings' },
+    { id: 'automation', filter: 'automation', label: 'Google Auto', labelShort: 'Auto', permission: 'editSettings' },
     { id: 'coupons', filter: 'coupons', label: 'Discount Coupons', labelShort: 'Coupons', permission: 'editSettings' },
     { id: 'partners', filter: 'partners', label: 'Partners', labelShort: 'Partners', permission: 'editSettings' }
   ];
@@ -5084,7 +5086,7 @@ const MyBookings = ({
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical' | 'credit_notes' | 'backup'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical' | 'automation' | 'credit_notes' | 'backup'>('all');
   const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
   const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'migration' | 'chatbot_settings' | 'users' | 'ical'>('general');
 
@@ -5119,7 +5121,7 @@ const MyBookings = ({
   // Gallery Management State
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
   const [isAddingImage, setIsAddingImage] = useState(false);
-  const [isFetchingCloudinary, setIsFetchingCloudinary] = useState(false);
+  const [isFetchingImageKit, setIsFetchingImageKit] = useState(false);
   const [isAnalyzingGallery, setIsAnalyzingGallery] = useState(false);
   const [isAnalyzeConfirmOpen, setIsAnalyzeConfirmOpen] = useState(false);
   const [galleryImageToDelete, setGalleryImageToDelete] = useState<any | null>(null);
@@ -5140,37 +5142,49 @@ const MyBookings = ({
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (cloudinarySettings.cloudName && cloudinarySettings.uploadPreset) {
-        // Upload to Cloudinary
-        showToast('Uploading to Cloudinary...', 'info');
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('upload_preset', cloudinarySettings.uploadPreset);
-        
+      if (imageKitSettings.urlEndpoint && imageKitSettings.publicKey && imageKitSettings.privateKey) {
+        // Upload to ImageKit
+        showToast('Authenticating with ImageKit...', 'info');
         try {
-          const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudinarySettings.cloudName}/image/upload`, {
+          const authRes = await fetch('/api/imagekit/auth');
+          const authData = await authRes.json();
+          
+          if (!authData.token || !authData.signature || !authData.expire) {
+            throw new Error('Failed to get ImageKit auth parameters');
+          }
+
+          showToast('Uploading to ImageKit...', 'info');
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('fileName', file.name);
+          formData.append('publicKey', imageKitSettings.publicKey);
+          formData.append('signature', authData.signature);
+          formData.append('expire', authData.expire);
+          formData.append('token', authData.token);
+          
+          const res = await fetch(`https://upload.imagekit.io/api/v1/files/upload`, {
             method: 'POST',
             body: formData
           });
           const data = await res.json();
-          if (data.secure_url) {
+          if (data.url) {
             if (isEdit && editingGalleryImage) {
-              setEditingGalleryImage({ ...editingGalleryImage, src: data.secure_url });
+              setEditingGalleryImage({ ...editingGalleryImage, src: data.url });
             } else {
-              setNewGalleryImage(prev => ({ ...prev, src: data.secure_url }));
+              setNewGalleryImage(prev => ({ ...prev, src: data.url }));
             }
             showToast('Image uploaded successfully', 'success');
           } else {
             showToast('Failed to upload image', 'error');
           }
         } catch (error) {
-          console.error("Cloudinary upload error:", error);
-          showToast('Failed to upload to Cloudinary', 'error');
+          console.error("ImageKit upload error:", error);
+          showToast('Failed to upload to ImageKit', 'error');
         }
       } else {
         // Fallback to base64
         if (file.size > 800 * 1024) { // Firestore has 1MB limit, keeping it safe at 800KB
-          showToast('Image size should be less than 800KB for direct upload. For larger images, please use a URL or setup Cloudinary.', 'error');
+          showToast('Image size should be less than 800KB for direct upload. For larger images, please use a URL or setup ImageKit.', 'error');
           return;
         }
         const reader = new FileReader();
@@ -5198,10 +5212,10 @@ const MyBookings = ({
   const [editingSite, setEditingSite] = useState<any>(null);
   const [isSavingSite, setIsSavingSite] = useState(false);
 
-  // Cloudinary Settings State
-  const [cloudinarySettings, setCloudinarySettings] = useState({ cloudName: '', uploadPreset: '', apiKey: '', apiSecret: '' });
-  const [isSavingCloudinary, setIsSavingCloudinary] = useState(false);
-  const [isSyncingCloudinary, setIsSyncingCloudinary] = useState(false);
+  // ImageKit Settings State
+  const [imageKitSettings, setImageKitSettings] = useState({ urlEndpoint: '', publicKey: '', privateKey: '' });
+  const [isSavingImageKit, setIsSavingImageKit] = useState(false);
+  const [isSyncingImageKit, setIsSyncingImageKit] = useState(false);
 
   // Pricing Settings State
   const [editingPricing, setEditingPricing] = useState<any>(null);
@@ -5213,12 +5227,12 @@ const MyBookings = ({
   const [isSavingReplyTemplates, setIsSavingReplyTemplates] = useState(false);
 
   useEffect(() => {
-    const unsubscribeCloudinary = onSnapshot(doc(db, 'settings', 'cloudinary'), (docSnap) => {
+    const unsubscribeImageKit = onSnapshot(doc(db, 'settings', 'imagekit'), (docSnap) => {
       if (docSnap.exists()) {
-        setCloudinarySettings(docSnap.data() as any);
+        setImageKitSettings(docSnap.data() as any);
       }
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/cloudinary'));
-    return () => unsubscribeCloudinary();
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/imagekit'));
+    return () => unsubscribeImageKit();
   }, []);
 
   useEffect(() => {
@@ -5260,7 +5274,7 @@ const MyBookings = ({
       setEditingSite(siteSettings);
     } else {
       setEditingSite({
-        logoUrl: "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"
+        logoUrl: "https://ik.imagekit.io/gqmm5bldg/Unique_Farm_House_Logo.png?updatedAt=1785825689134"
       });
     }
   }, [siteSettings]);
@@ -5525,42 +5539,42 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
     await logAdminAction('auto_analyze_gallery', 'bulk', `AI analyzed ${successCount} gallery images (${failCount} failed)`);
   };
 
-  const handleFetchCloudinaryImages = async () => {
-    setIsFetchingCloudinary(true);
+  const handleFetchImageKitImages = async () => {
+    setIsFetchingImageKit(true);
     try {
-      const response = await fetch(BACKEND_URL + '/api/cloudinary/images');
+      const response = await fetch(BACKEND_URL + '/api/imagekit/images');
       if (!response.ok) {
         let errorMsg = 'Failed to fetch images';
         try {
           const errData = await response.json();
           errorMsg = errData.details?.message || errData.error || errorMsg;
           if (errorMsg === 'disabled customer' || errorMsg.includes('Must supply api_key')) {
-            errorMsg = 'Cloudinary Account Issue: Please enter your NEW Cloudinary details in the "Cloudinary Auto-Setup" section on this page.';
+            errorMsg = 'ImageKit Account Issue: Please enter your NEW ImageKit details in the "ImageKit Auto-Setup" section on this page.';
           }
         } catch (e) {
           // Ignore JSON parse error
         }
         throw new Error(errorMsg);
       }
-      const images = await response.json();
+      const files = await response.json();
       
       const batch = writeBatch(db);
-      for (const img of images) {
+      for (const img of files) {
         const docRef = doc(collection(db, 'gallery'));
         batch.set(docRef, {
-          src: img.secure_url,
-          title: img.public_id.split('/').pop(),
+          src: img.url,
+          title: img.name,
           category: 'Villa',
           createdAt: serverTimestamp()
         });
       }
       await batch.commit();
-      showToast('Images imported from Cloudinary', 'success');
+      showToast('Images imported from ImageKit', 'success');
     } catch (err: any) {
       console.error(err);
       showToast(err.message || 'Failed to import images', 'error');
     } finally {
-      setIsFetchingCloudinary(false);
+      setIsFetchingImageKit(false);
     }
   };
 
@@ -5682,20 +5696,20 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
     }
   };
 
-  const handleSaveCloudinarySettings = async () => {
-    setIsSavingCloudinary(true);
+  const handleSaveImageKitSettings = async () => {
+    setIsSavingImageKit(true);
     try {
-      await setDoc(doc(db, 'settings', 'cloudinary'), {
-        ...cloudinarySettings,
+      await setDoc(doc(db, 'settings', 'imagekit'), {
+        ...imageKitSettings,
         updatedAt: serverTimestamp()
       });
-      await logAdminAction('update_cloudinary_settings', 'cloudinary', 'Updated Cloudinary settings');
-      showToast('Cloudinary settings saved successfully', 'success');
+      await logAdminAction('update_imagekit_settings', 'imagekit', 'Updated ImageKit settings');
+      showToast('ImageKit settings saved successfully', 'success');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'settings/cloudinary');
-      showToast('Failed to save Cloudinary settings', 'error');
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/imagekit');
+      showToast('Failed to save ImageKit settings', 'error');
     } finally {
-      setIsSavingCloudinary(false);
+      setIsSavingImageKit(false);
     }
   };
 
@@ -6786,6 +6800,13 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
               <ICalSyncSettings showToast={showToast} canEditSettingsAdmin={canEditSettingsAdmin} />
             </div>
           </div>
+        ) : activeFilter === 'automation' && (userRole === 'admin' || userRole === 'agent') ? (
+          <div className="space-y-8 animate-fade-in">
+            <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
+            <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm max-w-4xl mx-auto">
+              <GoogleAutomationSettings showToast={showToast} canEditSettingsAdmin={canEditSettingsAdmin} />
+            </div>
+          </div>
         ) : activeFilter === 'partners' && (userRole === 'admin' || userRole === 'agent') ? (
           <div className="space-y-8">
             <SettingsSubNav activeFilter={activeFilter} setActiveFilter={setActiveFilter} setSettingsFilter={setSettingsFilter} counts={settingsCounts} userRole={userRole} userPermissions={userPermissions} />
@@ -6855,56 +6876,46 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             {canEditSettingsAdmin && (
               <div className="bg-white/60 backdrop-blur-3xl p-8 rounded-3xl border border-luxury-dark/5 shadow-sm">
                 <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-serif font-bold text-luxury-dark">Cloudinary Auto-Setup (API & Credentials)</h3>
+                  <h3 className="text-xl font-serif font-bold text-luxury-dark">ImageKit Auto-Setup (API & Credentials)</h3>
                   <button 
-                    onClick={handleSaveCloudinarySettings}
-                    disabled={isSavingCloudinary}
+                    onClick={handleSaveImageKitSettings}
+                    disabled={isSavingImageKit}
                     className="px-6 py-2 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
                   >
-                    {isSavingCloudinary ? 'Saving...' : 'Save Config'}
+                    {isSavingImageKit ? 'Saving...' : 'Save Config'}
                   </button>
                 </div>
-                <p className="text-xs text-luxury-dark/60 mb-6">Setup your Cloudinary account details to automatically fetch your gallery images from Cloudinary and upload directly to it.</p>
+                <p className="text-xs text-luxury-dark/60 mb-6">Setup your ImageKit account details to automatically fetch your gallery images from ImageKit and upload directly to it.</p>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 gap-6">
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Cloud Name</label>
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">URL Endpoint</label>
                     <input 
                       type="text" 
-                      value={cloudinarySettings.cloudName}
-                      onChange={(e) => setCloudinarySettings({...cloudinarySettings, cloudName: e.target.value})}
+                      value={imageKitSettings.urlEndpoint}
+                      onChange={(e) => setImageKitSettings({...imageKitSettings, urlEndpoint: e.target.value})}
                       className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
-                      placeholder="e.g. dxyz12345"
+                      placeholder="e.g. https://ik.imagekit.io/your_id/"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Upload Preset</label>
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Public Key</label>
                     <input 
                       type="text" 
-                      value={cloudinarySettings.uploadPreset}
-                      onChange={(e) => setCloudinarySettings({...cloudinarySettings, uploadPreset: e.target.value})}
+                      value={imageKitSettings.publicKey}
+                      onChange={(e) => setImageKitSettings({...imageKitSettings, publicKey: e.target.value})}
                       className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
-                      placeholder="e.g. ml_default"
+                      placeholder="e.g. public_..."
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">API Key</label>
-                    <input 
-                      type="text" 
-                      value={cloudinarySettings.apiKey}
-                      onChange={(e) => setCloudinarySettings({...cloudinarySettings, apiKey: e.target.value})}
-                      className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
-                      placeholder="e.g. 123456789012345"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">API Secret</label>
+                    <label className="text-[10px] uppercase tracking-widest text-luxury-dark/40 font-bold ml-1">Private Key</label>
                     <input 
                       type="password" 
-                      value={cloudinarySettings.apiSecret}
-                      onChange={(e) => setCloudinarySettings({...cloudinarySettings, apiSecret: e.target.value})}
+                      value={imageKitSettings.privateKey}
+                      onChange={(e) => setImageKitSettings({...imageKitSettings, privateKey: e.target.value})}
                       className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
-                      placeholder="e.g. aBcD_eFgHiJkLmNoP"
+                      placeholder="e.g. private_..."
                     />
                   </div>
                 </div>
@@ -6944,7 +6955,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                       value={newGalleryImage.src}
                       onChange={(e) => setNewGalleryImage({...newGalleryImage, src: e.target.value})}
                       className="w-full px-4 py-3 bg-luxury-dark/5 border-none rounded-xl text-sm focus:ring-2 focus:ring-luxury-gold outline-none transition-all"
-                      placeholder="Paste Image URL (Cloudinary, etc.)"
+                      placeholder="Paste Image URL (ImageKit, etc.)"
                     />
                     <div className="relative">
                       <input 
@@ -6987,11 +6998,11 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                   </button>
                   
                   <button 
-                    onClick={handleFetchCloudinaryImages}
-                    disabled={isFetchingCloudinary}
+                    onClick={handleFetchImageKitImages}
+                    disabled={isFetchingImageKit}
                     className="mt-6 ml-4 px-8 py-3 bg-luxury-gold text-luxury-dark rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-luxury-dark hover:text-white transition-all disabled:opacity-50"
                   >
-                    {isFetchingCloudinary ? 'Fetching...' : 'Fetch from Cloudinary'}
+                    {isFetchingImageKit ? 'Fetching...' : 'Fetch from ImageKit'}
                   </button>
                 </>
               )}
@@ -8825,7 +8836,7 @@ const Navbar = ({
       <div className="max-w-7xl mx-auto px-6 flex justify-between items-center w-full">
         <Link to="/" className="flex items-center gap-2 sm:gap-3 shrink-0">
           <img 
-            src={siteSettings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"} 
+            src={siteSettings?.logoUrl || "https://ik.imagekit.io/gqmm5bldg/Unique_Farm_House_Logo.png?updatedAt=1785825689134"} 
             alt="Unique Farmhouse Logo" 
             className="h-10 sm:h-12 w-auto object-contain"
             referrerPolicy="no-referrer"
@@ -10888,7 +10899,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
           currency: order.currency,
           name: "Unique Farmhouse",
           description: `Stay from ${format(checkIn!, 'dd-MM-yyyy')} to ${format(checkOut!, 'dd-MM-yyyy')}`,
-          image: siteSettings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif",
+          image: siteSettings?.logoUrl || "https://ik.imagekit.io/gqmm5bldg/Unique_Farm_House_Logo.png?updatedAt=1785825689134",
           order_id: order.id,
           handler: async function (response: any) {
             console.log('Razorpay payment response:', response);
@@ -12699,7 +12710,7 @@ const Footer = ({ settings }: { settings?: any }) => {
           <div className="space-y-6">
             <Link to="/" className="flex items-center gap-3">
               <img 
-                src={settings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"} 
+                src={settings?.logoUrl || "https://ik.imagekit.io/gqmm5bldg/Unique_Farm_House_Logo.png?updatedAt=1785825689134"} 
                 alt="Unique Farmhouse Logo" 
                 className="h-12 sm:h-16 w-auto object-contain"
                 referrerPolicy="no-referrer"
@@ -12918,7 +12929,7 @@ const InstallPrompt = ({ onInstall, onClose, isIOS, siteSettings }: { onInstall:
     >
       <div className="w-16 h-16 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg">
         <img 
-          src={siteSettings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"} 
+          src={siteSettings?.logoUrl || "https://ik.imagekit.io/gqmm5bldg/Unique_Farm_House_Logo.png?updatedAt=1785825689134"} 
           alt="App Icon" 
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"
@@ -14336,6 +14347,9 @@ export default function App() {
             setAboutSettings(data);
             break;
           case 'site':
+            if (data?.logoUrl && data.logoUrl.includes('res.cloudinary.com')) {
+              data.logoUrl = "https://ik.imagekit.io/gqmm5bldg/Unique_Farm_House_Logo.png?updatedAt=1785825689134";
+            }
             setSiteSettings(data);
             break;
           case 'pricing':
@@ -14520,7 +14534,7 @@ export default function App() {
       <div className="h-screen w-full flex items-center justify-center bg-luxury-dark">
         <div className="flex flex-col items-center gap-6 px-6 text-center">
           <img 
-            src={siteSettings?.logoUrl || "https://res.cloudinary.com/dxxd8os4d/image/upload/v1772725088/Unique_Farm_House_Logo_hrzu3e.gif"} 
+            src={siteSettings?.logoUrl || "https://ik.imagekit.io/gqmm5bldg/Unique_Farm_House_Logo.png?updatedAt=1785825689134"} 
             alt="Logo" 
             className="h-24 w-auto animate-pulse"
             referrerPolicy="no-referrer"
