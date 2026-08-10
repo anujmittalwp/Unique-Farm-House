@@ -9548,14 +9548,26 @@ const GalleryItem = ({ img, index, onClick }: { img: any; index: number; onClick
 
         <div className="absolute inset-0 bg-luxury-dark/20 group-hover:bg-transparent transition-colors duration-700 z-10" />
         
-        <img 
-          src={img.src} 
-          alt={img.title} 
-          loading="lazy"
-          onLoad={() => setIsLoaded(true)}
-          className={`w-full h-auto object-cover transition-all duration-1000 group-hover:scale-110 ${isLoaded ? 'opacity-100 blur-0' : 'opacity-0 blur-lg'}`}
-          referrerPolicy="no-referrer"
-        />
+        {(img.src.toLowerCase().includes('.mp4') || img.src.toLowerCase().includes('/video/')) ? (
+          <video 
+            src={img.src} 
+            muted
+            loop
+            autoPlay
+            playsInline
+            onLoadedData={() => setIsLoaded(true)}
+            className={`w-full h-auto object-cover transition-all duration-1000 group-hover:scale-110 ${isLoaded ? 'opacity-100 blur-0' : 'opacity-0 blur-lg'}`}
+          />
+        ) : (
+          <img 
+            src={img.src} 
+            alt={img.title} 
+            loading="lazy"
+            onLoad={() => setIsLoaded(true)}
+            className={`w-full h-auto object-cover transition-all duration-1000 group-hover:scale-110 ${isLoaded ? 'opacity-100 blur-0' : 'opacity-0 blur-lg'}`}
+            referrerPolicy="no-referrer"
+          />
+        )}
 
         {/* Hover Overlay Icon */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-20">
@@ -9720,12 +9732,22 @@ const GalleryModal = ({ image, onClose, onNext, onPrev }: { image: any, onClose:
                 transition={{ duration: 0.4, type: "spring", bounce: 0.2 }}
                 className="relative w-full h-full flex items-center justify-center"
               >
-                <img 
-                  src={image.src} 
-                  alt={image.title} 
-                  className="max-w-full max-h-[70vh] object-contain rounded-xl shadow-2xl"
-                  referrerPolicy="no-referrer"
-                />
+                {(image.src.toLowerCase().includes('.mp4') || image.src.toLowerCase().includes('/video/')) ? (
+                  <video 
+                    src={image.src} 
+                    controls
+                    autoPlay
+                    playsInline
+                    className="max-w-full max-h-[70vh] object-contain rounded-xl shadow-2xl"
+                  />
+                ) : (
+                  <img 
+                    src={image.src} 
+                    alt={image.title} 
+                    className="max-w-full max-h-[70vh] object-contain rounded-xl shadow-2xl"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
               </motion.div>
 
               {onNext && (
