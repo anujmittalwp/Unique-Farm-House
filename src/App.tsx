@@ -98,6 +98,7 @@ import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 const Blog = React.lazy(() => import('./Blog').then(m => ({ default: m.Blog })));
 const BlogPost = React.lazy(() => import('./Blog').then(m => ({ default: m.BlogPost })));
 const BlogAdmin = React.lazy(() => import('./BlogAdmin').then(m => ({ default: m.BlogAdmin })));
+const StaffInventoryDashboard = React.lazy(() => import('./StaffInventoryDashboard').then(m => ({ default: m.StaffInventoryDashboard })));
 const PrivacyPolicy = React.lazy(() => import('./PrivacyPolicy'));
 import { getAI, safeAiCall } from './lib/ai';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -5086,8 +5087,8 @@ const MyBookings = ({
   const [error, setError] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
   const [reviewingBooking, setReviewingBooking] = useState<any | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical' | 'automation' | 'credit_notes' | 'backup'>('all');
-  const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'all'>('upcoming');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'bookings' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'reviews' | 'logs' | 'gallery' | 'settings' | 'finance' | 'blogs' | 'leads' | 'migration' | 'chatbot_settings' | 'users' | 'notifications' | 'loyalty' | 'coupons' | 'partners' | 'ical' | 'automation' | 'credit_notes' | 'backup' | 'staff_inventory'>('all');
+  const [bookingFilter, setBookingFilter] = useState<'upcoming' | 'pending' | 'completed' | 'cancelled' | 'all'>('upcoming');
   const [settingsFilter, setSettingsFilter] = useState<'general' | 'reviews' | 'gallery' | 'logs' | 'migration' | 'chatbot_settings' | 'users' | 'ical'>('general');
 
   const [isAdminCreating, setIsAdminCreating] = useState(false);
@@ -6572,6 +6573,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
                   { id: 'finance', label: 'Finance', icon: BarChart3, colorClass: 'bg-emerald-600 shadow-emerald-500/20', hoverIconClass: 'text-emerald-500 group-hover:text-emerald-600', permission: 'viewFinance' },
                   { id: 'credit_notes', label: 'Credit Notes', icon: Gift, colorClass: 'bg-orange-500 shadow-orange-500/20', hoverIconClass: 'text-orange-500 group-hover:text-orange-600', permission: 'viewFinance' },
                   { id: 'blogs', label: 'Blogs', icon: BookOpen, colorClass: 'bg-rose-500 shadow-rose-500/20', hoverIconClass: 'text-rose-500 group-hover:text-rose-600', permission: 'viewBlogs' },
+                  { id: 'staff_inventory', label: 'Staff & Inv', icon: ClipboardList, colorClass: 'bg-teal-600 shadow-teal-500/20', hoverIconClass: 'text-teal-500 group-hover:text-teal-600', permission: 'admin' },
                   { id: 'backup', label: 'Backup', icon: Download, colorClass: 'bg-indigo-600 shadow-indigo-500/20', hoverIconClass: 'text-indigo-500 group-hover:text-indigo-600', permission: 'admin' },
                   { id: 'settings', label: 'Settings', icon: Settings, colorClass: 'bg-luxury-gold shadow-luxury-gold/20', hoverIconClass: 'text-luxury-gold group-hover:text-luxury-dark', permission: 'viewSettings' }
                 ].filter(tab => {
@@ -6786,6 +6788,10 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             showToast={showToast}
             userRole={userRole}
           />
+        ) : (activeFilter === 'staff_inventory' && userRole === 'admin') ? (
+          <React.Suspense fallback={<div className="p-8 text-center text-luxury-dark/40">Loading Staff & Inventory...</div>}>
+            <StaffInventoryDashboard showToast={showToast} />
+          </React.Suspense>
         ) : activeFilter === 'credit_notes' && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewFinance)) ? (
           <CreditNotesDashboard creditNotes={creditNotes} showToast={showToast} />
         ) : activeFilter === 'coupons' && (userRole === 'admin' || userRole === 'agent') ? (
@@ -7843,6 +7849,7 @@ export default {
                   { id: 'upcoming', label: 'Upcoming', activeClass: 'bg-blue-600' },
                   { id: 'pending', label: 'Pending', activeClass: 'bg-amber-500' },
                   { id: 'completed', label: 'Completed', activeClass: 'bg-emerald-600' },
+                  { id: 'cancelled', label: 'Cancelled', activeClass: 'bg-red-600' },
                   { id: 'all', label: 'All Bookings', activeClass: 'bg-luxury-dark' }
                 ].map((tab) => (
                   <button
@@ -7859,6 +7866,7 @@ export default {
                       {bookings.filter(b => {
                         if (tab.id === 'all') return true;
                         if (tab.id === 'pending') return b.status === 'pending';
+                        if (tab.id === 'cancelled') return b.status === 'cancelled';
                         if (!b.checkIn || !b.checkOut) return false;
                         const now = new Date();
                         const checkOutMoment = parse(b.checkOut, 'dd/MM/yyyy', new Date());
@@ -10207,8 +10215,11 @@ export const CustomInteractiveCalendar = ({
         setCheckIn(date);
         setCheckOut(null);
       } else {
-        const hasConflict = allBookings.some((b: any) => {
-          if (b.status === 'cancelled') return false;
+        let hasHardConflict = false;
+        let hasSoftConflict = false;
+        
+        allBookings.forEach((b: any) => {
+          if (b.status === 'cancelled' || b.status === 'abandoned') return;
           const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
           const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
           bStart.setHours(0, 0, 0, 0);
@@ -10219,10 +10230,18 @@ export const CustomInteractiveCalendar = ({
           const reqEnd = new Date(date);
           reqEnd.setHours(0, 0, 0, 0);
 
-          return reqStart < bEnd && reqEnd > bStart;
+          if (reqStart < bEnd && reqEnd > bStart) {
+            if (b.status === 'blocked') {
+              hasSoftConflict = true;
+            } else {
+              hasHardConflict = true;
+            }
+          }
         });
 
-        if (hasConflict && userRole !== 'admin') {
+        const isStaff = userRole === 'admin' || userRole === 'agent';
+        
+        if (hasHardConflict || (hasSoftConflict && !isStaff)) {
           setCheckIn(date);
           setCheckOut(null);
           if (setErrors) {
@@ -10655,9 +10674,13 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
 
   useEffect(() => {
     if (checkIn && checkOut) {
+      const isStaff = userRole === 'admin' || userRole === 'agent';
       const hasConflict = allBookings.some(b => {
         if (editBooking && b.id === editBooking.id) return false;
-        if (b.status === 'cancelled') return false;
+        if (b.status === 'cancelled' || b.status === 'abandoned') return false;
+        
+        if (b.status === 'blocked' && isStaff) return false;
+
         const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
         bStart.setHours(0, 0, 0, 0);
         const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
@@ -10680,7 +10703,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
         });
       }
     }
-  }, [checkIn, checkOut, allBookings, editBooking]);
+  }, [checkIn, checkOut, allBookings, editBooking, userRole]);
 
   const getDayClassName = useCallback((date: Date) => {
     const isWeekend = ['Friday', 'Saturday'].includes(format(date, 'EEEE'));
@@ -10808,9 +10831,12 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
       }
       
       // Check for conflicts
-      const hasConflict = allBookings.some(b => {
-        if (editBooking && b.id === editBooking.id) return false;
-        if (b.status === 'cancelled') return false;
+      let hasHardConflict = false;
+      let hasSoftConflict = false;
+      
+      allBookings.forEach(b => {
+        if (editBooking && b.id === editBooking.id) return;
+        if (b.status === 'cancelled' || b.status === 'abandoned') return;
         const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
         bStart.setHours(0, 0, 0, 0);
         const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
@@ -10821,11 +10847,21 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
         const reqEnd = checkOut ? new Date(checkOut) : new Date(checkIn);
         reqEnd.setHours(0, 0, 0, 0);
         
-        return (reqStart < bEnd && reqEnd > bStart);
+        if (reqStart < bEnd && reqEnd > bStart) {
+          if (b.status === 'blocked') {
+            hasSoftConflict = true;
+          } else {
+            hasHardConflict = true;
+          }
+        }
       });
       
-      if (hasConflict && (userRole !== 'admin' && userRole !== 'agent')) {
-        newErrors.checkIn = "Selected dates are already booked";
+      const isStaff = userRole === 'admin' || userRole === 'agent';
+      
+      if (hasHardConflict) {
+        newErrors.checkIn = "Selected dates overlap with an existing booking";
+      } else if (hasSoftConflict && !isStaff) {
+        newErrors.checkIn = "Selected dates are currently blocked";
       }
     }
     

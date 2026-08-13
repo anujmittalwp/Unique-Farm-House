@@ -3,7 +3,7 @@ import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, get
 import { db, auth } from './firebase';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { Bot, Save, Settings, MessageSquare, Image as ImageIcon, AlertCircle, Check, X, RefreshCw } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { getAI, safeAiCall } from './lib/ai';
 
 export const GoogleAutomationSettings = ({ showToast, canEditSettingsAdmin }: { showToast: any, canEditSettingsAdmin: boolean }) => {

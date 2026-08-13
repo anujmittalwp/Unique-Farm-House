@@ -377,6 +377,14 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    match /staff/{staffId} {
+      allow read, write: if isAdmin();
+    }
+    
+    match /inventory/{itemId} {
+      allow read, write: if isAdmin();
+    }
+
     match /{path=**} {
       allow read, write: if false;
     }
