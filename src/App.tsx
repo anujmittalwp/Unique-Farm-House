@@ -10231,7 +10231,7 @@ export const CustomInteractiveCalendar = ({
           reqEnd.setHours(0, 0, 0, 0);
 
           if (reqStart < bEnd && reqEnd > bStart) {
-            if (b.status === 'blocked') {
+            if (b.status === 'blocked' || b.type === 'external') {
               hasSoftConflict = true;
             } else {
               hasHardConflict = true;
@@ -10679,7 +10679,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
         if (editBooking && b.id === editBooking.id) return false;
         if (b.status === 'cancelled' || b.status === 'abandoned') return false;
         
-        if (b.status === 'blocked' && isStaff) return false;
+        if ((b.status === 'blocked' || b.type === 'external') && isStaff) return false;
 
         const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
         bStart.setHours(0, 0, 0, 0);
@@ -10848,7 +10848,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
         reqEnd.setHours(0, 0, 0, 0);
         
         if (reqStart < bEnd && reqEnd > bStart) {
-          if (b.status === 'blocked') {
+          if (b.status === 'blocked' || b.type === 'external') {
             hasSoftConflict = true;
           } else {
             hasHardConflict = true;
