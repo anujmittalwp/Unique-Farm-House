@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { motion } from 'motion/react';
 import { Shield, Lock, Eye, FileText, Database, Mail } from 'lucide-react';
 
@@ -97,6 +98,10 @@ const PrivacyPolicy = () => {
 
   return (
     <div className="min-h-screen bg-luxury-dark text-white pt-32 pb-24">
+      <Helmet>
+        <title>Privacy Policy | Unique Farmhouse Noida</title>
+        <meta name="description" content="Read the privacy policy of Unique Farmhouse Noida. Learn how we handle and protect your personal information during your stay." />
+      </Helmet>
       <div className="max-w-4xl mx-auto px-6">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}

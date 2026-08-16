@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Helmet } from 'react-helmet-async';
 import emailjs from '@emailjs/browser';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -9333,6 +9334,10 @@ const About = ({ settings }: { settings?: any }) => {
 
   return (
     <section id="about" className="py-16 sm:py-24 px-6 bg-white overflow-hidden">
+      <Helmet>
+        <title>About Unique Farmhouse Noida | Best Farm Stay in Delhi NCR</title>
+        <meta name="description" content="Learn about Unique Farmhouse Noida (Unique Farm House). We offer a luxurious farm stay, private pool, and expansive lawns perfect for parties and weddings." />
+      </Helmet>
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <motion.div 
@@ -9383,6 +9388,25 @@ const About = ({ settings }: { settings?: any }) => {
                 <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-xs sm:text-sm font-medium">Parties</div>
                 <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-xs sm:text-sm font-medium">Weddings</div>
                 <div className="px-4 py-2 bg-luxury-cream border border-luxury-gold/20 rounded-full text-xs sm:text-sm font-medium">Family Gatherings</div>
+              </div>
+              
+              <div className="mt-8 p-6 bg-white border border-gray-100 shadow-sm rounded-2xl grid grid-cols-2 gap-4">
+                <div>
+                  <span className="block text-[10px] uppercase tracking-wider text-gray-400 font-bold">Max Capacity</span>
+                  <span className="block text-sm font-semibold text-luxury-dark">100+ Guests</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase tracking-wider text-gray-400 font-bold">Overnight Stay</span>
+                  <span className="block text-sm font-semibold text-luxury-dark">15-20 People</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase tracking-wider text-gray-400 font-bold">Location</span>
+                  <span className="block text-sm font-semibold text-luxury-dark">Sector 135, Noida</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase tracking-wider text-gray-400 font-bold">Pet Friendly</span>
+                  <span className="block text-sm font-semibold text-luxury-dark">Yes, 100%</span>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -9491,6 +9515,10 @@ const Amenities = ({ onAmenityClick }: { onAmenityClick: (category: string) => v
 
   return (
     <section id="amenities" className="py-16 sm:py-24 px-6 bg-luxury-cream">
+      <Helmet>
+        <title>Amenities | Unique Farmhouse Noida Sector 135</title>
+        <meta name="description" content="Explore the luxurious amenities at Unique Farmhouse Noida. Private pool, large lawns, fully operated kitchen, games, Wi-Fi, and premium stays for your parties." />
+      </Helmet>
       <div className="max-w-7xl mx-auto">
         <span className="section-subtitle">Curated For Comfort</span>
         <h2 className="section-title text-3xl sm:text-4xl md:text-5xl">World-Class Amenities</h2>
@@ -9615,6 +9643,10 @@ const Gallery = ({ onImageClick, images: firestoreImages, activeCategory, onCate
 
   return (
     <section id="gallery" className="py-24 px-6 bg-luxury-cream/30 overflow-hidden">
+      <Helmet>
+        <title>Gallery | Unique Farmhouse Noida Photos & Images</title>
+        <meta name="description" content="View photos of Unique Farmhouse Noida. Check out our luxury private pool, premium villa interiors, large lawn, and party spaces in Sector 135." />
+      </Helmet>
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row justify-between items-end mb-16 gap-8">
           <div className="max-w-2xl">
@@ -9946,6 +9978,10 @@ const Reviews = () => {
 
   return (
     <section id="reviews" className="py-16 sm:py-24 px-6 bg-luxury-dark text-white overflow-hidden">
+      <Helmet>
+        <title>Guest Reviews & Testimonials | Unique Farmhouse Noida</title>
+        <meta name="description" content="Read reviews and testimonials from our guests. See why Unique Farmhouse Noida is the highest-rated farm house for parties and stays in Sector 135." />
+      </Helmet>
       <div className="max-w-4xl mx-auto text-center">
         <span className="section-subtitle !text-luxury-gold">Guest Testimonials</span>
         <h2 className="section-title !text-white text-3xl sm:text-4xl md:text-5xl">What Our Guests Say</h2>
@@ -12539,6 +12575,10 @@ const BookingSection = ({ onBookNow }: { onBookNow: () => void }) => {
 const LocationSection = () => {
   return (
     <section id="location" className="py-16 sm:py-24 px-6 bg-white">
+      <Helmet>
+        <title>Location & Directions | Unique Farmhouse Noida Sector 135</title>
+        <meta name="description" content="Find the easiest route to Unique Farmhouse Noida. Located conveniently in Sector 135, near Noida Expressway. Perfect for weekend getaways near Delhi NCR." />
+      </Helmet>
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <motion.div 
@@ -12760,7 +12800,7 @@ const VisitorCounter = () => {
   );
 };
 
-const Footer = ({ settings }: { settings?: any }) => {
+const Footer = ({ settings, userRole }: { settings?: any, userRole?: string | null }) => {
   return (
     <footer className="bg-luxury-dark text-white py-12 sm:py-16 px-6 border-t border-white/5">
       <div className="max-w-7xl mx-auto">
@@ -12781,6 +12821,10 @@ const Footer = ({ settings }: { settings?: any }) => {
             <p className="text-white/70 text-sm leading-relaxed">
               Experience the pinnacle of luxury and privacy in Noida. Our farmhouse is the ideal destination for celebrations and serene retreats.
             </p>
+            <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-4 py-2 mt-2">
+              <ShieldCheck size={16} className="text-[#C8A45D]" />
+              <span className="text-xs text-white/90 font-medium">Trusted by 1000+ Guests & Families</span>
+            </div>
             <div className="flex gap-4">
               <a href="#" aria-label="Add to Favorites" className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-luxury-gold transition-colors">
                 <Heart size={18} />
@@ -12799,7 +12843,9 @@ const Footer = ({ settings }: { settings?: any }) => {
               <li><Link to="/about" className="hover:text-luxury-gold transition-colors">About Us</Link></li>
               <li><Link to="/amenities" className="hover:text-luxury-gold transition-colors">Amenities</Link></li>
               <li><Link to="/gallery" className="hover:text-luxury-gold transition-colors">Gallery</Link></li>
-              <li><Link to="/other-properties" className="hover:text-luxury-gold transition-colors">Our Other Properties</Link></li>
+              {userRole === 'admin' && (
+                <li><Link to="/other-properties" className="hover:text-luxury-gold transition-colors">Our Other Properties</Link></li>
+              )}
               <li><Link to="/reviews" className="hover:text-luxury-gold transition-colors">Reviews</Link></li>
               <li><Link to="/blog" className="hover:text-luxury-gold transition-colors">Local Guide & Blog</Link></li>
               <li><Link to="/" className="hover:text-luxury-gold transition-colors">Book Now</Link></li>
@@ -14659,6 +14705,9 @@ export default function App() {
         />
       )}
       <main>
+        <Helmet defaultTitle="Unique Farmhouse Noida | Best Farm House in Sector 135 for Party & Stay" titleTemplate="%s | Unique Farmhouse Noida">
+          <meta name="description" content="Book Unique Farmhouse (Unique Farm House) in Sector 135 Noida. Top-rated luxury farmhouse with pool for party, weddings & staycations. Clean environment, private pool, and lush gardens. Best farm house in Noida for weekend getaways." />
+        </Helmet>
         <React.Suspense fallback={
           <div className="pt-32 pb-24 text-center min-h-[50vh] flex items-center justify-center">
             <div className="w-10 h-10 border-4 border-luxury-gold border-t-transparent rounded-full animate-spin" />
@@ -14688,7 +14737,7 @@ export default function App() {
           </Routes>
         </React.Suspense>
       </main>
-      {!hideMainLayout && <Footer settings={siteSettings} />}
+      {!hideMainLayout && <Footer settings={siteSettings} userRole={userRole} />}
       
       <BookingModal 
         isOpen={isBookingModalOpen} 

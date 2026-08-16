@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { motion } from 'motion/react';
 import { Calendar, User, ArrowRight, ChevronLeft, Share2 } from 'lucide-react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
@@ -212,6 +213,10 @@ export const Blog = () => {
 
   return (
     <section className="py-24 px-6 bg-luxury-cream/30 min-h-screen">
+      <Helmet>
+        <title>Blog & Local Guides | Unique Farmhouse Noida</title>
+        <meta name="description" content="Discover tips for planning the perfect pool party, wedding, or corporate event at Unique Farmhouse Noida. Read our local guides and farm stay recommendations." />
+      </Helmet>
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
           <span className="text-luxury-gold text-[10px] font-bold uppercase tracking-[0.4em] mb-4 block">Local Guide</span>
@@ -283,6 +288,13 @@ export const BlogPost = () => {
 
   return (
     <article className="bg-luxury-cream/30 min-h-screen pb-24">
+      <Helmet>
+        <title>{post.title} | Unique Farmhouse Noida</title>
+        <meta name="description" content={post.excerpt || `Read our latest article: ${post.title}`} />
+        <meta property="og:title" content={post.title} />
+        <meta property="og:description" content={post.excerpt} />
+        {post.image && <meta property="og:image" content={post.image} />}
+      </Helmet>
       <div className="relative h-[40vh] sm:h-[50vh] md:h-[60vh] w-full">
         <img 
           src={post.image} 
