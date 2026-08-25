@@ -5119,6 +5119,7 @@ const MyBookings = ({
   const [userLoyalty, setUserLoyalty] = useState<{ points: number; tier: string; referralCode: string }>({ points: 0, tier: 'Silver', referralCode: '' });
 
   const [whatsappPopup, setWhatsappPopup] = useState<{ isOpen: boolean; mobile: string; name: string; id: string, message: string } | null>(null);
+  const [copyPopup, setCopyPopup] = useState<{ isOpen: boolean; text: string } | null>(null);
 
   // Gallery Management State
   const [newGalleryImage, setNewGalleryImage] = useState({ src: '', title: '', category: 'Villa' });
@@ -8196,7 +8197,35 @@ export default {
                               {booking.name?.[0] || 'G'}
                             </div>
                             <div className="min-w-0">
-                              <p className="font-bold text-luxury-dark text-sm truncate">{booking.name || 'Guest'}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-luxury-dark text-sm truncate">{booking.name || 'Guest'}</p>
+                                {(userRole === 'admin' || userRole === 'agent') && (
+                                  <Copy 
+                                    size={14} 
+                                    className="text-luxury-dark/40 hover:text-luxury-gold cursor-pointer transition-colors shrink-0" 
+                                    title="Copy Booking Details"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      let formattedDate = booking.checkIn;
+                                      try {
+                                        const checkInDate = parse(booking.checkIn, 'dd/MM/yyyy', new Date());
+                                        formattedDate = format(checkInDate, 'do MMM');
+                                      } catch (err) {}
+                                      const guests = (booking.dayGuestAdults || 0) + (booking.dayGuestChildren?.length || 0);
+                                      const balance = (booking.totalAmount || 0) - (booking.amountPaid || 0) - (booking.bookingSource === 'partner' ? (booking.advanceByPartner || 0) : 0);
+                                      const formatBal = (amount: number) => {
+                                        if (amount >= 1000) {
+                                          const kVal = amount / 1000;
+                                          return Number.isInteger(kVal) ? `${kVal}K` : `${kVal.toFixed(1).replace('.0','')}K`;
+                                        }
+                                        return amount.toString();
+                                      };
+                                      const copyText = `Booking Details :-\nDate = ${formattedDate}\nGuests = ${guests}\n*Balance = ${formatBal(balance)}*\n${booking.name || 'Guest'} = ${booking.mobile || ''}`;
+                                      setCopyPopup({ isOpen: true, text: copyText });
+                                    }}
+                                  />
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 text-[10px] text-luxury-dark/40">
                                 <span className="font-mono">ID: {booking.id.slice(0, 8)}</span>
                                 <span>•</span>
@@ -8761,6 +8790,49 @@ export default {
                 className="flex-1 py-3 bg-green-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-green-700 transition-colors uppercase tracking-widest text-[10px]"
               >
                 <MessageSquare size={14} /> Send
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+    <AnimatePresence>
+      {copyPopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setCopyPopup(null)}
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="relative bg-white rounded-3xl p-6 shadow-2xl w-full max-w-sm border border-luxury-dark/5"
+          >
+            <h3 className="text-xl font-bold font-serif text-luxury-dark mb-4">Copy Booking Details</h3>
+            <textarea 
+              value={copyPopup.text}
+              onChange={(e) => setCopyPopup({ ...copyPopup, text: e.target.value })}
+              className="w-full h-32 p-3 bg-luxury-cream border border-black/5 rounded-xl text-sm mb-6 focus:outline-none focus:border-luxury-gold resize-none"
+            />
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setCopyPopup(null)}
+                className="flex-1 py-3 text-luxury-dark font-bold hover:bg-black/5 rounded-xl transition-colors uppercase tracking-widest text-[10px]"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(copyPopup.text).then(() => {
+                    showToast("Details copied to clipboard!");
+                    setCopyPopup(null);
+                  });
+                }}
+                className="flex-1 py-3 bg-luxury-gold text-luxury-dark font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-[#b08e45] transition-colors uppercase tracking-widest text-[10px]"
+              >
+                <Copy size={14} /> Copy
               </button>
             </div>
           </motion.div>
