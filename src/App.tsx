@@ -8200,9 +8200,8 @@ export default {
                               <div className="flex items-center gap-2">
                                 <p className="font-bold text-luxury-dark text-sm truncate">{booking.name || 'Guest'}</p>
                                 {(userRole === 'admin' || userRole === 'agent') && (
-                                  <Copy 
-                                    size={14} 
-                                    className="text-luxury-dark/40 hover:text-luxury-gold cursor-pointer transition-colors shrink-0" 
+                                  <button
+                                    type="button"
                                     title="Copy Booking Details"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -8223,7 +8222,10 @@ export default {
                                       const copyText = `Booking Details :-\nDate = ${formattedDate}\nGuests = ${guests}\n*Balance = ${formatBal(balance)}*\n${booking.name || 'Guest'} = ${booking.mobile || ''}`;
                                       setCopyPopup({ isOpen: true, text: copyText });
                                     }}
-                                  />
+                                    className="text-luxury-dark/40 hover:text-luxury-gold cursor-pointer transition-colors shrink-0 p-0.5 inline-flex items-center"
+                                  >
+                                    <Copy size={14} />
+                                  </button>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 text-[10px] text-luxury-dark/40">
@@ -10252,7 +10254,8 @@ export const CustomInteractiveCalendar = ({
   errors = {},
   setErrors,
   isShantiFarmAdmin,
-  onShantiDateClick
+  onShantiDateClick,
+  editBooking
 }: any) => {
   const [viewDate, setViewDate] = useState<Date>(() => {
     return checkIn || new Date();
@@ -10327,6 +10330,7 @@ export const CustomInteractiveCalendar = ({
         let hasSoftConflict = false;
         
         allBookings.forEach((b: any) => {
+          if (editBooking && b.id === editBooking.id) return;
           if (b.status === 'cancelled' || b.status === 'abandoned') return;
           const bStart = parse(b.checkIn, 'dd/MM/yyyy', new Date());
           const bEnd = parse(b.checkOut, 'dd/MM/yyyy', new Date());
@@ -10390,6 +10394,7 @@ export const CustomInteractiveCalendar = ({
   const pendingCheckIns = new Set<string>();
 
   allBookings.forEach((b: any) => {
+    if (editBooking && b.id === editBooking.id) return;
     if (b.status === 'cancelled') return;
     try {
       const checkInDate = parse(b.checkIn, 'dd/MM/yyyy', new Date());
@@ -10479,6 +10484,7 @@ export const CustomInteractiveCalendar = ({
           let afternoonStatus = 'available';
 
           allBookings.forEach((b: any) => {
+            if (editBooking && b.id === editBooking.id) return;
             if (b.status === 'cancelled') return;
             const start = parse(b.checkIn, 'dd/MM/yyyy', new Date());
             const end = parse(b.checkOut, 'dd/MM/yyyy', new Date());
@@ -12157,6 +12163,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
                     userRole={userRole}
                     errors={errors}
                     setErrors={setErrors}
+                    editBooking={editBooking}
                   />
                 </div>
                 
