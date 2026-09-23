@@ -4855,7 +4855,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
                   </button>
                 </div>
                 <p className="text-[11px] text-luxury-dark/60">
-                  Caretaker apne mobile se live cash collect aur farm expenses darj kar sakta hai. Default PIN: <strong>1234</strong>
+                  Caretaker apne mobile se live cash collect aur farm expenses darj kar sakta hai.
                 </p>
               </div>
 

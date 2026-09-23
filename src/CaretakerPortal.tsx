@@ -128,7 +128,7 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
           setEnteredPin('');
           showToast("Welcome to Caretaker Portal", "success");
         } else {
-          setPinError("Galat PIN! Default PIN 1234 hai ya Admin se puchiye.");
+          setPinError("Galat PIN! Kripya sahi PIN dalein ya Admin se puchiye.");
           setTimeout(() => {
             setEnteredPin('');
           }, 600);
