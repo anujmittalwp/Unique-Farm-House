@@ -435,9 +435,23 @@
         "category": { "type": "string", "description": "The category of the expense." },
         "note": { "type": "string", "description": "Optional notes." },
         "date": { "type": "string", "description": "The date of the expense." },
+        "paidBy": { "type": "string", "description": "Who paid: owner or caretaker." },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["amount", "category", "date", "createdAt"]
+    },
+    "CaretakerSettlement": {
+      "title": "CaretakerSettlement",
+      "description": "A record of cash handed over from caretaker to owner.",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number", "description": "The cash amount handed over." },
+        "date": { "type": "string", "description": "The date of handover." },
+        "note": { "type": "string", "description": "Optional note." },
+        "receivedBy": { "type": "string", "description": "Who received the cash." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "date", "createdAt"]
     },
     "PushSubscription": {
       "title": "PushSubscription",
@@ -506,6 +520,10 @@
       "schema": "GlobalExpense",
       "description": "Global property expenses."
     },
+    "caretaker_settlements/{settlementId}": {
+      "schema": "CaretakerSettlement",
+      "description": "Cash handover records from caretaker."
+    },
     "push_subscriptions/{subId}": {
       "schema": "PushSubscription",
       "description": "Web push subscriptions."
@@ -513,6 +531,14 @@
     "notifications/{notificationId}": {
       "schema": "Notification",
       "description": "System notification logs."
+    },
+    "staff_payroll/{entryId}": {
+      "schema": "StaffPayroll",
+      "description": "Staff salary, advance, and payroll ledger entries."
+    },
+    "settings/caretaker_pin": {
+      "schema": "CaretakerPin",
+      "description": "Caretaker mobile access 4-digit PIN."
     }
   }
 }

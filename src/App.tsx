@@ -93,13 +93,18 @@ import {
   Globe,
   ClipboardList,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Coins,
+  Wallet,
+  Smartphone,
+  Key
 } from 'lucide-react';
 import { Routes, Route, Link, useLocation, useParams } from 'react-router-dom';
 const Blog = React.lazy(() => import('./Blog').then(m => ({ default: m.Blog })));
 const BlogPost = React.lazy(() => import('./Blog').then(m => ({ default: m.BlogPost })));
 const BlogAdmin = React.lazy(() => import('./BlogAdmin').then(m => ({ default: m.BlogAdmin })));
 const StaffInventoryDashboard = React.lazy(() => import('./StaffInventoryDashboard').then(m => ({ default: m.StaffInventoryDashboard })));
+const CaretakerPortal = React.lazy(() => import('./CaretakerPortal').then(m => ({ default: m.CaretakerPortal })));
 const PrivacyPolicy = React.lazy(() => import('./PrivacyPolicy'));
 import { getAI, safeAiCall } from './lib/ai';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -1065,17 +1070,21 @@ const UserManagement = ({
                       className={`text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl outline-none transition-all cursor-pointer ${
                         user.role === 'admin' ? 'bg-luxury-dark text-white' :
                         user.role === 'agent' ? 'bg-luxury-gold text-luxury-dark' :
+                        user.role === 'caretaker' ? 'bg-amber-600 text-white' :
                         'bg-luxury-dark/5 text-luxury-dark/40'
                       }`}
                     >
                       <option value="client">Client</option>
                       <option value="agent">Agent</option>
+                      <option value="caretaker">Caretaker</option>
                       <option value="admin">Admin</option>
                     </select>
                   </td>
                   <td className="px-8 py-6">
                     {user.role === 'admin' ? (
                       <span className="text-[10px] font-bold uppercase tracking-widest text-[#0F9D58] bg-[#0F9D58]/10 px-3 py-1 rounded-lg">Full Access</span>
+                    ) : user.role === 'caretaker' ? (
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-amber-800 bg-amber-100 px-3 py-1 rounded-lg">Caretaker Mobile Portal</span>
                     ) : user.role === 'agent' ? (
                       <div className="flex flex-wrap gap-1 max-w-[200px]">
                         {user.permissions && Object.entries(user.permissions).filter(([k, v]) => v && permissionList.some(p => p.id === k)).map(([k, _]) => (
@@ -3959,11 +3968,12 @@ export default {
   );
 };
 
-const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], otherIncomes = [], onAssignExpense, showToast, userRole }: { 
+const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], otherIncomes = [], caretakerSettlements = [], onAssignExpense, showToast, userRole }: { 
   bookings: any[], 
   expenseCategories: any[], 
   globalExpenses?: any[],
   otherIncomes?: any[],
+  caretakerSettlements?: any[],
   onAssignExpense: (b: any) => void,
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void,
   userRole?: string | null
@@ -3983,6 +3993,15 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
   const [isBookingIncomeOpen, setIsBookingIncomeOpen] = useState(false);
   const [isGlobalExpensesOpen, setIsGlobalExpensesOpen] = useState(false);
   const [isOtherIncomesOpen, setIsOtherIncomesOpen] = useState(false);
+  const [isCaretakerLedgerOpen, setIsCaretakerLedgerOpen] = useState(false);
+  const [isAddingHandover, setIsAddingHandover] = useState(false);
+  const [handoverViewTab, setHandoverViewTab] = useState<'handovers' | 'collections' | 'expenses'>('handovers');
+  const [newHandover, setNewHandover] = useState({
+    amount: '',
+    date: format(new Date(), 'yyyy-MM-dd'),
+    note: '',
+    receivedBy: 'Owner'
+  });
 
   // Global Expense State
   const [isAddingGlobalExpense, setIsAddingGlobalExpense] = useState(false);
@@ -3990,6 +4009,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
     amount: '',
     category: expenseCategories.length > 0 ? expenseCategories[0].name : 'Other',
     note: '',
+    paidBy: 'owner',
     date: format(new Date(), 'yyyy-MM-dd')
   });
 
@@ -4002,6 +4022,53 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
     date: format(new Date(), 'yyyy-MM-dd')
   });
 
+  // Caretaker Mobile PIN & Portal State for Admin
+  const [adminCaretakerPin, setAdminCaretakerPin] = useState('1234');
+  const [isAdminPinModalOpen, setIsAdminPinModalOpen] = useState(false);
+  const [newAdminPinInput, setNewAdminPinInput] = useState('');
+  const [showAdminPin, setShowAdminPin] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'caretaker_pin'), (snap) => {
+      if (snap.exists() && snap.data()?.pin) {
+        setAdminCaretakerPin(String(snap.data()?.pin));
+      } else {
+        setAdminCaretakerPin('1234');
+      }
+    }, (err) => console.warn("Admin pin listener:", err));
+    return () => unsub();
+  }, []);
+
+  const handleUpdateAdminPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{4}$/.test(newAdminPinInput)) {
+      showToast("PIN 4 anko (digits) ka hona chahiye", "error");
+      return;
+    }
+    try {
+      await setDoc(doc(db, 'settings', 'caretaker_pin'), {
+        pin: newAdminPinInput,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'admin'
+      }, { merge: true });
+      showToast(`Caretaker PIN badal diya gaya: ${newAdminPinInput}`, "success");
+      setIsAdminPinModalOpen(false);
+      setNewAdminPinInput('');
+    } catch (err: any) {
+      showToast(err.message || "PIN update me samasya aayi", "error");
+    }
+  };
+
+  const handleCopyCaretakerLink = () => {
+    const link = `${window.location.origin}/?portal=caretaker`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(link);
+      showToast("Caretaker Link Copied! Caretaker ko WhatsApp par bhej dijiye.", "success");
+    } else {
+      showToast(`Caretaker URL: ${link}`, "info");
+    }
+  };
+
   const handleAddGlobalExpense = async () => {
     if (!newGlobalExpense.amount || !newGlobalExpense.category || !newGlobalExpense.date) {
       showToast('Please fill all required fields', 'error');
@@ -4012,6 +4079,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
         amount: Number(newGlobalExpense.amount),
         category: newGlobalExpense.category,
         note: newGlobalExpense.note,
+        paidBy: newGlobalExpense.paidBy || 'owner',
         date: newGlobalExpense.date,
         createdAt: serverTimestamp()
       });
@@ -4020,6 +4088,7 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
         amount: '',
         category: expenseCategories.length > 0 ? expenseCategories[0].name : 'Other',
         note: '',
+        paidBy: 'owner',
         date: format(new Date(), 'yyyy-MM-dd')
       });
       setIsAddingGlobalExpense(false);
@@ -4035,6 +4104,42 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
       showToast('Global expense deleted', 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `global_expenses/${id}`);
+    }
+  };
+
+  const handleAddHandover = async () => {
+    const amt = Number(newHandover.amount);
+    if (!amt || amt <= 0 || !newHandover.date) {
+      showToast('Please enter a valid amount and date', 'error');
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'caretaker_settlements'), {
+        amount: amt,
+        date: newHandover.date,
+        note: newHandover.note || 'Cash Handover to Owner',
+        receivedBy: newHandover.receivedBy || 'Owner',
+        createdAt: serverTimestamp()
+      });
+      showToast('Cash handover recorded successfully', 'success');
+      setNewHandover({
+        amount: '',
+        date: format(new Date(), 'yyyy-MM-dd'),
+        note: '',
+        receivedBy: 'Owner'
+      });
+      setIsAddingHandover(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'caretaker_settlements');
+    }
+  };
+
+  const handleDeleteHandover = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'caretaker_settlements', id));
+      showToast('Handover record deleted', 'success');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `caretaker_settlements/${id}`);
     }
   };
 
@@ -4311,6 +4416,76 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
 
     return Object.entries(categories).map(([name, value]) => ({ name, value }));
   }, [filteredBookings, globalExpenses, fromDate, toDate]);
+
+  const caretakerStats = useMemo(() => {
+    let cashCollected = 0;
+    const cashPaymentsList: any[] = [];
+    
+    bookings.forEach(b => {
+      if (b.status === 'cancelled') return;
+      (b.payments || []).forEach((p: any) => {
+        if (p.method === 'cash_caretaker') {
+          cashCollected += (Number(p.amount) || 0);
+          cashPaymentsList.push({
+            id: `${b.id}-${p.date || Math.random()}`,
+            bookingId: b.id,
+            guestName: b.name || 'Guest',
+            amount: Number(p.amount) || 0,
+            date: p.date,
+            note: p.note
+          });
+        }
+      });
+    });
+
+    let cashSpent = 0;
+    const cashExpensesList: any[] = [];
+
+    bookings.forEach(b => {
+      if (b.status === 'cancelled') return;
+      (b.expenses || []).forEach((e: any, idx: number) => {
+        if (e.paidBy === 'caretaker') {
+          cashSpent += (Number(e.amount) || 0);
+          cashExpensesList.push({
+            id: `b-${b.id}-${idx}`,
+            type: 'booking',
+            title: `Booking: ${b.name || 'Guest'}`,
+            category: e.category || 'General',
+            amount: Number(e.amount) || 0,
+            date: e.date,
+            note: e.note
+          });
+        }
+      });
+    });
+
+    globalExpenses.forEach((e: any) => {
+      if (e.paidBy === 'caretaker') {
+        cashSpent += (Number(e.amount) || 0);
+        cashExpensesList.push({
+          id: `g-${e.id}`,
+          type: 'global',
+          title: 'Property Expense',
+          category: e.category || 'General',
+          amount: Number(e.amount) || 0,
+          date: e.date,
+          note: e.note
+        });
+      }
+    });
+
+    const totalHandedOver = (caretakerSettlements || []).reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+    const cashInHand = cashCollected - cashSpent - totalHandedOver;
+
+    return {
+      cashCollected,
+      cashSpent,
+      totalHandedOver,
+      cashInHand,
+      cashPaymentsList: cashPaymentsList.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()),
+      cashExpensesList: cashExpensesList.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+    };
+  }, [bookings, globalExpenses, caretakerSettlements]);
 
   const COLORS = ['#C8A45D', '#141414', '#4B5563', '#9CA3AF', '#D1D5DB', '#F3F4F6'];
 
@@ -4617,6 +4792,418 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
             </div>
           </div>
 
+          {/* Caretaker Cash & Settlement Ledger */}
+          <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
+            <div 
+              className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 cursor-pointer select-none group"
+              onClick={() => setIsCaretakerLedgerOpen(!isCaretakerLedgerOpen)}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-bold shrink-0">
+                  <Coins size={24} />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-serif font-bold text-luxury-dark group-hover:text-luxury-gold transition-colors">
+                      Caretaker Cash & Settlement Ledger
+                    </h3>
+                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 uppercase tracking-widest">
+                      In Hand: ₹{caretakerStats.cashInHand.toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-[10px] font-bold text-luxury-dark/40 uppercase tracking-widest mt-1">
+                    Guest Cash Collections, Farm Expenses & Cash Handover Tracker
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 self-end md:self-auto">
+                <button 
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsAddingHandover(!isAddingHandover);
+                    setIsCaretakerLedgerOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-luxury-dark text-white text-[10px] font-bold rounded-xl hover:bg-luxury-gold hover:text-luxury-dark transition-all uppercase tracking-widest shadow-sm"
+                >
+                  {isAddingHandover ? <X size={14} /> : <Plus size={14} />}
+                  {isAddingHandover ? 'Cancel' : 'Record Handover'}
+                </button>
+                <div className="p-2 bg-luxury-dark/5 rounded-full text-luxury-dark group-hover:bg-luxury-gold group-hover:text-white transition-all">
+                  {isCaretakerLedgerOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </div>
+              </div>
+            </div>
+
+            {/* Caretaker Mobile Portal & PIN Management for Admin */}
+            <div className="mb-6 p-5 rounded-2xl bg-amber-50/70 border border-amber-200/70 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Smartphone size={18} className="text-amber-800" />
+                  <h4 className="font-bold text-xs uppercase tracking-wider text-luxury-dark">
+                    Caretaker Mobile Portal & Access PIN
+                  </h4>
+                  <span className="text-[11px] font-mono font-bold bg-white px-2.5 py-0.5 rounded-full border border-amber-200 text-luxury-dark shadow-xs">
+                    PIN: {showAdminPin ? adminCaretakerPin : '••••'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPin(!showAdminPin)}
+                    className="text-[10px] text-amber-800 underline hover:text-black font-semibold"
+                  >
+                    {showAdminPin ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-luxury-dark/60">
+                  Caretaker apne mobile se live cash collect aur farm expenses darj kar sakta hai. Default PIN: <strong>1234</strong>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <button
+                  type="button"
+                  onClick={handleCopyCaretakerLink}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-xs"
+                  title="Copy link to send on WhatsApp"
+                >
+                  <Copy size={13} /> Copy WhatsApp Link
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewAdminPinInput(adminCaretakerPin);
+                    setIsAdminPinModalOpen(true);
+                  }}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-luxury-dark hover:bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-xs"
+                >
+                  <Key size={13} /> Change PIN
+                </button>
+                <a
+                  href="/caretaker"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-white hover:bg-amber-100 text-luxury-dark border border-amber-300 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-xs"
+                >
+                  <ExternalLink size={13} /> Open View
+                </a>
+              </div>
+            </div>
+
+            {/* Admin PIN Change Modal */}
+            <AnimatePresence>
+              {isAdminPinModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                  <motion.div
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-black/10 text-left"
+                  >
+                    <div className="flex justify-between items-center mb-4">
+                      <div>
+                        <h3 className="text-base font-serif font-bold text-luxury-dark flex items-center gap-2">
+                          <Key size={18} className="text-luxury-gold" /> Change Caretaker PIN
+                        </h3>
+                        <p className="text-xs text-luxury-dark/50">Admin direct PIN update</p>
+                      </div>
+                      <button 
+                        onClick={() => setIsAdminPinModalOpen(false)}
+                        className="p-1.5 hover:bg-black/5 rounded-full"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleUpdateAdminPin} className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-luxury-dark/70 uppercase tracking-wider mb-1.5">
+                          Naya 4-Digit PIN Dalein
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={4}
+                          placeholder="e.g. 1234"
+                          value={newAdminPinInput}
+                          onChange={(e) => setNewAdminPinInput(e.target.value.replace(/\D/g, ''))}
+                          className="w-full p-3.5 bg-luxury-cream border border-black/10 rounded-xl text-center text-2xl font-mono font-bold tracking-widest outline-none focus:ring-2 focus:ring-luxury-gold"
+                          required
+                          autoFocus
+                        />
+                        <p className="text-[10px] text-luxury-dark/40 text-center mt-1">
+                          Abhi ka PIN: {adminCaretakerPin}
+                        </p>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsAdminPinModalOpen(false)}
+                          className="flex-1 py-3 bg-black/5 hover:bg-black/10 text-luxury-dark font-bold rounded-xl text-xs uppercase tracking-wider"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="flex-1 py-3 bg-luxury-dark hover:bg-black text-white font-bold rounded-xl text-xs uppercase tracking-wider shadow-sm"
+                        >
+                          Save PIN
+                        </button>
+                      </div>
+                    </form>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Quick Stat Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="p-5 rounded-2xl bg-amber-500/5 border border-amber-500/10">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-800/60 mb-1">Total Cash Collected</p>
+                <h4 className="text-2xl font-serif font-bold text-amber-900">+₹{caretakerStats.cashCollected.toLocaleString()}</h4>
+                <p className="text-[9px] text-amber-800/40 mt-1">From guest cash bookings</p>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-rose-500/5 border border-rose-500/10">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-rose-800/60 mb-1">Cash Spent (Expenses)</p>
+                <h4 className="text-2xl font-serif font-bold text-rose-900">-₹{caretakerStats.cashSpent.toLocaleString()}</h4>
+                <p className="text-[9px] text-rose-800/40 mt-1">Property & booking costs</p>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-blue-500/5 border border-blue-500/10">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-blue-800/60 mb-1">Handed Over to You</p>
+                <h4 className="text-2xl font-serif font-bold text-blue-900">-₹{caretakerStats.totalHandedOver.toLocaleString()}</h4>
+                <p className="text-[9px] text-blue-800/40 mt-1">Settled physically to Owner</p>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-800/70 mb-1">Current Cash with Caretaker</p>
+                <h4 className="text-2xl font-serif font-bold text-emerald-900">₹{caretakerStats.cashInHand.toLocaleString()}</h4>
+                <p className="text-[9px] text-emerald-700/60 mt-1 font-bold">Unsettled balance remaining</p>
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {isCaretakerLedgerOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  {/* Record Handover Form */}
+                  <AnimatePresence>
+                    {isAddingHandover && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden mb-6"
+                      >
+                        <div className="bg-luxury-cream p-6 rounded-2xl border border-black/5 flex flex-col md:flex-row gap-4 mb-2">
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Handover Amount (₹)</label>
+                            <input
+                              type="number"
+                              value={newHandover.amount}
+                              onChange={(e) => setNewHandover({ ...newHandover, amount: e.target.value })}
+                              className="w-full px-4 py-3 border border-black/5 rounded-xl font-bold text-sm bg-white focus:outline-none focus:border-luxury-gold"
+                              placeholder="e.g. 10000"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Date</label>
+                            <input
+                              type="date"
+                              value={newHandover.date}
+                              onChange={(e) => setNewHandover({ ...newHandover, date: e.target.value })}
+                              className="w-full px-4 py-3 border border-black/5 rounded-xl font-bold text-sm bg-white focus:outline-none focus:border-luxury-gold"
+                            />
+                          </div>
+                          <div className="flex-1 md:flex-2">
+                            <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Note / Receiver Detail</label>
+                            <input
+                              type="text"
+                              value={newHandover.note}
+                              onChange={(e) => setNewHandover({ ...newHandover, note: e.target.value })}
+                              className="w-full px-4 py-3 border border-black/5 rounded-xl font-bold text-sm bg-white focus:outline-none focus:border-luxury-gold"
+                              placeholder="e.g. Cash received at farm from caretaker"
+                            />
+                          </div>
+                          <div className="flex items-end">
+                            <button
+                              type="button"
+                              onClick={handleAddHandover}
+                              className="w-full px-6 py-3 bg-emerald-600 text-white text-xs font-bold uppercase tracking-widest rounded-xl hover:bg-emerald-700 transition-all shadow-md active:scale-95"
+                            >
+                              Save Handover
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Sub-Tabs */}
+                  <div className="flex flex-wrap gap-2 border-b border-luxury-dark/5 pb-3 mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setHandoverViewTab('handovers')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                        handoverViewTab === 'handovers'
+                          ? 'bg-luxury-dark text-white shadow-sm'
+                          : 'bg-luxury-cream text-luxury-dark/60 hover:text-luxury-dark'
+                      }`}
+                    >
+                      Handover Records ({(caretakerSettlements || []).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHandoverViewTab('collections')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                        handoverViewTab === 'collections'
+                          ? 'bg-luxury-dark text-white shadow-sm'
+                          : 'bg-luxury-cream text-luxury-dark/60 hover:text-luxury-dark'
+                      }`}
+                    >
+                      Cash Collections ({caretakerStats.cashPaymentsList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHandoverViewTab('expenses')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                        handoverViewTab === 'expenses'
+                          ? 'bg-luxury-dark text-white shadow-sm'
+                          : 'bg-luxury-cream text-luxury-dark/60 hover:text-luxury-dark'
+                      }`}
+                    >
+                      Cash Expenses ({caretakerStats.cashExpensesList.length})
+                    </button>
+                  </div>
+
+                  {/* Tab 1: Handover Records */}
+                  {handoverViewTab === 'handovers' && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-luxury-dark/5">
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Amount Handed Over</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Note</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-luxury-dark/5">
+                          {(caretakerSettlements || []).map((s: any) => (
+                            <tr key={s.id} className="hover:bg-luxury-cream/30 transition-colors group">
+                              <td className="px-4 py-3 text-xs font-medium text-luxury-dark/60">
+                                {s.date ? format(parse(s.date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy') : '-'}
+                              </td>
+                              <td className="px-4 py-3 text-xs font-bold text-blue-600">
+                                ₹{(Number(s.amount) || 0).toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-luxury-dark/60">{s.note || 'Cash Handover to Owner'}</td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteHandover(s.id)}
+                                  className="p-2 bg-luxury-dark/5 text-luxury-dark/40 rounded-xl hover:bg-red-500 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+                                  title="Delete Handover Record"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {(caretakerSettlements || []).length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-8 text-center text-xs text-luxury-dark/40 italic">
+                                No cash handovers recorded yet. Click "Record Handover" whenever the caretaker gives you cash.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Tab 2: Cash Collections */}
+                  {handoverViewTab === 'collections' && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-luxury-dark/5">
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Guest / Booking</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Cash Collected</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Installment Note</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-luxury-dark/5">
+                          {caretakerStats.cashPaymentsList.map((cp: any) => (
+                            <tr key={cp.id} className="hover:bg-luxury-cream/30 transition-colors">
+                              <td className="px-4 py-3 text-xs font-medium text-luxury-dark/60">
+                                {cp.date ? format(new Date(cp.date), 'dd MMM yyyy, HH:mm') : '-'}
+                              </td>
+                              <td className="px-4 py-3 text-xs font-bold text-luxury-dark">{cp.guestName}</td>
+                              <td className="px-4 py-3 text-xs font-bold text-amber-600">
+                                +₹{cp.amount.toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-luxury-dark/60">{cp.note || 'Cash at Farm'}</td>
+                            </tr>
+                          ))}
+                          {caretakerStats.cashPaymentsList.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-8 text-center text-xs text-luxury-dark/40 italic">
+                                No cash collections recorded yet. When adding a payment to a booking, select "Cash (Received by Caretaker)".
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Tab 3: Cash Expenses */}
+                  {handoverViewTab === 'expenses' && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-luxury-dark/5">
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Date</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Type / Source</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Category</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Cash Spent</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-luxury-dark/40">Note</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-luxury-dark/5">
+                          {caretakerStats.cashExpensesList.map((ce: any) => (
+                            <tr key={ce.id} className="hover:bg-luxury-cream/30 transition-colors">
+                              <td className="px-4 py-3 text-xs font-medium text-luxury-dark/60">{ce.date}</td>
+                              <td className="px-4 py-3 text-xs font-bold text-luxury-dark">{ce.title}</td>
+                              <td className="px-4 py-3 text-xs font-medium text-luxury-dark/70">{ce.category}</td>
+                              <td className="px-4 py-3 text-xs font-bold text-rose-600">
+                                -₹{ce.amount.toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-luxury-dark/60">{ce.note || '-'}</td>
+                            </tr>
+                          ))}
+                          {caretakerStats.cashExpensesList.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-8 text-center text-xs text-luxury-dark/40 italic">
+                                No caretaker cash expenses recorded yet. When assigning an expense, select "Caretaker Cash".
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           {/* Global Expenses Section */}
           <div className="bg-white p-8 rounded-[2.5rem] border border-luxury-dark/5 shadow-sm overflow-hidden">
             <div 
@@ -4683,6 +5270,17 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
                     <option value="Other">Other</option>
                   </select>
                 </div>
+                <div className="flex-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Paid By</label>
+                  <select
+                    value={newGlobalExpense.paidBy || 'owner'}
+                    onChange={(e) => setNewGlobalExpense({ ...newGlobalExpense, paidBy: e.target.value })}
+                    className="w-full px-4 py-3 border border-black/5 rounded-xl font-bold text-sm bg-white focus:outline-none focus:border-luxury-gold"
+                  >
+                    <option value="owner">Owner / Bank / Online</option>
+                    <option value="caretaker">Caretaker Cash</option>
+                  </select>
+                </div>
                 <div className="flex-1 md:flex-2">
                   <label className="block text-[10px] font-bold uppercase tracking-widest text-luxury-dark/60 mb-2">Note (Optional)</label>
                   <input
@@ -4730,7 +5328,14 @@ const FinanceDashboard = ({ bookings, expenseCategories, globalExpenses = [], ot
               {(stats.filteredGlobalExpenses || []).map(expense => (
                 <tr key={expense.id} className="hover:bg-luxury-cream/30 transition-colors group">
                   <td className="px-4 py-4 text-xs font-medium text-luxury-dark/60">{format(parse(expense.date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}</td>
-                  <td className="px-4 py-4 text-xs font-bold text-luxury-dark">{expense.category}</td>
+                  <td className="px-4 py-4 text-xs font-bold text-luxury-dark">
+                    {expense.category}
+                    {expense.paidBy === 'caretaker' && (
+                      <span className="ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 uppercase tracking-widest">
+                        Caretaker Cash
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-4 text-xs font-bold text-red-500">₹{(expense.amount || 0).toLocaleString()}</td>
                   <td className="px-4 py-4 text-xs text-luxury-dark/60">{expense.note || '-'}</td>
                   <td className="px-4 py-4 text-right">
@@ -4899,6 +5504,7 @@ const AssignExpenseModal = ({ booking, expenseCategories, onClose, showToast }: 
   const [category, setCategory] = useState(expenseCategories[0]?.name || 'Cleaning');
   const [amount, setAmount] = useState<number>(0);
   const [note, setNote] = useState('');
+  const [paidBy, setPaidBy] = useState<'owner' | 'caretaker'>('owner');
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
@@ -4912,6 +5518,7 @@ const AssignExpenseModal = ({ booking, expenseCategories, onClose, showToast }: 
         category,
         amount,
         note,
+        paidBy,
         date: format(new Date(), 'yyyy-MM-dd')
       };
       
@@ -4994,6 +5601,18 @@ const AssignExpenseModal = ({ booking, expenseCategories, onClose, showToast }: 
                   placeholder="Enter amount"
                   className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm font-bold focus:outline-none focus:border-luxury-gold transition-colors"
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Paid From / By</label>
+                <select 
+                  value={paidBy}
+                  onChange={(e) => setPaidBy(e.target.value as 'owner' | 'caretaker')}
+                  className="w-full px-4 py-3 bg-luxury-cream border border-black/5 rounded-xl text-sm font-bold focus:outline-none focus:border-luxury-gold transition-colors"
+                >
+                  <option value="owner">Owner Account / Bank / UPI</option>
+                  <option value="caretaker">Caretaker Cash (Farm Petty Cash)</option>
+                </select>
               </div>
 
               <div className="space-y-1.5">
@@ -5109,6 +5728,7 @@ const MyBookings = ({
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
   const [globalExpenses, setGlobalExpenses] = useState<any[]>([]);
   const [otherIncomes, setOtherIncomes] = useState<any[]>([]);
+  const [caretakerSettlements, setCaretakerSettlements] = useState<any[]>([]);
   const [assigningExpenseBooking, setAssigningExpenseBooking] = useState<any | null>(null);
   const [blogs, setBlogs] = useState<any[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
@@ -5904,7 +6524,12 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         setCreditNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'credit_notes'));
 
-      return () => { unExp(); unInc(); unCN(); };
+      const qSet = query(collection(db, 'caretaker_settlements'), orderBy('createdAt', 'desc'));
+      const unSet = onSnapshot(qSet, (snapshot) => {
+        setCaretakerSettlements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'caretaker_settlements'));
+
+      return () => { unExp(); unInc(); unCN(); unSet(); };
     }
     if ((activeFilter === 'leads' || activeFilter === 'backup') && (userRole === 'admin' || (userRole === 'agent' && userPermissions?.viewLeads))) {
       const q = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
@@ -6332,17 +6957,20 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
   };
 
   const [paymentInputs, setPaymentInputs] = useState<{[key: string]: string}>({});
+  const [paymentNotes, setPaymentNotes] = useState<{[key: string]: string}>({});
+  const [paymentMethods, setPaymentMethods] = useState<{[key: string]: 'upi' | 'cash_caretaker' | 'cash_owner'}>({});
 
   const handleUpdatePayment = async (bookingId: string, booking: any) => {
     const amount = parseFloat(paymentInputs[bookingId]);
     const note = paymentNotes[bookingId] || '';
+    const method = paymentMethods[bookingId] || 'upi';
     if (isNaN(amount) || amount <= 0) return;
 
     const newPayment = {
       amount,
       note: note || 'Payment Received',
       date: new Date().toISOString(),
-      method: 'manual'
+      method
     };
 
     const updatedPayments = [...(booking.payments || []), newPayment];
@@ -6361,7 +6989,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         amountPaid: totalPaid,
         paymentStatus: status
       }, { merge: true });
-      await logAdminAction('update_payment', bookingId, `Added payment of ₹${amount}. Total: ₹${totalPaid}`);
+      await logAdminAction('update_payment', bookingId, `Added payment of ₹${amount} via ${method}. Total: ₹${totalPaid}`);
       
       setPaymentInputs(prev => {
         const next = {...prev};
@@ -6373,13 +7001,16 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         delete next[bookingId];
         return next;
       });
+      setPaymentMethods(prev => {
+        const next = {...prev};
+        delete next[bookingId];
+        return next;
+      });
       showToast('Payment added successfully', 'success');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `bookings/${bookingId}`);
     }
   };
-
-  const [paymentNotes, setPaymentNotes] = useState<{[key: string]: string}>({});
 
   const handleExportBookings = () => {
     const csv = Papa.unparse(filteredBookings.map(b => ({
@@ -6786,6 +7417,7 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
             expenseCategories={expenseCategories}
             globalExpenses={globalExpenses}
             otherIncomes={otherIncomes}
+            caretakerSettlements={caretakerSettlements}
             onAssignExpense={setAssigningExpenseBooking}
             showToast={showToast}
             userRole={userRole}
@@ -8053,22 +8685,41 @@ export default {
                                 <div className="bg-luxury-dark/[0.02] rounded-2xl border border-luxury-dark/5 overflow-hidden">
                                   {booking.payments && booking.payments.length > 0 ? (
                                     <div className="divide-y divide-luxury-dark/5">
-                                      {booking.payments.map((p: any, idx: number) => (
-                                        <div key={idx} className="p-3 flex items-center justify-between hover:bg-white transition-colors">
-                                          <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
-                                              <IndianRupee size={12} />
+                                      {booking.payments.map((p: any, idx: number) => {
+                                        const methodBadge = p.method === 'cash_caretaker' ? (
+                                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                            Cash (Caretaker)
+                                          </span>
+                                        ) : p.method === 'cash_owner' ? (
+                                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
+                                            Cash (Owner)
+                                          </span>
+                                        ) : (
+                                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                            UPI / Online
+                                          </span>
+                                        );
+
+                                        return (
+                                          <div key={idx} className="p-3 flex items-center justify-between hover:bg-white transition-colors">
+                                            <div className="flex items-center gap-3">
+                                              <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                                                <IndianRupee size={12} />
+                                              </div>
+                                              <div>
+                                                <div className="flex items-center gap-2">
+                                                  <p className="text-xs font-bold text-luxury-dark">₹{p.amount.toLocaleString()}</p>
+                                                  {methodBadge}
+                                                </div>
+                                                <p className="text-[9px] text-luxury-dark/40 font-medium uppercase tracking-wider">{p.note}</p>
+                                              </div>
                                             </div>
-                                            <div>
-                                              <p className="text-xs font-bold text-luxury-dark">₹{p.amount.toLocaleString()}</p>
-                                              <p className="text-[9px] text-luxury-dark/40 font-medium uppercase tracking-wider">{p.note}</p>
-                                            </div>
+                                            <p className="text-[9px] text-luxury-dark/30 font-mono">
+                                              {formatSafeStr(p.date, 'dd MMM, HH:mm')}
+                                            </p>
                                           </div>
-                                          <p className="text-[9px] text-luxury-dark/30 font-mono">
-                                            {formatSafeStr(p.date, 'dd MMM, HH:mm')}
-                                          </p>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   ) : (
                                     <div className="p-8 text-center">
@@ -8093,6 +8744,15 @@ export default {
                                         className="w-full pl-7 pr-4 py-3 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold text-sm font-bold shadow-inner"
                                       />
                                     </div>
+                                    <select
+                                      value={paymentMethods[booking.id] || 'upi'}
+                                      onChange={(e) => setPaymentMethods(prev => ({...prev, [booking.id]: e.target.value as any}))}
+                                      className="w-full px-3 py-2 bg-luxury-cream border border-black/5 rounded-xl focus:outline-none focus:border-luxury-gold text-[10px] font-bold tracking-wider"
+                                    >
+                                      <option value="upi">Direct Online / UPI (To Owner)</option>
+                                      <option value="cash_caretaker">Cash (Received by Caretaker)</option>
+                                      <option value="cash_owner">Cash (Received by Owner)</option>
+                                    </select>
                                     <input 
                                       type="text"
                                       placeholder="Installment Detail (e.g. Advance)"
@@ -12236,7 +12896,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
             <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Payment History</label>
             <button 
               type="button"
-              onClick={() => setPayments([...payments, { amount: 0, note: '', date: format(new Date(), 'yyyy-MM-dd') }])}
+              onClick={() => setPayments([...payments, { amount: 0, note: '', date: format(new Date(), 'yyyy-MM-dd'), method: 'upi' }])}
               className="text-[9px] font-bold text-luxury-gold hover:text-luxury-dark uppercase tracking-widest flex items-center gap-1"
             >
               <Plus size={12} /> Add Payment
@@ -12284,19 +12944,37 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
                     />
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Note</label>
-                  <input 
-                    type="text"
-                    placeholder="Advance, Partial, Security..."
-                    value={payment.note}
-                    onChange={(e) => {
-                      const newPayments = [...payments];
-                      newPayments[index].note = e.target.value;
-                      setPayments(newPayments);
-                    }}
-                    className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-medium focus:outline-none"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Received Via</label>
+                    <select
+                      value={payment.method || 'upi'}
+                      onChange={(e) => {
+                        const newPayments = [...payments];
+                        newPayments[index].method = e.target.value;
+                        setPayments(newPayments);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-bold focus:outline-none"
+                    >
+                      <option value="upi">Online / UPI (To Owner)</option>
+                      <option value="cash_caretaker">Cash (Received by Caretaker)</option>
+                      <option value="cash_owner">Cash (Received by Owner)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Note</label>
+                    <input 
+                      type="text"
+                      placeholder="Advance, Partial, Security..."
+                      value={payment.note}
+                      onChange={(e) => {
+                        const newPayments = [...payments];
+                        newPayments[index].note = e.target.value;
+                        setPayments(newPayments);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-medium focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
             ))}
@@ -12323,7 +13001,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
             <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-dark/40">Booking Expenses</label>
             <button 
               type="button"
-              onClick={() => setExpenses([...expenses, { category: expenseCategories && expenseCategories.length > 0 ? expenseCategories[0].name : 'Cleaning', amount: 0, note: '', date: format(new Date(), 'yyyy-MM-dd') }])}
+              onClick={() => setExpenses([...expenses, { category: expenseCategories && expenseCategories.length > 0 ? expenseCategories[0].name : 'Cleaning', amount: 0, note: '', paidBy: 'owner', date: format(new Date(), 'yyyy-MM-dd') }])}
               className="text-[9px] font-bold text-luxury-gold hover:text-luxury-dark uppercase tracking-widest flex items-center gap-1"
             >
               <Plus size={12} /> Add Expense
@@ -12341,7 +13019,7 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
                   <Trash2 size={14} />
                 </button>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Category</label>
                     <select 
@@ -12367,6 +13045,21 @@ const BookingForm = ({ isModal = false, onClose, user, editBooking, userRole, us
                           <option value="Other">Other</option>
                         </>
                       )}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] uppercase tracking-widest font-bold text-luxury-dark/30">Paid By</label>
+                    <select
+                      value={expense.paidBy || 'owner'}
+                      onChange={(e) => {
+                        const newExpenses = [...expenses];
+                        newExpenses[index].paidBy = e.target.value;
+                        setExpenses(newExpenses);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-black/5 rounded-lg text-xs font-bold focus:outline-none"
+                    >
+                      <option value="owner">Owner / Bank</option>
+                      <option value="caretaker">Caretaker Cash</option>
                     </select>
                   </div>
                   <div className="space-y-1">
@@ -14097,7 +14790,8 @@ export default function App() {
   const isShantiAdmin = location.pathname === '/shanti-farm-admin';
   const isUpcomingSummary = location.pathname === '/upcoming-summary';
   const isVoucher = location.pathname.startsWith('/voucher/');
-  const hideMainLayout = isPropertySubSite || isShantiAdmin || isUpcomingSummary || isVoucher;
+  const isCaretakerPortal = location.pathname === '/caretaker' || new URLSearchParams(location.search).get('portal') === 'caretaker';
+  const hideMainLayout = isPropertySubSite || isShantiAdmin || isUpcomingSummary || isVoucher || isCaretakerPortal;
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [currentTheme, setCurrentTheme] = useState(() => {
@@ -14759,6 +15453,27 @@ export default function App() {
     );
   }
 
+  if (isCaretakerPortal || userRole === 'caretaker') {
+    return (
+      <ErrorBoundary>
+        <React.Suspense fallback={
+          <div className="min-h-screen bg-luxury-dark flex items-center justify-center">
+            <div className="w-10 h-10 border-4 border-luxury-gold border-t-transparent rounded-full animate-spin" />
+          </div>
+        }>
+          <CaretakerPortal 
+            showToast={showToast} 
+            siteSettings={siteSettings} 
+            onExit={() => {
+              if (userRole === 'caretaker') handleSignOut();
+              else window.location.href = '/';
+            }} 
+          />
+        </React.Suspense>
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <div className="relative">
@@ -14813,6 +15528,7 @@ export default function App() {
             <Route path="/shanti-farm-admin" element={<ShantiFarmAdmin />} />
             <Route path="/upcoming-summary" element={<UpcomingSummaryPage />} />
             <Route path="/voucher/:id" element={<VoucherPage />} />
+            <Route path="/caretaker" element={<CaretakerPortal showToast={showToast} siteSettings={siteSettings} onExit={() => window.location.href = '/'} />} />
           </Routes>
         </React.Suspense>
       </main>

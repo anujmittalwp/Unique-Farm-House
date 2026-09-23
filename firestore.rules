@@ -228,17 +228,21 @@ service cloud.firestore {
         // Admin or Agent with permissions can create
         ((isAdmin() || (isAgent() && getPermissions().get('addBookings', false) == true)) && isValidBooking(request.resource.data))
       );
-      allow update: if isAuthenticated() && (
-        // Client can modify their own pending booking
-        (resource.data.uid == request.auth.uid && isValidBooking(request.resource.data) && request.resource.data.uid == resource.data.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenses'])) ||
-        // Client can cancel their own pending booking
-        (resource.data.uid == request.auth.uid && 
-         request.resource.data.status == 'cancelled' && resource.data.status == 'pending' &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
-        // Admin or Agent with permissions can update anything
-        (isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true)) ||
-        // Agent with viewFinance can assign expenses and record payments
-        (isAgent() && getPermissions().get('viewFinance', false) == true && isValidBooking(request.resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expenses', 'payments', 'amountPaid']))
+      allow update: if (
+        (isAuthenticated() && (
+          // Client can modify their own pending booking
+          (resource.data.uid == request.auth.uid && isValidBooking(request.resource.data) && request.resource.data.uid == resource.data.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['expenses'])) ||
+          // Client can cancel their own pending booking
+          (resource.data.uid == request.auth.uid && 
+           request.resource.data.status == 'cancelled' && resource.data.status == 'pending' &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+          // Admin or Agent with permissions can update anything
+          (isAdmin() || (isAgent() && getPermissions().get('editBookings', false) == true)) ||
+          // Agent with viewFinance can assign expenses and record payments
+          (isAgent() && getPermissions().get('viewFinance', false) == true && isValidBooking(request.resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expenses', 'payments', 'amountPaid']))
+        )) ||
+        // Caretaker payment recording
+        (isValidBooking(request.resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['payments', 'amountPaid', 'paymentStatus']))
       );
       allow delete: if isAdmin() || (isAgent() && getPermissions().get('deleteBookings', false) == true);
     }
@@ -303,6 +307,11 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true; // Open for anyone to run increment()
     }
+
+    match /settings/caretaker_pin {
+      allow read: if true;
+      allow write: if true; // PIN can be verified or updated by caretaker or admin
+    }
     
     match /settings/{settingId} {
       allow read: if true;
@@ -315,16 +324,22 @@ service cloud.firestore {
     }
 
     match /expense_categories/{categoryId} {
-      allow read: if isAdmin() || (isAgent() && (getPermissions().get('viewFinance', false) == true || getPermissions().get('viewBookings', false) == true));
+      allow read: if true;
       allow write: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
     }
 
     match /global_expenses/{expenseId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
+    }
+
+    match /other_incomes/{incomeId} {
       allow read: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
       allow write: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
     }
 
-    match /other_incomes/{incomeId} {
+    match /caretaker_settlements/{settlementId} {
       allow read: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
       allow write: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
     }
@@ -378,6 +393,10 @@ service cloud.firestore {
     }
 
     match /staff/{staffId} {
+      allow read, write: if isAdmin();
+    }
+    
+    match /staff_payroll/{entryId} {
       allow read, write: if isAdmin();
     }
     
