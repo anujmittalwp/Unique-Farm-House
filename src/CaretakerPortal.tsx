@@ -395,94 +395,100 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
   // ================= RENDER: LOCKED / PIN PAD SCREEN =================
   if (!isUnlocked) {
     return (
-      <div className="min-h-screen bg-luxury-dark text-white flex flex-col justify-between p-6 select-none max-w-md mx-auto shadow-2xl">
-        {/* Header / Logo */}
-        <div className="pt-6 text-center space-y-2">
-          <div className="w-16 h-16 mx-auto rounded-3xl bg-luxury-gold/10 border border-luxury-gold/20 flex items-center justify-center text-luxury-gold">
-            <Lock size={32} />
-          </div>
-          <h1 className="text-xl font-serif text-white tracking-wide">
-            {siteSettings?.siteName || "Unique Farmhouse"}
-          </h1>
-          <p className="text-xs uppercase tracking-widest text-luxury-gold font-bold">
-            Caretaker Mobile Portal
-          </p>
-          <p className="text-xs text-white/50 pt-1">
-            Kripya apna 4-digit PIN enter karein
-          </p>
-        </div>
+      <div className="min-h-screen bg-[#0d0c0a] text-white flex items-center justify-center p-4 sm:p-6 md:p-8 select-none relative overflow-hidden">
+        {/* Ambient decorative lighting */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-luxury-gold/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        {/* PIN Indicators */}
-        <div className="py-6 flex flex-col items-center gap-4">
-          <div className="flex gap-4">
-            {[0, 1, 2, 3].map((idx) => {
-              const isFilled = enteredPin.length > idx;
-              return (
-                <div
-                  key={idx}
-                  className={`w-4 h-4 rounded-full transition-all duration-200 ${
-                    isFilled 
-                      ? 'bg-luxury-gold scale-125 shadow-lg shadow-luxury-gold/50' 
-                      : 'border-2 border-white/20 bg-white/5'
-                  }`}
-                />
-              );
-            })}
+        <div className="w-full max-w-md bg-[#181714] border border-luxury-gold/20 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col justify-between relative z-10 space-y-6">
+          {/* Header / Logo */}
+          <div className="text-center space-y-2">
+            <div className="w-16 h-16 mx-auto rounded-3xl bg-luxury-gold/10 border border-luxury-gold/20 flex items-center justify-center text-luxury-gold shadow-inner">
+              <Lock size={32} />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-serif text-white tracking-wide">
+              {siteSettings?.siteName || "Unique Farmhouse"}
+            </h1>
+            <p className="text-xs uppercase tracking-widest text-luxury-gold font-bold">
+              Caretaker Farm Portal
+            </p>
+            <p className="text-xs text-white/50 pt-1">
+              Kripya apna 4-digit PIN enter karein
+            </p>
           </div>
-          {pinError && (
-            <motion.p 
-              initial={{ opacity: 0, y: 5 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              className="text-xs text-red-400 font-medium text-center px-4"
-            >
-              {pinError}
-            </motion.p>
-          )}
-        </div>
 
-        {/* 1-9 & 0 Numeric Keypad */}
-        <div className="grid grid-cols-3 gap-4 pb-6">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+          {/* PIN Indicators */}
+          <div className="py-2 flex flex-col items-center gap-3">
+            <div className="flex gap-4">
+              {[0, 1, 2, 3].map((idx) => {
+                const isFilled = enteredPin.length > idx;
+                return (
+                  <div
+                    key={idx}
+                    className={`w-4 h-4 rounded-full transition-all duration-200 ${
+                      isFilled 
+                        ? 'bg-luxury-gold scale-125 shadow-lg shadow-luxury-gold/50' 
+                        : 'border-2 border-white/20 bg-white/5'
+                    }`}
+                  />
+                );
+              })}
+            </div>
+            {pinError && (
+              <motion.p 
+                initial={{ opacity: 0, y: 5 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                className="text-xs text-red-400 font-medium text-center px-4"
+              >
+                {pinError}
+              </motion.p>
+            )}
+          </div>
+
+          {/* 1-9 & 0 Numeric Keypad */}
+          <div className="grid grid-cols-3 gap-3.5">
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+              <button
+                key={digit}
+                type="button"
+                onClick={() => handleKeypadPress(digit)}
+                className="h-14 sm:h-16 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-luxury-gold active:text-luxury-dark text-2xl font-serif font-bold text-white transition-all flex items-center justify-center border border-white/5 shadow-sm active:scale-95"
+              >
+                {digit}
+              </button>
+            ))}
+            <div className="flex items-center justify-center text-xs text-white/30 font-mono">
+              PIN: {activePin === '1234' ? '1234' : '••••'}
+            </div>
             <button
-              key={digit}
               type="button"
-              onClick={() => handleKeypadPress(digit)}
-              className="h-16 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-luxury-gold active:text-luxury-dark text-2xl font-serif font-bold text-white transition-all flex items-center justify-center border border-white/5 shadow-sm active:scale-95"
+              onClick={() => handleKeypadPress('0')}
+              className="h-14 sm:h-16 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-luxury-gold active:text-luxury-dark text-2xl font-serif font-bold text-white transition-all flex items-center justify-center border border-white/5 shadow-sm active:scale-95"
             >
-              {digit}
+              0
             </button>
-          ))}
-          <div className="flex items-center justify-center text-xs text-white/30">
-            PIN: {activePin === '1234' ? '1234' : '••••'}
+            <button
+              type="button"
+              onClick={handleBackspace}
+              className="h-14 sm:h-16 rounded-2xl bg-white/5 hover:bg-white/10 text-white/60 active:text-white transition-all flex items-center justify-center border border-white/5 active:scale-95"
+              title="Delete"
+            >
+              <Minus size={22} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => handleKeypadPress('0')}
-            className="h-16 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-luxury-gold active:text-luxury-dark text-2xl font-serif font-bold text-white transition-all flex items-center justify-center border border-white/5 shadow-sm active:scale-95"
-          >
-            0
-          </button>
-          <button
-            type="button"
-            onClick={handleBackspace}
-            className="h-16 rounded-2xl bg-white/5 hover:bg-white/10 text-white/60 active:text-white transition-all flex items-center justify-center border border-white/5 active:scale-95"
-            title="Delete"
-          >
-            <Minus size={22} />
-          </button>
-        </div>
 
-        {/* Bottom Options */}
-        <div className="pb-4 text-center">
-          <button
-            onClick={() => {
-              if (onExit) onExit();
-              else window.location.href = '/';
-            }}
-            className="text-xs text-white/40 hover:text-white transition-colors uppercase tracking-wider"
-          >
-            ← Exit to Main Website
-          </button>
+          {/* Bottom Options */}
+          <div className="text-center pt-2">
+            <button
+              onClick={() => {
+                if (onExit) onExit();
+                else window.location.href = '/';
+              }}
+              className="text-xs text-white/40 hover:text-white transition-colors uppercase tracking-wider"
+            >
+              ← Exit to Main Website
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -490,81 +496,108 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
 
   // ================= RENDER: UNLOCKED CARETAKER PORTAL =================
   return (
-    <div className="min-h-screen bg-[#FDFBF7] text-luxury-dark pb-16 max-w-md mx-auto shadow-2xl relative">
+    <div className="min-h-screen bg-[#F7F5EF] text-luxury-dark pb-20 relative">
       {/* Top Navbar */}
-      <header className="sticky top-0 z-30 bg-luxury-dark text-white px-5 py-4 flex items-center justify-between shadow-md">
-        <div>
-          <h1 className="font-serif text-base font-bold text-luxury-gold tracking-wide">
-            {siteSettings?.siteName || "Unique Farmhouse"}
-          </h1>
-          <p className="text-[10px] uppercase font-bold tracking-widest text-white/60">
-            Caretaker Farm Portal
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsChangePinModalOpen(true)}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 transition-colors"
-            title="Change PIN"
-          >
-            <Key size={16} />
-          </button>
-          <button
-            onClick={handleLock}
-            className="p-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
-            title="Lock Portal"
-          >
-            <LogOut size={16} />
-          </button>
+      <header className="sticky top-0 z-30 bg-luxury-dark text-white shadow-md border-b border-white/10">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-luxury-gold/20 border border-luxury-gold/30 flex items-center justify-center text-luxury-gold font-serif font-bold text-lg">
+              {(siteSettings?.siteName || "U").charAt(0)}
+            </div>
+            <div>
+              <h1 className="font-serif text-base sm:text-lg font-bold text-luxury-gold tracking-wide">
+                {siteSettings?.siteName || "Unique Farmhouse"}
+              </h1>
+              <p className="text-[10px] sm:text-xs uppercase font-bold tracking-widest text-white/60 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Caretaker Farm Portal
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setIsChangePinModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors"
+              title="Change PIN"
+            >
+              <Key size={15} />
+              <span className="hidden sm:inline">Change PIN</span>
+            </button>
+            <button
+              onClick={() => {
+                if (onExit) onExit();
+                else window.location.href = '/';
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs font-semibold transition-colors"
+              title="Go to Main Website"
+            >
+              <ExternalLink size={15} />
+              <span className="hidden sm:inline">Main Website</span>
+            </button>
+            <button
+              onClick={handleLock}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-semibold transition-colors"
+              title="Lock Portal"
+            >
+              <LogOut size={15} />
+              <span className="hidden sm:inline">Lock</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      <main className="p-4 space-y-4">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* HERO CARD: Caretaker Cash In Hand */}
-        <div className="bg-luxury-dark text-white rounded-3xl p-6 shadow-xl relative overflow-hidden border border-luxury-gold/20">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-luxury-gold/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="bg-gradient-to-br from-[#1a1916] via-[#141311] to-[#0d0c0a] text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden border border-luxury-gold/25">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-luxury-gold/10 rounded-full blur-3xl pointer-events-none" />
           
-          <div className="space-y-1 relative z-10">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-luxury-gold flex items-center gap-1.5">
-                <Wallet size={13} /> Aapke Paas Physical Cash (Cash in Hand)
-              </span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] sm:text-xs uppercase font-bold tracking-widest text-luxury-gold flex items-center gap-1.5">
+                  <Wallet size={15} /> Aapke Paas Physical Cash (Cash In Hand)
+                </span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
+
+              <div className="text-3xl sm:text-4xl lg:text-5xl font-serif font-bold text-white tracking-tight">
+                ₹{caretakerStats.cashInHand.toLocaleString()}
+              </div>
+              <p className="text-xs sm:text-sm text-white/60">
+                Farm par abhi physical cash balance (Live Real-time)
+              </p>
             </div>
 
-            <div className="text-3xl font-serif font-bold text-white tracking-tight pt-1">
-              ₹{caretakerStats.cashInHand.toLocaleString()}
-            </div>
-            <p className="text-[11px] text-white/50">
-              Farm par physical cash balance
-            </p>
-          </div>
-
-          {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-3 gap-2 pt-5 border-t border-white/10 mt-4">
-            <div>
-              <p className="text-[9px] uppercase tracking-wider text-white/40 font-bold">Liya (In)</p>
-              <p className="text-xs font-bold text-emerald-400">
-                +₹{caretakerStats.cashCollected.toLocaleString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-[9px] uppercase tracking-wider text-white/40 font-bold">Kharcha (Out)</p>
-              <p className="text-xs font-bold text-amber-400">
-                -₹{caretakerStats.cashSpent.toLocaleString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-[9px] uppercase tracking-wider text-white/40 font-bold">Owner ko Diya</p>
-              <p className="text-xs font-bold text-white/70">
-                ₹{caretakerStats.totalHandedOver.toLocaleString()}
-              </p>
+            {/* Quick Metrics Bar (Responsive 3-column pill / card) */}
+            <div className="grid grid-cols-3 gap-3 sm:gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-5 backdrop-blur-sm md:min-w-[380px]">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-white/50 font-bold">Liya (In)</p>
+                <p className="text-sm sm:text-base font-bold text-emerald-400">
+                  +₹{caretakerStats.cashCollected.toLocaleString()}
+                </p>
+                <p className="text-[9px] text-white/40">Guest Cash</p>
+              </div>
+              <div className="border-x border-white/10 px-2 sm:px-3">
+                <p className="text-[10px] uppercase tracking-wider text-white/50 font-bold">Kharcha (Out)</p>
+                <p className="text-sm sm:text-base font-bold text-amber-400">
+                  -₹{caretakerStats.cashSpent.toLocaleString()}
+                </p>
+                <p className="text-[9px] text-white/40">Farm Expenses</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-white/50 font-bold">Owner ko Diya</p>
+                <p className="text-sm sm:text-base font-bold text-white/80">
+                  ₹{caretakerStats.totalHandedOver.toLocaleString()}
+                </p>
+                <p className="text-[9px] text-white/40">Settlement</p>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* 2 BIG ACTION BUTTONS */}
-        <div className="grid grid-cols-1 gap-3.5 pt-1">
+        {/* 2 BIG ACTION BUTTONS (Single column on mobile, 2 columns on Tablet & Desktop) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
           {/* BUTTON 1: COLLECT CASH */}
           <button
             type="button"
@@ -576,25 +609,27 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
               setCollectDate(format(new Date(), 'yyyy-MM-dd'));
               setIsCollectModalOpen(true);
             }}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white p-5 rounded-2xl shadow-lg shadow-emerald-900/10 flex items-center justify-between transition-all group border border-emerald-500/30 text-left"
+            className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 active:scale-[0.99] text-white p-6 sm:p-7 rounded-3xl shadow-lg shadow-emerald-900/15 flex items-center justify-between transition-all group border border-emerald-400/30 text-left"
           >
-            <div className="flex items-center gap-4">
-              <div className="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center text-white flex-shrink-0 shadow-inner">
-                <ArrowDownLeft size={28} />
+            <div className="flex items-center gap-4 sm:gap-5">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/20 flex items-center justify-center text-white flex-shrink-0 shadow-inner group-hover:scale-105 transition-transform">
+                <ArrowDownLeft size={32} />
               </div>
               <div>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-200">
+                <span className="text-[10px] sm:text-xs uppercase font-bold tracking-widest text-emerald-200">
                   Guest Se Cash Liya
                 </span>
-                <h3 className="text-lg font-serif font-bold text-white leading-tight">
+                <h3 className="text-xl sm:text-2xl font-serif font-bold text-white leading-tight">
                   + Collect Cash
                 </h3>
-                <p className="text-xs text-emerald-100/70">
+                <p className="text-xs sm:text-sm text-emerald-100/80 mt-0.5">
                   Booking ya guest ka cash receipt darj karein
                 </p>
               </div>
             </div>
-            <ChevronRight size={22} className="text-emerald-200 group-hover:translate-x-1 transition-transform" />
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-emerald-200 group-hover:bg-white group-hover:text-emerald-700 transition-all">
+              <ChevronRight size={22} className="group-hover:translate-x-0.5 transition-transform" />
+            </div>
           </button>
 
           {/* BUTTON 2: ADD EXPENSE */}
@@ -607,73 +642,91 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
               setExpenseDate(format(new Date(), 'yyyy-MM-dd'));
               setIsExpenseModalOpen(true);
             }}
-            className="w-full bg-[#141414] hover:bg-black active:scale-[0.98] text-white p-5 rounded-2xl shadow-lg flex items-center justify-between transition-all group border border-white/10 text-left"
+            className="w-full bg-gradient-to-r from-[#181715] to-[#24221e] hover:from-[#201f1b] hover:to-[#2c2924] active:scale-[0.99] text-white p-6 sm:p-7 rounded-3xl shadow-lg flex items-center justify-between transition-all group border border-white/15 text-left"
           >
-            <div className="flex items-center gap-4">
-              <div className="w-13 h-13 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0 border border-amber-500/30">
-                <ArrowUpRight size={28} />
+            <div className="flex items-center gap-4 sm:gap-5">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0 border border-amber-500/30 group-hover:scale-105 transition-transform">
+                <ArrowUpRight size={32} />
               </div>
               <div>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-amber-400">
+                <span className="text-[10px] sm:text-xs uppercase font-bold tracking-widest text-amber-400">
                   Farm Kharcha Kiya
                 </span>
-                <h3 className="text-lg font-serif font-bold text-white leading-tight">
+                <h3 className="text-xl sm:text-2xl font-serif font-bold text-white leading-tight">
                   - Add Expense
                 </h3>
-                <p className="text-xs text-white/60">
-                  Diesel, Ration, Repair aadi ka kharcha
+                <p className="text-xs sm:text-sm text-white/60 mt-0.5">
+                  Diesel, Ration, Repair, Staff aadi ka kharcha
                 </p>
               </div>
             </div>
-            <ChevronRight size={22} className="text-white/40 group-hover:translate-x-1 transition-transform" />
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/50 group-hover:bg-amber-400 group-hover:text-luxury-dark transition-all">
+              <ChevronRight size={22} className="group-hover:translate-x-0.5 transition-transform" />
+            </div>
           </button>
         </div>
 
         {/* TODAY / RECENT ENTRIES LIST */}
-        <div className="bg-white rounded-3xl p-5 shadow-sm border border-black/5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-serif text-sm font-bold text-luxury-dark">
-              Aapka Recent Hisab (History)
-            </h3>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-luxury-dark/40 bg-luxury-dark/5 px-2.5 py-1 rounded-full">
-              Live Sync
+        <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-black/5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-black/5">
+            <div>
+              <h3 className="font-serif text-lg font-bold text-luxury-dark">
+                Aapka Recent Hisab (Live Transactions)
+              </h3>
+              <p className="text-xs text-luxury-dark/50">
+                Caretaker cash collections aur farm expenses ki suchi
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full w-fit">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live Sync with Admin
             </span>
           </div>
 
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {caretakerStats.combinedHistory.length === 0 ? (
-              <p className="text-xs text-center py-6 text-black/40 italic">
-                Abhi koi entry nahi hai. Upar diye buttons se nayi entry karein.
-              </p>
+              <div className="text-center py-12 text-black/40 space-y-2">
+                <Wallet size={36} className="mx-auto text-black/20" />
+                <p className="text-sm font-medium">Abhi koi entry nahi hai.</p>
+                <p className="text-xs text-black/30">Upar diye gaye "+ Collect Cash" ya "- Add Expense" buttons se nayi entry karein.</p>
+              </div>
             ) : (
-              caretakerStats.combinedHistory.slice(0, 10).map((item, idx) => {
+              caretakerStats.combinedHistory.slice(0, 15).map((item, idx) => {
                 const isIncome = item.type === 'collection';
                 return (
                   <div 
                     key={item.id || idx}
-                    className="p-3 bg-luxury-cream/50 rounded-2xl border border-black/5 flex items-center justify-between gap-3"
+                    className="p-4 bg-luxury-cream/40 hover:bg-luxury-cream/80 transition-colors rounded-2xl border border-black/5 flex items-center justify-between gap-4"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                    <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
+                      <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${
                         isIncome ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
                       }`}>
-                        {isIncome ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+                        {isIncome ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-xs text-luxury-dark truncate">
-                          {isIncome ? (item.guestName || 'Cash Collection') : (item.title || item.category)}
-                        </p>
-                        <p className="text-[10px] text-luxury-dark/50 truncate">
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-sm text-luxury-dark truncate">
+                            {isIncome ? (item.guestName || 'Cash Collection') : (item.title || item.category)}
+                          </p>
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
+                            isIncome ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+                          }`}>
+                            {isIncome ? 'Cash In' : (item.category || 'Expense')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-luxury-dark/50 truncate">
                           {item.date} {item.note ? `• ${item.note}` : ''}
                         </p>
                       </div>
                     </div>
+
                     <div className="text-right flex-shrink-0">
-                      <p className={`font-bold text-xs ${isIncome ? 'text-emerald-700' : 'text-amber-800'}`}>
+                      <p className={`font-bold text-base sm:text-lg font-serif ${isIncome ? 'text-emerald-700' : 'text-amber-800'}`}>
                         {isIncome ? '+' : '-'}₹{Number(item.amount || 0).toLocaleString()}
                       </p>
-                      <span className="text-[9px] uppercase font-bold text-luxury-dark/40">
-                        {isIncome ? 'Cash In' : 'Spent'}
+                      <span className="text-[10px] uppercase font-bold text-luxury-dark/40">
+                        {isIncome ? 'Guest Received' : 'Cash Spent'}
                       </span>
                     </div>
                   </div>
@@ -683,10 +736,10 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
           </div>
         </div>
 
-        {/* Caretaker Note */}
-        <div className="text-center pt-2 pb-4">
-          <p className="text-[11px] text-luxury-dark/40">
-            Aapki ki gayi har entry Admin Dashboard par real-time dikhayi de rahi hai.
+        {/* Caretaker Helper Footer Note */}
+        <div className="text-center pt-2 pb-6">
+          <p className="text-xs text-luxury-dark/40">
+            🔒 Caretaker Portal • Aapki ki gayi har entry Admin Dashboard par real-time sync hoti hai.
           </p>
         </div>
       </main>
@@ -699,7 +752,7 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
               initial={{ y: '100%', opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: '100%', opacity: 0 }}
-              className="bg-white rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
+              className="bg-white rounded-t-3xl sm:rounded-3xl p-6 sm:p-7 w-full max-w-md sm:max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto"
             >
               <div className="flex justify-between items-center mb-5">
                 <div>
@@ -823,7 +876,7 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
               initial={{ y: '100%', opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: '100%', opacity: 0 }}
-              className="bg-white rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
+              className="bg-white rounded-t-3xl sm:rounded-3xl p-6 sm:p-7 w-full max-w-md sm:max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto"
             >
               <div className="flex justify-between items-center mb-5">
                 <div>
