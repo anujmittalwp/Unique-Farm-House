@@ -227,20 +227,33 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
     };
   }, [bookings, globalExpenses, settlements]);
 
-  // Active / Upcoming bookings for quick selection
+  // Active (Present) & Upcoming (Future) bookings only for caretaker quick selection
   const relevantBookings = useMemo(() => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
     return bookings
-      .filter(b => b.status !== 'cancelled')
+      .filter(b => {
+        if (b.status === 'cancelled') return false;
+        const endDay = b.checkOut || b.checkIn || '';
+        // Filter: Keep only bookings whose stay includes today or starts in the future
+        return endDay >= todayStr;
+      })
       .map(b => {
         const total = Number(b.totalAmount) || 0;
         const paid = Number(b.amountPaid) || 0;
         const balance = Math.max(0, total - paid);
+        const isCurrentlyAtFarm = (b.checkIn <= todayStr) && ((b.checkOut || b.checkIn) >= todayStr);
         return {
           ...b,
-          calculatedBalance: balance
+          calculatedBalance: balance,
+          isCurrentlyAtFarm
         };
       })
-      .sort((a, b) => new Date(b.checkIn || 0).getTime() - new Date(a.checkIn || 0).getTime());
+      .sort((a, b) => {
+        // Show guests currently staying at farm first, then upcoming by check-in date
+        if (a.isCurrentlyAtFarm && !b.isCurrentlyAtFarm) return -1;
+        if (!a.isCurrentlyAtFarm && b.isCurrentlyAtFarm) return 1;
+        return new Date(a.checkIn || 0).getTime() - new Date(b.checkIn || 0).getTime();
+      });
   }, [bookings]);
 
   // Selected Booking Balance Info
@@ -780,14 +793,20 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
                     onChange={(e) => setSelectedBookingId(e.target.value)}
                     className="w-full p-3 bg-luxury-cream border border-black/10 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    <option value="">-- Booking Chunein --</option>
+                    <option value="">-- Booking Chunein ({relevantBookings.length} Active/Upcoming) --</option>
                     {relevantBookings.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name || 'Guest'} ({b.checkIn} se {b.checkOut}) {b.calculatedBalance > 0 ? `[Pending: ₹${b.calculatedBalance}]` : '[Full Paid]'}
+                        {b.isCurrentlyAtFarm ? '🟢 [Aaj Farm Par] ' : '📅 [Upcoming] '}
+                        {b.name || 'Guest'} ({b.checkIn} se {b.checkOut}) {b.calculatedBalance > 0 ? `[Baki: ₹${b.calculatedBalance.toLocaleString()}]` : '[Full Paid]'}
                       </option>
                     ))}
                     <option value="custom">+ General / Walk-in Cash (Alag Entry)</option>
                   </select>
+                  {relevantBookings.length === 0 && (
+                    <p className="text-[11px] text-amber-800 mt-1 font-medium">
+                      Aaj ya aage ki koi active booking nahi hai. Direct guest ke liye neeche '+ General / Walk-in Cash' select karein.
+                    </p>
+                  )}
                 </div>
 
                 {selectedBookingId === 'custom' && (
