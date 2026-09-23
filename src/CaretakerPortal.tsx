@@ -7,7 +7,7 @@ import {
 import { 
   Plus, Minus, ArrowDownLeft, ArrowUpRight, Wallet, ShieldCheck, 
   Lock, Unlock, Key, Check, X, AlertCircle, Calendar, RefreshCw, 
-  ChevronRight, ExternalLink, LogOut, Sparkles, Building2, User
+  ChevronRight, ExternalLink, LogOut, Sparkles, Building2, User, CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parse, isValid } from 'date-fns';
@@ -279,7 +279,8 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
       .map(b => {
         const total = Number(b.totalAmount) || 0;
         const paid = Number(b.amountPaid) || 0;
-        const balance = Math.max(0, total - paid);
+        const advancePartner = b.bookingSource === 'partner' ? (Number(b.advanceByPartner) || 0) : 0;
+        const balance = Math.max(0, total - paid - advancePartner);
         
         const inDate = parseBookingDate(b.checkIn) || new Date(0);
         inDate.setHours(0, 0, 0, 0);
@@ -303,6 +304,11 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
         return a.parsedInDate.getTime() - b.parsedInDate.getTime();
       });
   }, [bookings]);
+
+  // Bookings currently present at farm
+  const presentBookings = useMemo(() => {
+    return relevantBookings.filter(b => b.isCurrentlyAtFarm);
+  }, [relevantBookings]);
 
   // Selected Booking Balance Info
   const selectedBookingInfo = useMemo(() => {
@@ -727,6 +733,121 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
           </button>
         </div>
 
+        {/* FARM GUESTS & PAYMENT BALANCE INDICATOR */}
+        {relevantBookings.length > 0 && (
+          <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-black/5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-black/5">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-serif text-lg font-bold text-luxury-dark">
+                    Farm Guests & Payment Balance
+                  </h3>
+                  {presentBookings.length > 0 ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      {presentBookings.length} Aaj Farm Par
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-black/5 text-luxury-dark/60">
+                      Upcoming Bookings
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-luxury-dark/50">
+                  Current aur aane wale guests ka remaining balance aur cash collection status
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {relevantBookings.slice(0, 6).map((b) => {
+                const phone = b.phone || b.mobile || b.contact || b.whatsapp || '';
+                const hasBalance = b.calculatedBalance > 0;
+
+                return (
+                  <div 
+                    key={b.id}
+                    className={`p-4 rounded-2xl border transition-all ${
+                      b.isCurrentlyAtFarm 
+                        ? 'bg-gradient-to-br from-amber-50/50 via-white to-amber-50/20 border-amber-300/80 shadow-sm' 
+                        : 'bg-luxury-cream/40 border-black/5'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                            b.isCurrentlyAtFarm 
+                              ? 'bg-emerald-600 text-white' 
+                              : 'bg-black/10 text-luxury-dark/70'
+                          }`}>
+                            {b.isCurrentlyAtFarm ? '🟢 Farm Par' : '📅 Upcoming'}
+                          </span>
+                        </div>
+
+                        <h4 className="font-serif font-bold text-luxury-dark text-base truncate">
+                          {b.name || 'Guest'}
+                        </h4>
+
+                        {phone && (
+                          <a 
+                            href={`tel:${phone}`}
+                            className="text-xs text-luxury-dark/70 hover:text-emerald-700 font-mono mt-0.5 inline-flex items-center gap-1 font-semibold"
+                          >
+                            📞 {phone}
+                          </a>
+                        )}
+
+                        <p className="text-[11px] text-luxury-dark/60 mt-1">
+                          Stay: <span className="font-medium text-luxury-dark">{b.checkIn} se {b.checkOut}</span>
+                        </p>
+                      </div>
+
+                      {/* Balance Status Badge & Quick Action Button */}
+                      <div className="text-right flex-shrink-0">
+                        {hasBalance ? (
+                          <div className="space-y-2 flex flex-col items-end">
+                            <span className="inline-block px-3 py-1 rounded-xl text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-sm">
+                              Baki: ₹{b.calculatedBalance.toLocaleString()}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedBookingId(b.id);
+                                setCollectAmount(String(b.calculatedBalance));
+                                setCollectDate(format(new Date(), 'yyyy-MM-dd'));
+                                setCollectNote('Balance collection on check-in');
+                                setIsCollectModalOpen(true);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[11px] font-bold rounded-xl transition-all shadow-sm shadow-emerald-700/20"
+                            >
+                              Collect Cash
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 size={14} />
+                            Full Paid
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Progress / Breakdown Summary Bar */}
+                    <div className="mt-3 pt-2.5 border-t border-black/5 flex items-center justify-between text-[11px] text-luxury-dark/60">
+                      <span>Total: ₹{(Number(b.totalAmount) || 0).toLocaleString()}</span>
+                      <span>Paid: ₹{(Number(b.amountPaid) || 0).toLocaleString()}</span>
+                      <span className={hasBalance ? 'font-bold text-amber-900' : 'font-bold text-emerald-700'}>
+                        {hasBalance ? `Lena Baki: ₹${b.calculatedBalance.toLocaleString()}` : 'Sab Clear'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* TODAY / RECENT ENTRIES LIST */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-black/5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-black/5">
@@ -853,9 +974,44 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
                     <option value="custom">+ General / Walk-in Cash</option>
                   </select>
                   {selectedBookingInfo && (
-                    <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
-                      <span className="font-medium">Stay: {selectedBookingInfo.checkIn} se {selectedBookingInfo.checkOut}</span>
-                      <span className="font-bold">Baki: ₹{selectedBookingInfo.calculatedBalance.toLocaleString()}</span>
+                    <div className="mt-3 p-3.5 bg-gradient-to-br from-amber-50 to-orange-50/40 border border-amber-200/90 rounded-2xl text-xs space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-luxury-dark">Stay Duration:</span>
+                        <span className="font-mono text-luxury-dark/70 font-bold">{selectedBookingInfo.checkIn} se {selectedBookingInfo.checkOut}</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                        <div className="bg-white/90 p-2 rounded-xl border border-amber-200/50">
+                          <p className="text-[10px] uppercase font-bold text-luxury-dark/50">Total Bill</p>
+                          <p className="font-bold text-luxury-dark">₹{(Number(selectedBookingInfo.totalAmount) || 0).toLocaleString()}</p>
+                        </div>
+                        <div className="bg-white/90 p-2 rounded-xl border border-amber-200/50">
+                          <p className="text-[10px] uppercase font-bold text-luxury-dark/50">Jama (Paid)</p>
+                          <p className="font-bold text-emerald-700">₹{(Number(selectedBookingInfo.amountPaid) || 0).toLocaleString()}</p>
+                        </div>
+                        <div className={`p-2 rounded-xl border ${selectedBookingInfo.calculatedBalance > 0 ? 'bg-amber-100/90 border-amber-300' : 'bg-emerald-100/90 border-emerald-300'}`}>
+                          <p className="text-[10px] uppercase font-bold text-luxury-dark/50">Baki (Pending)</p>
+                          <p className={`font-bold ${selectedBookingInfo.calculatedBalance > 0 ? 'text-amber-900' : 'text-emerald-800'}`}>
+                            ₹{selectedBookingInfo.calculatedBalance.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      {selectedBookingInfo.calculatedBalance > 0 ? (
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[11px] text-amber-950 font-medium">Guest se lena baki: <strong>₹{selectedBookingInfo.calculatedBalance.toLocaleString()}</strong></span>
+                          <button
+                            type="button"
+                            onClick={() => setCollectAmount(String(selectedBookingInfo.calculatedBalance))}
+                            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all"
+                          >
+                            Fill ₹{selectedBookingInfo.calculatedBalance.toLocaleString()}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-emerald-700 font-bold text-[11px] pt-1">
+                          <CheckCircle2 size={14} />
+                          Yeh booking poori tarah se paid hai (₹0 Baki).
+                        </div>
+                      )}
                     </div>
                   )}
                   {relevantBookings.length === 0 && (

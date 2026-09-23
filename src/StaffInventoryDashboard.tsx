@@ -165,7 +165,40 @@ export const StaffInventoryDashboard = ({ showToast }: { showToast: (msg: string
           note: payrollForm.note,
           updatedAt: new Date().toISOString()
         });
-        showToast("Payroll entry updated", "success");
+
+        // Sync or update associated record in global_expenses
+        const qExp = query(collection(db, 'global_expenses'), where('payrollRefId', '==', editingItem.id));
+        const snap = await getDocs(qExp);
+        if (!snap.empty) {
+          if (payrollForm.syncFinance && (payrollForm.type === 'advance' || payrollForm.type === 'salary' || payrollForm.type === 'bonus')) {
+            snap.forEach(async (d) => {
+              await updateDoc(doc(db, 'global_expenses', d.id), {
+                amount: amountNum,
+                category: 'Salaries',
+                paidBy: payrollForm.paidBy,
+                note: `[Staff: ${targetStaff.name} - ${payrollForm.type.toUpperCase()}] ${payrollForm.note || ''}`.trim(),
+                date: payrollForm.date,
+                updatedAt: new Date().toISOString()
+              });
+            });
+          } else {
+            snap.forEach(async (d) => {
+              await deleteDoc(doc(db, 'global_expenses', d.id));
+            });
+          }
+        } else if (payrollForm.syncFinance && (payrollForm.type === 'advance' || payrollForm.type === 'salary' || payrollForm.type === 'bonus')) {
+          await addDoc(collection(db, 'global_expenses'), {
+            amount: amountNum,
+            category: 'Salaries',
+            paidBy: payrollForm.paidBy,
+            note: `[Staff: ${targetStaff.name} - ${payrollForm.type.toUpperCase()}] ${payrollForm.note || ''}`.trim(),
+            date: payrollForm.date,
+            createdAt: new Date().toISOString(),
+            payrollRefId: editingItem.id
+          });
+        }
+
+        showToast("Payroll entry updated successfully", "success");
       } else {
         const docRef = await addDoc(collection(db, 'staff_payroll'), {
           staffId: payrollForm.staffId,
@@ -243,6 +276,32 @@ export const StaffInventoryDashboard = ({ showToast }: { showToast: (msg: string
       paidBy: 'owner',
       note: '',
       syncFinance: true
+    });
+    setIsPayrollModalOpen(true);
+  };
+
+  // Open Payroll Modal to edit existing entry
+  const openEditPayroll = async (entry: any) => {
+    setEditingItem(entry);
+
+    // Check if entry was synced to global_expenses
+    let wasSynced = false;
+    try {
+      const qExp = query(collection(db, 'global_expenses'), where('payrollRefId', '==', entry.id));
+      const snap = await getDocs(qExp);
+      wasSynced = !snap.empty;
+    } catch (e) {
+      console.warn("Could not check global_expenses sync status:", e);
+    }
+
+    setPayrollForm({
+      staffId: entry.staffId || '',
+      type: entry.type || 'advance',
+      amount: String(entry.amount || ''),
+      date: entry.date || format(new Date(), 'yyyy-MM-dd'),
+      paidBy: entry.paidBy || 'owner',
+      note: entry.note || '',
+      syncFinance: wasSynced
     });
     setIsPayrollModalOpen(true);
   };
@@ -732,13 +791,22 @@ export const StaffInventoryDashboard = ({ showToast }: { showToast: (msg: string
                         <td className="px-4 py-4">{paidViaBadge}</td>
                         <td className="px-4 py-4 text-xs text-luxury-dark/60">{entry.note || '—'}</td>
                         <td className="px-4 py-4 text-right">
-                          <button 
-                            onClick={() => deleteRecord('staff_payroll', entry.id)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete entry"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button 
+                              onClick={() => openEditPayroll(entry)}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit entry"
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button 
+                              onClick={() => deleteRecord('staff_payroll', entry.id)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete entry"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -858,10 +926,14 @@ export const StaffInventoryDashboard = ({ showToast }: { showToast: (msg: string
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl">
               <div className="flex justify-between items-center mb-6">
                 <div>
-                  <h3 className="text-xl font-serif text-luxury-dark">Record Staff Khata Entry</h3>
-                  <p className="text-xs text-luxury-dark/40">Log salary payment, advance, or bonus.</p>
+                  <h3 className="text-xl font-serif text-luxury-dark">
+                    {editingItem ? 'Edit Staff Khata Entry' : 'Record Staff Khata Entry'}
+                  </h3>
+                  <p className="text-xs text-luxury-dark/40">
+                    {editingItem ? 'Update existing salary payment, advance, or bonus.' : 'Log salary payment, advance, or bonus.'}
+                  </p>
                 </div>
-                <button onClick={() => setIsPayrollModalOpen(false)} className="p-2 hover:bg-black/5 rounded-full"><X size={20} /></button>
+                <button onClick={() => { setIsPayrollModalOpen(false); setEditingItem(null); }} className="p-2 hover:bg-black/5 rounded-full"><X size={20} /></button>
               </div>
               <form onSubmit={handleSavePayroll} className="space-y-4">
                 <div>
@@ -963,7 +1035,7 @@ export const StaffInventoryDashboard = ({ showToast }: { showToast: (msg: string
                 </div>
 
                 <button type="submit" className="w-full py-3 mt-4 bg-luxury-dark text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-black transition-colors">
-                  Save Khata Entry
+                  {editingItem ? 'Update Khata Entry' : 'Save Khata Entry'}
                 </button>
               </form>
             </motion.div>
