@@ -10,7 +10,7 @@ import {
   ChevronRight, ExternalLink, LogOut, Sparkles, Building2, User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { format } from 'date-fns';
+import { format, parse, isValid } from 'date-fns';
 
 interface CaretakerPortalProps {
   showToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
@@ -227,32 +227,80 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
     };
   }, [bookings, globalExpenses, settlements]);
 
+  // Helper to parse dates in dd/MM/yyyy, yyyy-MM-dd, or Timestamp
+  const parseBookingDate = (dateVal: any): Date | null => {
+    if (!dateVal) return null;
+    if (dateVal instanceof Date) return dateVal;
+    if (dateVal.toDate && typeof dateVal.toDate === 'function') return dateVal.toDate();
+    if (dateVal.seconds) return new Date(dateVal.seconds * 1000);
+    if (typeof dateVal === 'string') {
+      const trimmed = dateVal.trim();
+      if (!trimmed) return null;
+      if (trimmed.includes('/')) {
+        const parts = trimmed.split(/[\s,]+/)[0];
+        try {
+          const parsed = parse(parts, 'dd/MM/yyyy', new Date());
+          if (isValid(parsed)) return parsed;
+        } catch (e) {}
+      }
+      if (trimmed.includes('-')) {
+        const parts = trimmed.split(/[\s,T]+/)[0];
+        try {
+          const parsed = parse(parts, 'yyyy-MM-dd', new Date());
+          if (isValid(parsed)) return parsed;
+        } catch (e) {}
+      }
+      const d = new Date(trimmed);
+      if (isValid(d)) return d;
+    }
+    return null;
+  };
+
   // Active (Present) & Upcoming (Future) bookings only for caretaker quick selection
   const relevantBookings = useMemo(() => {
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     return bookings
       .filter(b => {
-        if (b.status === 'cancelled') return false;
-        const endDay = b.checkOut || b.checkIn || '';
-        // Filter: Keep only bookings whose stay includes today or starts in the future
-        return endDay >= todayStr;
+        // Exclude cancelled/abandoned bookings
+        if (b.status === 'cancelled' || b.status === 'abandoned') return false;
+
+        const outDate = parseBookingDate(b.checkOut) || parseBookingDate(b.checkIn);
+        if (!outDate) return false;
+
+        // Reset checkOut to end of that day (23:59:59) so checkout day is counted as Present
+        const endOfDay = new Date(outDate);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // Keep ONLY if booking ends today or in the future
+        return endOfDay >= today;
       })
       .map(b => {
         const total = Number(b.totalAmount) || 0;
         const paid = Number(b.amountPaid) || 0;
         const balance = Math.max(0, total - paid);
-        const isCurrentlyAtFarm = (b.checkIn <= todayStr) && ((b.checkOut || b.checkIn) >= todayStr);
+        
+        const inDate = parseBookingDate(b.checkIn) || new Date(0);
+        inDate.setHours(0, 0, 0, 0);
+
+        const outDate = parseBookingDate(b.checkOut) || inDate;
+        outDate.setHours(23, 59, 59, 999);
+
+        const isCurrentlyAtFarm = (inDate <= today) && (outDate >= today);
+
         return {
           ...b,
           calculatedBalance: balance,
-          isCurrentlyAtFarm
+          isCurrentlyAtFarm,
+          parsedInDate: inDate
         };
       })
       .sort((a, b) => {
-        // Show guests currently staying at farm first, then upcoming by check-in date
+        // Present guests first, then upcoming sorted by check-in date
         if (a.isCurrentlyAtFarm && !b.isCurrentlyAtFarm) return -1;
         if (!a.isCurrentlyAtFarm && b.isCurrentlyAtFarm) return 1;
-        return new Date(a.checkIn || 0).getTime() - new Date(b.checkIn || 0).getTime();
+        return a.parsedInDate.getTime() - b.parsedInDate.getTime();
       });
   }, [bookings]);
 
@@ -793,15 +841,23 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
                     onChange={(e) => setSelectedBookingId(e.target.value)}
                     className="w-full p-3 bg-luxury-cream border border-black/10 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    <option value="">-- Booking Chunein ({relevantBookings.length} Active/Upcoming) --</option>
-                    {relevantBookings.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.isCurrentlyAtFarm ? '🟢 [Aaj Farm Par] ' : '📅 [Upcoming] '}
-                        {b.name || 'Guest'} ({b.checkIn} se {b.checkOut}) {b.calculatedBalance > 0 ? `[Baki: ₹${b.calculatedBalance.toLocaleString()}]` : '[Full Paid]'}
-                      </option>
-                    ))}
-                    <option value="custom">+ General / Walk-in Cash (Alag Entry)</option>
+                    <option value="">-- Booking Chunein --</option>
+                    {relevantBookings.map((b) => {
+                      const phone = b.phone || b.mobile || b.contact || b.whatsapp || '';
+                      return (
+                        <option key={b.id} value={b.id}>
+                          {b.name || 'Guest'}{phone ? ` - ${phone}` : ''}
+                        </option>
+                      );
+                    })}
+                    <option value="custom">+ General / Walk-in Cash</option>
                   </select>
+                  {selectedBookingInfo && (
+                    <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
+                      <span className="font-medium">Stay: {selectedBookingInfo.checkIn} se {selectedBookingInfo.checkOut}</span>
+                      <span className="font-bold">Baki: ₹{selectedBookingInfo.calculatedBalance.toLocaleString()}</span>
+                    </div>
+                  )}
                   {relevantBookings.length === 0 && (
                     <p className="text-[11px] text-amber-800 mt-1 font-medium">
                       Aaj ya aage ki koi active booking nahi hai. Direct guest ke liye neeche '+ General / Walk-in Cash' select karein.
