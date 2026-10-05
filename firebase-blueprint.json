@@ -473,9 +473,30 @@
         "leadId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "GeneratorLog": {
+      "title": "GeneratorLog",
+      "description": "Log of generator (genset) start, stop, and running duration.",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["running", "completed"] },
+        "startTime": { "type": "string", "format": "date-time" },
+        "stopTime": { "type": "string", "format": "date-time" },
+        "durationMinutes": { "type": "number" },
+        "reason": { "type": "string" },
+        "notes": { "type": "string" },
+        "startedBy": { "type": "string" },
+        "stoppedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["status", "startTime", "createdAt"]
     }
   },
   "firestore": {
+    "generator_logs/{logId}": {
+      "schema": "GeneratorLog",
+      "description": "Farmhouse generator start/stop records."
+    },
     "users/{userId}": {
       "schema": "User",
       "description": "User profile data."

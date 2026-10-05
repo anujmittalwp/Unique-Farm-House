@@ -340,8 +340,14 @@ service cloud.firestore {
     }
 
     match /caretaker_settlements/{settlementId} {
-      allow read: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
+      allow read: if true;
       allow write: if isAdmin() || (isAgent() && getPermissions().get('viewFinance', false) == true);
+    }
+
+    match /generator_logs/{logId} {
+      allow read: if true;
+      allow create, update: if true; // Caretaker (PIN portal) and Admin can log start/stop
+      allow delete: if isAdmin() || isOwnerEmail();
     }
 
     match /blogs/{blogId} {

@@ -1329,7 +1329,7 @@ async function startServer() {
   });
 
   // Google Reviews Sync API - Simplified for demonstration as real implementation requires a live API key and Place ID
-  app.post("/api/reviews/sync", (req, res) => {
+  app.all("/api/reviews/sync", (req, res) => {
     // Return a successful response to avoid "Deprecated" errors in the dashboard
     res.json({ 
       success: true, 

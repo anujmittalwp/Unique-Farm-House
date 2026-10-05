@@ -6390,29 +6390,32 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
         }
       });
 
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        if (silent) return;
+        throw new Error('Server returned an unexpected format. Please try again in a moment.');
+      }
+
       if (!response.ok) {
         let errorDetails = '';
         try {
-          const errText = await response.text();
-          try {
-            const errData = JSON.parse(errText);
-            errorDetails = errData.details || errData.error || '';
-          } catch(e) {
-            errorDetails = `Server returned an invalid format (Status ${response.status})`;
-          }
-        } catch (e) {}
+          const errData = await response.json();
+          errorDetails = errData.details || errData.error || '';
+        } catch (e) {
+          errorDetails = `Server returned an error (Status ${response.status})`;
+        }
         throw new Error(`Failed to sync reviews via server${errorDetails ? ': ' + errorDetails : ''}`);
       }
 
-      const rawText = await response.text();
       let result;
       try {
-        result = JSON.parse(rawText);
+        result = await response.json();
       } catch (e) {
-        throw new Error(`Invalid response from server. Response may be HTML or malformed.`);
+        if (silent) return;
+        throw new Error(`Invalid response from server. Please try again.`);
       }
       
-      if (result.success) {
+      if (result && result.success) {
         localStorage.setItem('last_google_review_sync', now.toString());
         if (!silent) {
           if (result.newCount > 0) {
@@ -6423,11 +6426,13 @@ Return JSON: {"title": "...", "category": "..."}. No markdown.`
           }
         }
       } else {
-        throw new Error(result.message || 'Sync failed');
+        if (!silent) {
+          throw new Error(result?.message || 'Sync failed');
+        }
       }
     } catch (error: any) {
-      console.error('Sync error:', error);
       if (!silent) {
+        console.error('Sync error:', error);
         const errorMessage = error?.message || String(error);
         showToast(`Sync error: ${errorMessage}`, 'error');
       }
@@ -15171,41 +15176,54 @@ export default function App() {
     };
   }, []);
 
-  // Admin cleanup for stale availability docs
+  // Admin cleanup for stale availability docs (throttled to once per 24 hours)
   useEffect(() => {
     if (userRole !== 'admin') return;
+
+    // Run at most once per 24 hours to conserve Firestore read quota
+    const lastCleanup = localStorage.getItem('last_stale_avail_cleanup');
+    const now = Date.now();
+    if (lastCleanup && now - Number(lastCleanup) < 24 * 60 * 60 * 1000) {
+      return;
+    }
+
     const cleanupStaleAvailability = async () => {
       try {
         const batch = writeBatch(db);
         let count = 0;
         
-        // Clean up orphaned or cancelled availability docs
+        // Clean up orphaned or cancelled availability docs using in-memory allBookings
         const availSnapshot = await getDocs(collection(db, 'availability'));
         for (const availDoc of availSnapshot.docs) {
-           const bookingRef = doc(db, 'bookings', availDoc.id);
-           const bookingSnap = await getDoc(bookingRef);
-           if (!bookingSnap.exists()) {
-               batch.delete(doc(db, 'availability', availDoc.id));
-               count++;
-           } else {
-               const bData = bookingSnap.data();
-               if (bData && (bData.status === 'cancelled' || bData.status === 'abandoned')) {
-                   batch.delete(doc(db, 'availability', availDoc.id));
-                   count++;
-               }
-           }
+          const matchingBooking = allBookings.find(b => b.id === availDoc.id);
+          if (matchingBooking) {
+            if (matchingBooking.status === 'cancelled' || matchingBooking.status === 'abandoned') {
+              batch.delete(doc(db, 'availability', availDoc.id));
+              count++;
+            }
+          }
         }
         
         if (count > 0) {
           await batch.commit();
           console.log(`Cleaned up ${count} stale availability records.`);
         }
-      } catch (err) {
-        console.error('Failed to cleanup stale availability:', err);
+        localStorage.setItem('last_stale_avail_cleanup', String(now));
+      } catch (err: any) {
+        // Silently ignore quota exceeded or transient errors to avoid breaking the application
+        const isQuota = err?.message?.includes('Quota') || err?.message?.includes('quota') || err?.code === 'resource-exhausted';
+        if (!isQuota) {
+          console.warn('Stale availability cleanup skipped:', err?.message || err);
+        }
       }
     };
-    cleanupStaleAvailability();
-  }, [userRole]);
+
+    const timer = setTimeout(() => {
+      cleanupStaleAvailability();
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [userRole, allBookings.length]);
 
   useEffect(() => {
     const qGallery = query(collection(db, 'gallery'));
@@ -15269,7 +15287,7 @@ export default function App() {
               triggerNotification('New Lead Received', `From ${lead.name || 'Anonymous'} via ${lead.source || 'Direct'}`, 'success');
             }
           });
-        }, (error) => console.error("Leads notification error:", error));
+        }, (error) => handleFirestoreError(error, OperationType.GET, 'leads'));
       }
 
       if (canViewBookings) {
@@ -15287,7 +15305,7 @@ export default function App() {
               triggerNotification('New Booking Request', `By ${booking.name || 'Guest'} for ${booking.checkIn}`, 'success');
             }
           });
-        }, (error) => console.error("Bookings notification error:", error));
+        }, (error) => handleFirestoreError(error, OperationType.GET, 'bookings'));
       }
     }
 
@@ -15305,7 +15323,21 @@ export default function App() {
       try {
         setUser(currentUser);
         if (currentUser) {
-          // Fetch user role
+          const userEmail = (currentUser.email || '').toLowerCase();
+          const isSuperAdmin = userEmail === 'anujkumarmittal@gmail.com';
+
+          // Instantly assign Super Admin role or restore cached role
+          if (isSuperAdmin) {
+            setUserRole('admin');
+            localStorage.setItem(`user_role_${currentUser.uid}`, 'admin');
+          } else {
+            const cachedRole = localStorage.getItem(`user_role_${currentUser.uid}`);
+            if (cachedRole) {
+              setUserRole(cachedRole);
+            }
+          }
+
+          // Fetch user role from Firestore to sync permissions and status
           try {
             const userRef = doc(db, 'users', currentUser.uid);
             const userDoc = await getDoc(userRef).catch(() => 
@@ -15314,34 +15346,38 @@ export default function App() {
             
             if (userDoc.exists()) {
               const userData = userDoc.data();
-              const isSuperAdmin = currentUser.email && currentUser.email.toLowerCase() === 'anujkumarmittal@gmail.com';
-              setUserRole(isSuperAdmin ? 'admin' : userData.role);
+              const finalRole = isSuperAdmin ? 'admin' : (userData.role || 'client');
+              setUserRole(finalRole);
               setUserPermissions(userData.permissions || null);
+              localStorage.setItem(`user_role_${currentUser.uid}`, finalRole);
             } else {
-              let role = 'client';
+              let role = isSuperAdmin ? 'admin' : 'client';
               let permissions = null;
 
-              if (currentUser.email) {
-                const isSuperAdmin = currentUser.email.toLowerCase() === 'anujkumarmittal@gmail.com';
-                // Check if pre-authorized by email
-                const q = query(collection(db, 'users'), where('email', '==', currentUser.email.toLowerCase()));
-                const querySnapshot = await getDocs(q);
-                
-                if (!querySnapshot.empty) {
-                  const placeholderDoc = querySnapshot.docs[0];
-                  const placeholderData = placeholderDoc.data();
-                  role = isSuperAdmin ? 'admin' : (placeholderData.role || role);
-                  permissions = placeholderData.permissions || permissions;
-                  // Cleanup placeholder
-                  await deleteDoc(doc(db, 'users', placeholderDoc.id));
-                } else if (isSuperAdmin) {
-                  role = 'admin';
+              if (userEmail) {
+                try {
+                  // Check if pre-authorized by email
+                  const q = query(collection(db, 'users'), where('email', '==', userEmail));
+                  const querySnapshot = await getDocs(q);
+                  
+                  if (!querySnapshot.empty) {
+                    const placeholderDoc = querySnapshot.docs[0];
+                    const placeholderData = placeholderDoc.data();
+                    role = isSuperAdmin ? 'admin' : (placeholderData.role || role);
+                    permissions = placeholderData.permissions || permissions;
+                    // Cleanup placeholder
+                    await deleteDoc(doc(db, 'users', placeholderDoc.id));
+                  } else if (isSuperAdmin) {
+                    role = 'admin';
+                  }
+                } catch (qErr) {
+                  if (isSuperAdmin) role = 'admin';
                 }
               }
               
               await setDoc(doc(db, 'users', currentUser.uid), {
                 uid: currentUser.uid,
-                email: (currentUser.email || '').toLowerCase(),
+                email: userEmail,
                 displayName: currentUser.displayName || 'Guest',
                 role: role,
                 permissions: permissions,
@@ -15351,6 +15387,7 @@ export default function App() {
 
               setUserRole(role);
               setUserPermissions(permissions);
+              localStorage.setItem(`user_role_${currentUser.uid}`, role);
             }
           } catch (docErr) {
             if (docErr instanceof Error && docErr.message.includes('Quota limit exceeded')) {
@@ -15358,8 +15395,9 @@ export default function App() {
             } else {
               console.error("Error fetching user profile:", docErr);
             }
-            // Don't block the whole app if just the profile fetch fails but we have the user
-            setUserRole('client');
+            // CRITICAL: Never downgrade Super Admin to 'client' on quota or network error!
+            const fallbackRole = isSuperAdmin ? 'admin' : (localStorage.getItem(`user_role_${currentUser.uid}`) || 'client');
+            setUserRole(fallbackRole);
           }
         } else {
           setUserRole(null);

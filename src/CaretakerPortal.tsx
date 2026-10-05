@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase';
 import { 
   collection, doc, onSnapshot, getDoc, setDoc, addDoc, updateDoc, 
-  query, orderBy, limit 
+  query, orderBy, limit, serverTimestamp 
 } from 'firebase/firestore';
 import { 
   Plus, Minus, ArrowDownLeft, ArrowUpRight, Wallet, ShieldCheck, 
   Lock, Unlock, Key, Check, X, AlertCircle, Calendar, RefreshCw, 
-  ChevronRight, ExternalLink, LogOut, Sparkles, Building2, User, CheckCircle2
+  ChevronRight, ExternalLink, LogOut, Sparkles, Building2, User, CheckCircle2,
+  Zap, Power, Clock, Flame, History, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parse, isValid } from 'date-fns';
@@ -62,6 +63,15 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
   const [expenseDate, setExpenseDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [expenseNote, setExpenseNote] = useState<string>('');
 
+  // Generator (Genset) State
+  const [generatorLogs, setGeneratorLogs] = useState<any[]>([]);
+  const [isStartGenModalOpen, setIsStartGenModalOpen] = useState(false);
+  const [isStopGenModalOpen, setIsStopGenModalOpen] = useState(false);
+  const [isGenHistoryOpen, setIsGenHistoryOpen] = useState(false);
+  const [genReason, setGenReason] = useState<string>('Power Cut / Light Cut');
+  const [genNotes, setGenNotes] = useState<string>('');
+  const [currentTimeNow, setCurrentTimeNow] = useState<number>(Date.now());
+
   // 1. Listen for Caretaker PIN from Firestore
   useEffect(() => {
     const pinDocRef = doc(db, 'settings', 'caretaker_pin');
@@ -103,15 +113,33 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
       setSettlements(data);
       setLoading(false);
     }, (err) => {
-      console.error("Settlements listener error:", err);
+      console.warn("Settlements listener notice:", err?.message || err);
       setLoading(false);
+    });
+
+    // Generator Logs listener
+    const qGen = query(collection(db, 'generator_logs'), orderBy('createdAt', 'desc'), limit(30));
+    const unsubGen = onSnapshot(qGen, (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setGeneratorLogs(data);
+    }, (err) => {
+      console.warn("Generator logs listener notice:", err?.message || err);
     });
 
     return () => {
       unsubBookings();
       unsubExp();
       unsubSet();
+      unsubGen();
     };
+  }, []);
+
+  // Timer ticker for running generator live counter
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTimeNow(Date.now());
+    }, 10000);
+    return () => clearInterval(timer);
   }, []);
 
   // PIN Keypad Handlers
@@ -416,6 +444,112 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
     } catch (err: any) {
       console.error(err);
       showToast(err.message || "Kharcha save karne me samasya aayi", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Generator Log Calculations & Handlers
+  const activeGeneratorLog = useMemo(() => {
+    return generatorLogs.find(l => l.status === 'running') || null;
+  }, [generatorLogs]);
+
+  const runningTimerStr = useMemo(() => {
+    if (!activeGeneratorLog?.startTime) return '0 min';
+    const start = activeGeneratorLog.startTime.toDate 
+      ? activeGeneratorLog.startTime.toDate() 
+      : new Date(activeGeneratorLog.startTime);
+    const diffMs = Math.max(0, currentTimeNow - start.getTime());
+    const totalMinutes = Math.floor(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    if (hours > 0) {
+      return `${hours}h ${mins}m`;
+    }
+    return `${mins}m`;
+  }, [activeGeneratorLog, currentTimeNow]);
+
+  const generatorTodayStats = useMemo(() => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    let totalMinutesToday = 0;
+    let runsTodayCount = 0;
+
+    generatorLogs.forEach(l => {
+      if (!l.startTime) return;
+      const sDate = l.startTime.toDate ? l.startTime.toDate() : new Date(l.startTime);
+      if (format(sDate, 'yyyy-MM-dd') === todayStr) {
+        runsTodayCount++;
+        if (l.status === 'completed' && l.durationMinutes) {
+          totalMinutesToday += Number(l.durationMinutes) || 0;
+        } else if (l.status === 'running') {
+          const diffMs = Math.max(0, currentTimeNow - sDate.getTime());
+          totalMinutesToday += Math.floor(diffMs / 60000);
+        }
+      }
+    });
+
+    const hours = Math.floor(totalMinutesToday / 60);
+    const mins = totalMinutesToday % 60;
+    const formattedDuration = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+    return {
+      totalMinutesToday,
+      runsTodayCount,
+      formattedDuration
+    };
+  }, [generatorLogs, currentTimeNow]);
+
+  const handleStartGenerator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (activeGeneratorLog) {
+      showToast("Generator pehle se hi chalu hai!", "error");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, 'generator_logs'), {
+        status: 'running',
+        startTime: serverTimestamp(),
+        reason: genReason || 'Power Cut / Light Cut',
+        notes: genNotes.trim(),
+        startedBy: 'Caretaker',
+        createdAt: serverTimestamp()
+      });
+      showToast("⚡ Generator Chalu Kar Diya Gaya!", "success");
+      setIsStartGenModalOpen(false);
+      setGenNotes('');
+    } catch (err: any) {
+      console.error("Start generator error:", err);
+      showToast("Failed to start generator: " + err.message, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleStopGenerator = async () => {
+    if (!activeGeneratorLog) return;
+    setSubmitting(true);
+    try {
+      const start = activeGeneratorLog.startTime?.toDate 
+        ? activeGeneratorLog.startTime.toDate() 
+        : (activeGeneratorLog.startTime ? new Date(activeGeneratorLog.startTime) : new Date());
+      const durationMinutes = Math.max(1, Math.round((Date.now() - start.getTime()) / 60000));
+      const hours = Math.floor(durationMinutes / 60);
+      const mins = durationMinutes % 60;
+
+      await updateDoc(doc(db, 'generator_logs', activeGeneratorLog.id), {
+        status: 'completed',
+        stopTime: serverTimestamp(),
+        durationMinutes,
+        stoppedBy: 'Caretaker',
+        updatedAt: serverTimestamp()
+      });
+
+      showToast(`🛑 Generator Band Hua! Running: ${hours > 0 ? `${hours}h ` : ''}${mins}m`, "success");
+      setIsStopGenModalOpen(false);
+    } catch (err: any) {
+      console.error("Stop generator error:", err);
+      showToast("Failed to stop generator: " + err.message, "error");
     } finally {
       setSubmitting(false);
     }
@@ -731,6 +865,177 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
               <ChevronRight size={22} className="group-hover:translate-x-0.5 transition-transform" />
             </div>
           </button>
+        </div>
+
+        {/* GENERATOR (GENSET) ON/OFF TRACKER CARD */}
+        <div className={`rounded-3xl p-6 sm:p-7 transition-all border shadow-md relative overflow-hidden ${
+          activeGeneratorLog 
+            ? 'bg-gradient-to-br from-[#1c180e] via-[#241c0c] to-[#120f08] border-amber-500/50 shadow-amber-950/20 text-white' 
+            : 'bg-white border-black/5 text-luxury-dark shadow-sm'
+        }`}>
+          {/* Subtle Ambient Glow when running */}
+          {activeGeneratorLog && (
+            <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+          )}
+
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
+            {/* Left Info Column */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  activeGeneratorLog ? 'bg-amber-400/20 text-amber-300' : 'bg-luxury-gold/15 text-luxury-gold'
+                }`}>
+                  <Zap size={18} />
+                </span>
+                <h3 className={`font-serif text-lg sm:text-xl font-bold ${activeGeneratorLog ? 'text-white' : 'text-luxury-dark'}`}>
+                  Generator (Genset) Record
+                </h3>
+
+                {activeGeneratorLog ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Chalu Hai (RUNNING)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-black/5 text-luxury-dark/60 border border-black/10">
+                    <span className="w-2 h-2 rounded-full bg-black/30" />
+                    Band Hai (OFF / Standby)
+                  </span>
+                )}
+              </div>
+
+              {activeGeneratorLog ? (
+                <div className="space-y-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-mono font-bold text-amber-300">
+                      {runningTimerStr}
+                    </span>
+                    <span className="text-xs text-white/60">se chalu hai</span>
+                  </div>
+                  <p className="text-xs text-white/70 flex items-center gap-2 flex-wrap">
+                    <span>Wajah: <strong className="text-white">{activeGeneratorLog.reason || 'Light Cut'}</strong></span>
+                    {activeGeneratorLog.startTime && (
+                      <span>• Start: {format(activeGeneratorLog.startTime.toDate ? activeGeneratorLog.startTime.toDate() : new Date(activeGeneratorLog.startTime), 'hh:mm a')}</span>
+                    )}
+                    {activeGeneratorLog.notes && <span>• ({activeGeneratorLog.notes})</span>}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-luxury-dark/60">
+                  Light cut ya events ke dauran generator ka exact start aur stop time darj karein
+                </p>
+              )}
+            </div>
+
+            {/* Right Action & Today Metric */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              {/* Today's running hours pill */}
+              <div className={`p-3 rounded-2xl border text-center sm:text-right min-w-[130px] ${
+                activeGeneratorLog 
+                  ? 'bg-white/5 border-white/10 text-white' 
+                  : 'bg-luxury-cream/70 border-black/5 text-luxury-dark'
+              }`}>
+                <p className={`text-[10px] uppercase font-bold tracking-wider ${activeGeneratorLog ? 'text-white/50' : 'text-luxury-dark/50'}`}>
+                  Aaj Chala
+                </p>
+                <p className={`text-base sm:text-lg font-bold font-mono ${activeGeneratorLog ? 'text-amber-300' : 'text-luxury-dark'}`}>
+                  {generatorTodayStats.formattedDuration}
+                </p>
+                <p className={`text-[9px] ${activeGeneratorLog ? 'text-white/40' : 'text-luxury-dark/40'}`}>
+                  {generatorTodayStats.runsTodayCount} baar
+                </p>
+              </div>
+
+              {/* Main Button: Turn ON or Turn OFF */}
+              {activeGeneratorLog ? (
+                <button
+                  type="button"
+                  onClick={() => setIsStopGenModalOpen(true)}
+                  className="px-6 py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white rounded-2xl font-bold uppercase tracking-wider text-xs shadow-lg shadow-red-900/30 flex items-center justify-center gap-2 active:scale-95 transition-all"
+                >
+                  <Power size={18} />
+                  Generator Band Karein (Stop)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGenReason('Power Cut / Light Cut');
+                    setGenNotes('');
+                    setIsStartGenModalOpen(true);
+                  }}
+                  className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white rounded-2xl font-bold uppercase tracking-wider text-xs shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2 active:scale-95 transition-all"
+                >
+                  <Zap size={18} />
+                  Generator Chalu Karein (Start)
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Toggle History of Previous Runs */}
+          {generatorLogs.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-black/5">
+              <button
+                type="button"
+                onClick={() => setIsGenHistoryOpen(!isGenHistoryOpen)}
+                className={`text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
+                  activeGeneratorLog ? 'text-amber-300/80 hover:text-amber-300' : 'text-luxury-dark/60 hover:text-luxury-dark'
+                }`}
+              >
+                <History size={14} />
+                <span>Pichle Generator Runs ({generatorLogs.length})</span>
+                {isGenHistoryOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+
+              {isGenHistoryOpen && (
+                <div className="mt-3 space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {generatorLogs.slice(0, 10).map((log) => {
+                    const startD = log.startTime?.toDate ? log.startTime.toDate() : (log.startTime ? new Date(log.startTime) : null);
+                    const stopD = log.stopTime?.toDate ? log.stopTime.toDate() : (log.stopTime ? new Date(log.stopTime) : null);
+                    const durM = Number(log.durationMinutes) || 0;
+                    const durH = Math.floor(durM / 60);
+                    const durRem = durM % 60;
+                    const durText = durH > 0 ? `${durH}h ${durRem}m` : `${durRem}m`;
+
+                    return (
+                      <div
+                        key={log.id}
+                        className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${
+                          activeGeneratorLog 
+                            ? 'bg-white/5 border-white/10 text-white/90' 
+                            : 'bg-luxury-cream/40 border-black/5 text-luxury-dark'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className={`w-2 h-2 rounded-full ${log.status === 'running' ? 'bg-emerald-400 animate-pulse' : 'bg-black/30'}`} />
+                          <div>
+                            <p className="font-bold">
+                              {startD ? format(startD, 'dd MMM yyyy, hh:mm a') : 'N/A'}
+                              {stopD ? ` → ${format(stopD, 'hh:mm a')}` : (log.status === 'running' ? ' (Chalu hai...)' : '')}
+                            </p>
+                            <p className={`text-[11px] ${activeGeneratorLog ? 'text-white/60' : 'text-luxury-dark/60'}`}>
+                              Wajah: <strong>{log.reason || 'Light Cut'}</strong> {log.notes ? `• ${log.notes}` : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 sm:self-center">
+                          <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-xs ${
+                            log.status === 'running' 
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30' 
+                              : (activeGeneratorLog ? 'bg-white/10 text-white' : 'bg-black/5 text-luxury-dark')
+                          }`}>
+                            {log.status === 'running' ? `Running (${runningTimerStr})` : durText}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* FARM GUESTS & PAYMENT BALANCE INDICATOR */}
@@ -1292,6 +1597,176 @@ export const CaretakerPortal: React.FC<CaretakerPortalProps> = ({
                   Update PIN
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* MODAL 4: START GENERATOR MODAL */}
+        {isStartGenModalOpen && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-black/5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-600 flex items-center justify-center font-bold">
+                    <Zap size={22} />
+                  </div>
+                  <div>
+                    <h3 className="font-serif text-lg sm:text-xl font-bold text-luxury-dark">
+                      Generator Chalu Karein
+                    </h3>
+                    <p className="text-[11px] text-luxury-dark/50">Genset Start Record</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsStartGenModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center text-luxury-dark/50 hover:bg-black/10"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleStartGenerator} className="space-y-4">
+                {/* Reason Selection */}
+                <div>
+                  <label className="block text-xs font-bold text-luxury-dark/70 uppercase tracking-wider mb-2">
+                    Wajah / Reason (Kyon Chalu Kar Rahe Hain?)
+                  </label>
+                  <select
+                    value={genReason}
+                    onChange={(e) => setGenReason(e.target.value)}
+                    className="w-full p-3 bg-luxury-cream border border-black/10 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="Power Cut / Light Cut">⚡ Power Cut / Light Chali Gayi</option>
+                    <option value="Guest Event / Party">🎉 Guest Event / Lawn Party</option>
+                    <option value="Water Motor / Swimming Pool">🏊 Water Motor / Swimming Pool</option>
+                    <option value="Phase Drop / Low Voltage">⚠️ Phase Drop / Low Voltage</option>
+                    <option value="Maintenance / Testing">🔧 Maintenance / Routine Test</option>
+                    <option value="Other Farm Need">📌 Other Farm Need</option>
+                  </select>
+                </div>
+
+                {/* Optional Note */}
+                <div>
+                  <label className="block text-xs font-bold text-luxury-dark/70 uppercase tracking-wider mb-2">
+                    Note / Remarks (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Main line me fault, AC load ke liye"
+                    value={genNotes}
+                    onChange={(e) => setGenNotes(e.target.value)}
+                    className="w-full p-3 bg-luxury-cream border border-black/10 rounded-xl text-xs outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1 flex-shrink-0 animate-pulse" />
+                  <span>
+                    Confirm karte hi abhi ka time (<strong>{format(new Date(), 'hh:mm a')}</strong>) start record me darj ho jayega aur live timer shuru ho jayega.
+                  </span>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsStartGenModalOpen(false)}
+                    className="flex-1 py-3.5 border border-black/10 rounded-xl text-xs font-bold uppercase tracking-wider text-luxury-dark/70 hover:bg-black/5 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl text-xs uppercase tracking-wider shadow-lg shadow-emerald-900/20 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Zap size={16} />
+                    {submitting ? 'Starting...' : 'Start Generator'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* MODAL 5: STOP GENERATOR MODAL */}
+        {isStopGenModalOpen && activeGeneratorLog && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-black/5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-red-500/15 text-red-600 flex items-center justify-center font-bold">
+                    <Power size={22} />
+                  </div>
+                  <div>
+                    <h3 className="font-serif text-lg sm:text-xl font-bold text-luxury-dark">
+                      Generator Band Karein?
+                    </h3>
+                    <p className="text-[11px] text-luxury-dark/50">Stop Genset Record</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsStopGenModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center text-luxury-dark/50 hover:bg-black/10"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200/80 space-y-2">
+                  <div className="flex justify-between items-center text-xs text-amber-900">
+                    <span>Wajah (Reason):</span>
+                    <strong className="font-bold">{activeGeneratorLog.reason || 'Light Cut'}</strong>
+                  </div>
+                  <div className="flex justify-between items-center text-xs text-amber-900">
+                    <span>Start Time:</span>
+                    <strong className="font-bold">
+                      {activeGeneratorLog.startTime?.toDate 
+                        ? format(activeGeneratorLog.startTime.toDate(), 'hh:mm a') 
+                        : (activeGeneratorLog.startTime ? format(new Date(activeGeneratorLog.startTime), 'hh:mm a') : 'N/A')}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center text-sm pt-2 border-t border-amber-200 text-amber-950 font-bold">
+                    <span>Total Running Duration:</span>
+                    <span className="font-mono text-base text-red-600 font-bold">{runningTimerStr}</span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-luxury-dark/60 text-center">
+                  Kya generator sach me band kar diya gaya hai? Confirm karne par duration log me save ho jayegi.
+                </p>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsStopGenModalOpen(false)}
+                    className="flex-1 py-3.5 border border-black/10 rounded-xl text-xs font-bold uppercase tracking-wider text-luxury-dark/70 hover:bg-black/5 transition-colors"
+                  >
+                    Cancel (Chalu Rehne Dein)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleStopGenerator}
+                    disabled={submitting}
+                    className="flex-1 py-3.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold rounded-xl text-xs uppercase tracking-wider shadow-lg shadow-red-900/20 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Power size={16} />
+                    {submitting ? 'Stopping...' : 'Confirm Stop'}
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
