@@ -144,6 +144,7 @@ import { format, addDays, parse, isValid } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import Papa from 'papaparse';
 const ElegantLeadsDashboard = React.lazy(() => import('./ElegantLeadsDashboard').then(m => ({ default: m.ElegantLeadsDashboard })));
+const StandaloneSaaSLeadsApp = React.lazy(() => import('./standalone-leads-saas/StandaloneSaaSLeadsApp'));
 import { 
   BarChart, 
   Bar, 
@@ -2419,7 +2420,20 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
   };
 
   const handleExportLeads = () => {
-    const dataToExport = leads.filter(l => filter === 'all' || l.status === filter);
+    // Export all leads from start to finish, removing duplicate mobile numbers
+    const seenPhones = new Set<string>();
+    const dataToExport: typeof leads = [];
+    leads.forEach(lead => {
+      const cleanPhone = (lead.phone || '').replace(/\D/g, '').slice(-10);
+      if (cleanPhone) {
+        if (!seenPhones.has(cleanPhone)) {
+          seenPhones.add(cleanPhone);
+          dataToExport.push(lead);
+        }
+      } else {
+        dataToExport.push(lead);
+      }
+    });
     const csv = Papa.unparse(dataToExport.map(lead => ({
       Date: lead.createdAt ? formatDate(lead.createdAt) : '',
       Name: lead.name,
@@ -3067,6 +3081,28 @@ const LeadDashboard = ({ leads, showToast, userRole, userPermissions }: {
 
   return (
     <div className="space-y-8 relative font-modern">
+      <div className="bg-gradient-to-r from-luxury-dark via-gray-900 to-luxury-dark text-white p-3.5 rounded-2xl border border-luxury-gold/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-luxury-gold/20 text-luxury-gold flex items-center justify-center font-bold text-xs shrink-0">
+            SaaS
+          </div>
+          <div>
+            <h4 className="text-xs font-serif font-black tracking-wide text-luxury-gold">
+              Multi-Tenant Standalone Leads SaaS Module Available
+            </h4>
+            <p className="text-[11px] text-gray-300">
+              Isolated Supabase / PostgreSQL multi-resort pipeline running independently on separate URL.
+            </p>
+          </div>
+        </div>
+        <a
+          href="/saas-leads"
+          className="px-3.5 py-1.5 bg-luxury-gold hover:bg-amber-400 text-luxury-dark text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shrink-0 shadow-xs"
+        >
+          <span>Launch Standalone Portal</span>
+          <ArrowRight size={13} />
+        </a>
+      </div>
       <React.Suspense fallback={
         <div className="p-12 text-center text-luxury-gold flex flex-col items-center justify-center gap-3">
           <div className="w-8 h-8 border-2 border-luxury-gold border-t-transparent rounded-full animate-spin" />
@@ -14796,7 +14832,8 @@ export default function App() {
   const isUpcomingSummary = location.pathname === '/upcoming-summary';
   const isVoucher = location.pathname.startsWith('/voucher/');
   const isCaretakerPortal = location.pathname === '/caretaker' || new URLSearchParams(location.search).get('portal') === 'caretaker';
-  const hideMainLayout = isPropertySubSite || isShantiAdmin || isUpcomingSummary || isVoucher || isCaretakerPortal;
+  const isSaasLeads = location.pathname.startsWith('/saas-leads') || new URLSearchParams(location.search).get('portal') === 'saas-leads';
+  const hideMainLayout = isPropertySubSite || isShantiAdmin || isUpcomingSummary || isVoucher || isCaretakerPortal || isSaasLeads;
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [currentTheme, setCurrentTheme] = useState(() => {
@@ -15547,11 +15584,13 @@ export default function App() {
         }>
           <Routes>
             <Route path="/" element={
-              <>
-                <Hero onBookNow={openBookingModal} settings={heroSettings} />
-                <BookingSection onBookNow={openBookingModal} />
-                <SEOContent />
-              </>
+              isSaasLeads ? <StandaloneSaaSLeadsApp /> : (
+                <>
+                  <Hero onBookNow={openBookingModal} settings={heroSettings} />
+                  <BookingSection onBookNow={openBookingModal} />
+                  <SEOContent />
+                </>
+              )
             } />
             <Route path="/about" element={<div className="pt-24"><About settings={aboutSettings} /></div>} />
             <Route path="/amenities" element={<div className="pt-24"><Amenities onAmenityClick={setGalleryCategory} /></div>} />
@@ -15567,6 +15606,8 @@ export default function App() {
             <Route path="/upcoming-summary" element={<UpcomingSummaryPage />} />
             <Route path="/voucher/:id" element={<VoucherPage />} />
             <Route path="/caretaker" element={<CaretakerPortal showToast={showToast} siteSettings={siteSettings} onExit={() => window.location.href = '/'} />} />
+            <Route path="/saas-leads/*" element={<StandaloneSaaSLeadsApp />} />
+            <Route path="/saas-leads" element={<StandaloneSaaSLeadsApp />} />
           </Routes>
         </React.Suspense>
       </main>
