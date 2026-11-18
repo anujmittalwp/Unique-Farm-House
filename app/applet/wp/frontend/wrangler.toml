@@ -3,4 +3,4 @@ main = "index.js"
 compatibility_date = "2024-03-01"
 
 [vars]
-BACKEND_URL = "https://your-render-backend-url.onrender.com"
+BACKEND_URL = "https://whatsapp-backend-uzz3.onrender.com"
